@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # Backend API
+  backend:
+    build: ./backend
+    container_name: natural_path_backend
+    ports:
+      - "8001:8001"
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=natural_path_spa
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - mongodb
+      - redis
+    volumes:
+      - ./backend:/app/backend
+    networks:
+      - spa_network
+    restart: unless-stopped
+
+  # MongoDB Database
+  mongodb:
+    image: mongo:6.0
+    container_name: natural_path_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - spa_network
+    restart: unless-stopped
+
+  # Redis Cache & Queue
+  redis:
+    image: redis:7-alpine
+    container_name: natural_path_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - spa_network
+    restart: unless-stopped
+
+  # Celery Worker
+  celery_worker:
+    build: ./backend
+    container_name: natural_path_celery_worker
+    command: celery -A infrastructure.queue.celery_config worker --loglevel=info
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=natural_path_spa
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - mongodb
+      - redis
+      - backend
+    volumes:
+      - ./backend:/app/backend
+    networks:
+      - spa_network
+    restart: unless-stopped
+
+  # Celery Beat (Scheduler)
+  celery_beat:
+    build: ./backend
+    container_name: natural_path_celery_beat
+    command: celery -A infrastructure.queue.celery_config beat --loglevel=info
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=natural_path_spa
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - mongodb
+      - redis
+      - backend
+    volumes:
+      - ./backend:/app/backend
+    networks:
+      - spa_network
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  spa_network:
+    driver: bridge
