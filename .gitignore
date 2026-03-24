@@ -6,3 +6,9 @@
 sdk/node_modules/
 sdk/dist/
 sdk/dist-ssr/
+
+# Python venv (local pytest)
+backend/.venv/
+.pytest_cache/
+**/__pycache__/
+*.py[cod]

@@ -16,7 +16,8 @@ from .auth import (
     get_current_active_user,
     get_current_admin,
     get_current_practitioner,
-    get_optional_user
+    get_current_admin_or_practitioner,
+    get_optional_user,
 )
 
 __all__ = [
@@ -36,5 +37,6 @@ __all__ = [
     "get_current_active_user",
     "get_current_admin",
     "get_current_practitioner",
+    "get_current_admin_or_practitioner",
     "get_optional_user"
 ]

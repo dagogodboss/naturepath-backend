@@ -125,8 +125,10 @@ export {
   useAllBookings,
   useBookingsByDateRange,
   useAdminCancelBooking,
+  usePractitionerCalendar,
   // User
   useProfile,
+  useMyPractitioner,
   useUpdateProfile,
   useNotifications,
   useMarkNotificationRead,

@@ -143,6 +143,7 @@ export function useUpdatePractitioner() {
         queryKeys.practitioners.detail(updatedPractitioner.practitioner_id),
         updatedPractitioner
       );
+      queryClient.setQueryData(queryKeys.user.myPractitioner, updatedPractitioner);
       queryClient.invalidateQueries({ queryKey: queryKeys.practitioners.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.practitioners.featured });
     },
@@ -173,12 +174,15 @@ export function useGenerateSlots() {
       data: { start_date: string; end_date: string; start_hour?: number; end_hour?: number };
     }) => practitionersApi.generateSlots(practitionerId, data),
     onSuccess: (_, { practitionerId }) => {
-      // Invalidate all availability queries for this practitioner
       queryClient.invalidateQueries({
         predicate: (query) =>
           query.queryKey[0] === 'practitioners' &&
           query.queryKey[1] === 'availability' &&
           query.queryKey[2] === practitionerId,
+      });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === 'bookings' && q.queryKey[1] === 'practitionerCalendar',
       });
     },
   });

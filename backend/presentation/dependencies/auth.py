@@ -164,6 +164,31 @@ async def get_current_practitioner(
     return {"user": current_user, "practitioner": practitioner}
 
 
+async def get_current_admin_or_practitioner(
+    current_user: dict = Depends(get_current_active_user),
+    practitioner_repo: MongoPractitionerRepository = Depends(get_practitioner_repo),
+):
+    """
+    Admin (no practitioner profile required) or practitioner with a linked profile.
+    Used for creating services and generating availability as a practitioner.
+    """
+    role = current_user.get("role")
+    if role == "admin":
+        return {"user": current_user, "practitioner": None}
+    if role == "practitioner":
+        practitioner = await practitioner_repo.get_by_user_id(current_user["user_id"])
+        if not practitioner:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Practitioner profile not found",
+            )
+        return {"user": current_user, "practitioner": practitioner}
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Admin or practitioner role required",
+    )
+
+
 def get_optional_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(
         HTTPBearer(auto_error=False)

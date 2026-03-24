@@ -11,7 +11,8 @@ from application.use_cases import BookingUseCase
 from presentation.dependencies import (
     get_booking_use_case,
     get_current_active_user,
-    get_current_admin
+    get_current_admin,
+    get_current_practitioner,
 )
 
 router = APIRouter(prefix="/booking", tags=["Booking"])
@@ -120,6 +121,28 @@ async def cancel_booking(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/practitioner/calendar", response_model=List[dict])
+async def get_practitioner_calendar(
+    start_date: str,
+    end_date: str,
+    ctx: dict = Depends(get_current_practitioner),
+    booking_use_case: BookingUseCase = Depends(get_booking_use_case),
+):
+    """List bookings for the authenticated practitioner (or admin with practitioner profile)."""
+    practitioner = ctx.get("practitioner")
+    if not practitioner:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Practitioner profile required",
+        )
+    pid = practitioner["practitioner_id"]
+    return await booking_use_case.get_practitioner_bookings(
+        practitioner_id=pid,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
 
 # Admin routes

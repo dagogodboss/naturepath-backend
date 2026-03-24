@@ -31,11 +31,14 @@ export const queryKeys = {
     byStatus: (status: string) => ['bookings', 'status', status] as const,
     byDateRange: (start: string, end: string, practitionerId?: string) =>
       ['bookings', 'dateRange', start, end, practitionerId] as const,
+    practitionerCalendar: (start: string, end: string) =>
+      ['bookings', 'practitionerCalendar', start, end] as const,
   },
 
   // User
   user: {
     profile: ['user', 'profile'] as const,
+    myPractitioner: ['user', 'myPractitioner'] as const,
     notifications: (unreadOnly?: boolean) => ['user', 'notifications', unreadOnly] as const,
   },
 

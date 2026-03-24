@@ -75,9 +75,9 @@ export function useCreateService() {
   return useMutation({
     mutationFn: (data: CreateServiceRequest) => servicesApi.create(data),
     onSuccess: () => {
-      // Invalidate services cache
       queryClient.invalidateQueries({ queryKey: queryKeys.services.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.services.featured });
+      queryClient.invalidateQueries({ queryKey: queryKeys.user.myPractitioner });
     },
   });
 }
@@ -98,13 +98,13 @@ export function useUpdateService() {
     mutationFn: ({ serviceId, data }: { serviceId: string; data: UpdateServiceRequest }) =>
       servicesApi.update(serviceId, data),
     onSuccess: (updatedService) => {
-      // Update cache
       queryClient.setQueryData(
         queryKeys.services.detail(updatedService.service_id),
         updatedService
       );
       queryClient.invalidateQueries({ queryKey: queryKeys.services.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.services.featured });
+      queryClient.invalidateQueries({ queryKey: queryKeys.user.myPractitioner });
     },
   });
 }

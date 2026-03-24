@@ -3,6 +3,10 @@ Practitioners API Routes
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List, Optional
+from application.access_control import (
+    PractitionerAccessDenied,
+    assert_admin_or_same_practitioner,
+)
 from application.dto import (
     CreatePractitionerRequest, PractitionerResponse, 
     UpdatePractitionerRequest, GenerateSlotsRequest
@@ -12,7 +16,8 @@ from presentation.dependencies import (
     get_practitioner_use_case,
     get_current_admin,
     get_current_practitioner,
-    get_current_active_user
+    get_current_active_user,
+    get_current_admin_or_practitioner,
 )
 
 router = APIRouter(prefix="/practitioners", tags=["Practitioners"])
@@ -121,10 +126,21 @@ async def update_practitioner(
 async def generate_availability_slots(
     practitioner_id: str,
     request: GenerateSlotsRequest,
-    current_admin: dict = Depends(get_current_admin),
+    ctx: dict = Depends(get_current_admin_or_practitioner),
     practitioner_use_case: PractitionerUseCase = Depends(get_practitioner_use_case)
 ):
-    """Generate availability slots for a practitioner (Admin only)"""
+    """Generate availability slots (admin any practitioner; practitioner only self)."""
+    acting_pid = (
+        ctx["practitioner"]["practitioner_id"] if ctx.get("practitioner") else None
+    )
+    try:
+        assert_admin_or_same_practitioner(
+            ctx["user"].get("role") or "",
+            acting_pid,
+            practitioner_id,
+        )
+    except PractitionerAccessDenied as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     try:
         return await practitioner_use_case.generate_availability_slots(
             practitioner_id=practitioner_id,

@@ -96,6 +96,14 @@ export const userApi = {
   },
 
   /**
+   * Practitioner profile for the current user (practitioner or admin with profile)
+   */
+  getMyPractitioner: async (): Promise<Practitioner> => {
+    const response = await getApiClient().get<Practitioner>('/api/me/practitioner');
+    return response.data;
+  },
+
+  /**
    * Get current user's notifications
    */
   getNotifications: async (unreadOnly = false): Promise<Notification[]> => {
@@ -297,6 +305,19 @@ export const bookingApi = {
    */
   cancel: async (data: CancelBookingRequest): Promise<Booking> => {
     const response = await getApiClient().post<Booking>('/api/booking/cancel', data);
+    return response.data;
+  },
+
+  /**
+   * Bookings for the authenticated practitioner in a date range
+   */
+  getPractitionerCalendar: async (
+    startDate: string,
+    endDate: string
+  ): Promise<Booking[]> => {
+    const response = await getApiClient().get<Booking[]>('/api/booking/practitioner/calendar', {
+      params: { start_date: startDate, end_date: endDate },
+    });
     return response.data;
   },
 

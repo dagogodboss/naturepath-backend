@@ -5,7 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '../api/endpoints';
 import { queryKeys } from './queryKeys';
-import type { UpdateProfileRequest } from '../types';
+import type { Practitioner, UpdateProfileRequest } from '../types';
 
 /**
  * Hook to fetch current user profile
@@ -20,6 +20,18 @@ export function useProfile() {
     queryKey: queryKeys.user.profile,
     queryFn: () => userApi.getProfile(),
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Practitioner profile linked to the logged-in user (practitioner/admin with profile).
+ */
+export function useMyPractitioner(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.user.myPractitioner,
+    queryFn: (): Promise<Practitioner> => userApi.getMyPractitioner(),
+    staleTime: 2 * 60 * 1000,
+    enabled,
   });
 }
 

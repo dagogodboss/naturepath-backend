@@ -5,9 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List, Optional
 from application.dto import CreateServiceRequest, ServiceResponse, UpdateServiceRequest
 from application.use_cases import ServiceUseCase
+from infrastructure.repositories import MongoPractitionerRepository
 from presentation.dependencies import (
     get_service_use_case,
-    get_current_admin
+    get_current_admin,
+    get_current_admin_or_practitioner,
+    get_practitioner_repo,
 )
 
 router = APIRouter(prefix="/services", tags=["Services"])
@@ -47,22 +50,36 @@ async def get_service(
 @router.post("", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def create_service(
     request: CreateServiceRequest,
-    current_admin: dict = Depends(get_current_admin),
-    service_use_case: ServiceUseCase = Depends(get_service_use_case)
+    ctx: dict = Depends(get_current_admin_or_practitioner),
+    service_use_case: ServiceUseCase = Depends(get_service_use_case),
+    practitioner_repo: MongoPractitionerRepository = Depends(get_practitioner_repo),
 ):
-    """Create a new service (Admin only)"""
-    return await service_use_case.create_service(
-        name=request.name,
-        description=request.description,
-        category=request.category,
-        duration_minutes=request.duration_minutes,
-        price=request.price,
-        discount_price=request.discount_price,
-        image_url=request.image_url,
-        is_featured=request.is_featured,
-        max_capacity=request.max_capacity,
-        revel_product_id=request.revel_product_id
+    """Create a new service (admin or practitioner). Practitioners get the service linked to their profile."""
+    effective = request
+    if ctx["user"].get("role") == "practitioner":
+        effective = request.model_copy(
+            update={"is_featured": False, "revel_product_id": None}
+        )
+    created = await service_use_case.create_service(
+        name=effective.name,
+        description=effective.description,
+        category=effective.category,
+        duration_minutes=effective.duration_minutes,
+        price=effective.price,
+        discount_price=effective.discount_price,
+        image_url=effective.image_url,
+        is_featured=effective.is_featured,
+        max_capacity=effective.max_capacity,
+        revel_product_id=effective.revel_product_id
     )
+    if ctx["user"].get("role") == "practitioner" and ctx.get("practitioner"):
+        p = ctx["practitioner"]
+        services = list(p.get("services", []))
+        sid = created["service_id"]
+        if sid not in services:
+            services.append(sid)
+            await practitioner_repo.update(p["practitioner_id"], {"services": services})
+    return created
 
 
 @router.patch("/{service_id}", response_model=dict)

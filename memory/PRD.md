@@ -119,7 +119,7 @@ Use this checklist to see **done vs left** without re-scanning the repo.
 | Protected practitioner routes (shell) | Done | Data hooks still TODO on many pages |
 | Sign-up / forgot-password flows | Not integrated | Wire to SDK/auth API when ready |
 | Profile / session chrome | Not integrated | `useProfile`, logout in header |
-| Practitioner features (calendar, clients, etc.) | Partial | Routes gated; wire `useAllBookings`, etc. |
+| Practitioner features (calendar, clients, services, availability) | **Done (core)** | `/appointments` calendar (`usePractitionerCalendar`), `/services-management` (`useCreateService` + `useMyPractitioner`), `/availability` (PATCH availability + `useGenerateSlots`). Backend: `GET /api/me/practitioner`, `GET /api/booking/practitioner/calendar`, practitioner `POST /services` (no featured/REVEL), self-only `generate-slots`. |
 | Admin dashboard UI | Not started | SDK hooks exist |
 | Revel UI | N/A | No UI |
 | Store / product UI (any role) | N/A | Deferred |
@@ -130,6 +130,7 @@ Use this checklist to see **done vs left** without re-scanning the repo.
 
 Record new rows here after each successful verification:
 - *2026-03-24:* Vitest unit tests for `clientErrors` + `safeRedirect` passing; SDK `useBookingFlow` accepts optional booking id on lock/confirm; frontend lint + production build green.
+- *2026-03-24:* Practitioner E2E: pytest `tests/test_access_control.py` (5); Vitest + RTL `RequireAuth.test.jsx`, `practitionerSchedule.test.js`; practitioner UI wired to SDK; backend practitioner service create strips `is_featured` / `revel_product_id`.
 
 ## Agent / planner guidance
 When continuing frontend work:

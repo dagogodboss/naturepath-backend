@@ -478,6 +478,24 @@ class BookingUseCase:
                     }
         
         return bookings
+
+    async def get_practitioner_bookings(
+        self,
+        practitioner_id: str,
+        start_date: str,
+        end_date: str,
+    ) -> List[Dict[str, Any]]:
+        """Bookings for a practitioner in a date range, with service + customer."""
+        bookings = await self.booking_repo.get_by_date_range(
+            start_date, end_date, practitioner_id
+        )
+        for booking in bookings:
+            booking["service"] = await self.service_repo.get_by_id(booking["service_id"])
+            customer = await self.user_repo.get_by_id(booking["customer_id"])
+            if customer:
+                customer.pop("password_hash", None)
+            booking["customer"] = customer
+        return bookings
     
     async def get_booking_by_id(
         self,

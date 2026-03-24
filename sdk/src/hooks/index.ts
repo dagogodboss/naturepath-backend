@@ -43,11 +43,13 @@ export {
   useAllBookings,
   useBookingsByDateRange,
   useAdminCancelBooking,
+  usePractitionerCalendar,
 } from './useBookings';
 
 // User Hooks
 export {
   useProfile,
+  useMyPractitioner,
   useUpdateProfile,
   useNotifications,
   useMarkNotificationRead,

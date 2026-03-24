@@ -32,6 +32,22 @@ export function useUserBookings() {
 }
 
 /**
+ * Practitioner calendar: bookings assigned to the current practitioner in a date range.
+ */
+export function usePractitionerCalendar(
+  startDate: string | undefined,
+  endDate: string | undefined,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: queryKeys.bookings.practitionerCalendar(startDate || '', endDate || ''),
+    queryFn: () => bookingApi.getPractitionerCalendar(startDate!, endDate!),
+    enabled: enabled && !!startDate && !!endDate,
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
  * Hook to fetch a single booking by ID
  * 
  * @example
