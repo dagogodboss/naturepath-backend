@@ -6,7 +6,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { servicesApi } from '../api/endpoints';
 import { queryKeys } from './queryKeys';
 import type {
-  Service,
   CreateServiceRequest,
   UpdateServiceRequest,
   ServiceCategory,

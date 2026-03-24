@@ -9,7 +9,6 @@ import type {
   AvailabilityUpdate,
   SlotLockedEvent,
   SlotReleasedEvent,
-  AvailabilitySlot,
 } from '../types';
 
 export type WebSocketEventType =

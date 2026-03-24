@@ -5,7 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '../api/endpoints';
 import { queryKeys } from './queryKeys';
-import type { User, UpdateProfileRequest, Notification } from '../types';
+import type { UpdateProfileRequest } from '../types';
 
 /**
  * Hook to fetch current user profile

@@ -86,7 +86,7 @@ export function useLockSlot() {
 
   return useMutation({
     mutationFn: (bookingId: string) => bookingApi.lockSlot(bookingId),
-    onSuccess: (response, bookingId) => {
+    onSuccess: (_, bookingId) => {
       // Update the booking status in cache
       queryClient.setQueryData(queryKeys.bookings.detail(bookingId), (old: Booking | undefined) => {
         if (!old) return old;

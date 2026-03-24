@@ -6,10 +6,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { practitionersApi } from '../api/endpoints';
 import { queryKeys } from './queryKeys';
 import type {
-  Practitioner,
   CreatePractitionerRequest,
   UpdatePractitionerRequest,
-  AvailabilitySlot,
 } from '../types';
 
 /**

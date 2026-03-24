@@ -4,7 +4,7 @@
  * Main provider component that initializes the SDK
  */
 
-import React, { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { initializeSDK, TokenStorage, NaturalPathConfig, resetApiClient } from '../api/client';
 import { authApi } from '../api/endpoints';
