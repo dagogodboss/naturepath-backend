@@ -5,7 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../api/endpoints';
 import { queryKeys } from './queryKeys';
-import type { AdminStats, BookingAnalytics, User, UserRole } from '../types';
+import type { UserRole } from '../types';
 
 /**
  * Hook to fetch admin dashboard statistics

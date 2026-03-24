@@ -238,13 +238,15 @@ export function useBookingFlow() {
   return {
     // Mutations
     initiateBooking: initiateMutation.mutateAsync,
-    lockSlot: () => {
-      if (!bookingId) throw new Error('No booking initiated');
-      return lockMutation.mutateAsync(bookingId);
+    lockSlot: (overrideBookingId?: string) => {
+      const id = overrideBookingId ?? bookingId;
+      if (!id) throw new Error('No booking initiated');
+      return lockMutation.mutateAsync(id);
     },
-    confirmBooking: (paymentMethod?: string) => {
-      if (!bookingId) throw new Error('No booking initiated');
-      return confirmMutation.mutateAsync({ booking_id: bookingId, payment_method: paymentMethod });
+    confirmBooking: (paymentMethod?: string, overrideBookingId?: string) => {
+      const id = overrideBookingId ?? bookingId;
+      if (!id) throw new Error('No booking initiated');
+      return confirmMutation.mutateAsync({ booking_id: id, payment_method: paymentMethod });
     },
 
     // State

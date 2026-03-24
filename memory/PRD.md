@@ -83,29 +83,61 @@ Build a production-grade backend for "The Natural Path Spa Management System" wi
 
 ### Frontend (Vite + React) — SDK integration in progress
 **Repo:** `frontend/` (separate git root from `backend/`).  
-**Local API:** `VITE_NATURAL_PATH_API_URL` (default `http://localhost:8000`). SDK consumed via `file:../backend/sdk` + Vite alias to SDK source.
+**Local API:** `VITE_NATURAL_PATH_API_URL` (default `http://localhost:8000`). SDK consumed via `file:../backend/sdk` + Vite alias to SDK source. **Production builds** must set `VITE_NATURAL_PATH_API_URL` (app throws at bootstrap if missing in `import.meta.env.PROD`).
+
+**Explicitly out of scope (per product direction):**
+- **Revel POS:** no dedicated UI; mock/backend integration only.
+- **Store / products:** no admin, practitioner, or guest/client storefront UI in this phase.
 
 **Done (customer path):**
 - [x] `NaturalPathProvider` in app bootstrap; `onAuthError` → `/sign-in`
-- [x] Services list + service detail from API (`useServices`, `useService`); links use `service_id`
-- [x] Booking flow (`useBookingFlow`, practitioners, availability) + `?serviceId=` prefill
-- [x] Booking history (`useUserBookings`) with upcoming/past grouping
-- [x] **Auth:** `SignIn` uses `useAuth().login`; `RequireAuth` wraps `/book-appointment` and `/booking-history` (redirect with `state.from` for post-login return)
-- [x] ESLint flat config fixed (`react-hooks` `recommended-latest`); `vite.config` ESM-safe `__dirname`
+- [x] Services list + service detail from API (`useServices`, `useService`); route `/service/:serviceId` (ID-based URLs)
+- [x] Booking flow (`useBookingFlow`, practitioners, availability) + `?serviceId=` prefill; **sequential booking uses `booking_id` from `initiate` response** (SDK `lockSlot` / `confirmBooking` accept optional override id)
+- [x] Booking history (`useUserBookings`) with upcoming/past grouping; null-safe `slot`; detail sheet `role="dialog"` + Escape
+- [x] **Auth:** `SignIn` uses `useAuth().login`; `safePostLoginPath` for internal redirects only; shared `formatClientError` for API messages
+- [x] **Auth gates:** `RequireAuth` on `/book-appointment`, `/booking-history`, and **practitioner shell routes** (`/availability`, `/practitioner`, `/services-management`, `/appointments`, `/reschedule`, `/reporting`)
+- [x] `InputField` label/`htmlFor`/`id` via `useId` (a11y)
+- [x] **Vitest** (`npm test`): `src/lib/clientErrors.test.js`, `src/lib/safeRedirect.test.js`
+- [x] ESLint flat config (`react-hooks` `recommended-latest`); `vite.config` ESM-safe `__dirname`
 
 **Still to wire (high level):**
 - [ ] `SignUp` / `SignUpBooking` → `useAuth().register` (or dedicated register flow)
 - [ ] Customer header / nav: show user, logout (`useAuth().logout`)
 - [ ] `useRealtimeAvailability` on booking slot selection (optional polish)
-- [ ] Practitioner + admin screens → SDK admin/practitioner hooks
-- [ ] Production-like API URL + CORS/env for deploy
+- [ ] Practitioner + admin **data** on existing screens → SDK admin/practitioner hooks (UI shells exist; not store/Revel)
+- [ ] Production-like API URL + CORS/env for deploy; optional `.env.example` in frontend
+
+## Integration plan — remaining work (planner snapshot)
+Use this checklist to see **done vs left** without re-scanning the repo.
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Customer browse / service detail | Done | Errors normalized via `formatClientError`; categories `replaceAll` |
+| Book appointment (initiate → lock → confirm) | Done | Try/catch + `reset()`; explicit `booking_id` after initiate |
+| Booking history | Done | Optional `slot`; load errors normalized |
+| Sign-in + protected customer routes | Done | Safe redirect; production env guard |
+| Protected practitioner routes (shell) | Done | Data hooks still TODO on many pages |
+| Sign-up / forgot-password flows | Not integrated | Wire to SDK/auth API when ready |
+| Profile / session chrome | Not integrated | `useProfile`, logout in header |
+| Practitioner features (calendar, clients, etc.) | Partial | Routes gated; wire `useAllBookings`, etc. |
+| Admin dashboard UI | Not started | SDK hooks exist |
+| Revel UI | N/A | No UI |
+| Store / product UI (any role) | N/A | Deferred |
+
+## Tests & integration memory (append as you verify)
+**Automated (Vitest):** `formatClientError`, `safePostLoginPath` — run `cd frontend && npm test`.  
+**Manual smoke (local API):** sign in → services → service detail → book (with `?serviceId=`) → history; open practitioner route while signed out → redirect to sign-in.
+
+Record new rows here after each successful verification:
+- *2026-03-24:* Vitest unit tests for `clientErrors` + `safeRedirect` passing; SDK `useBookingFlow` accepts optional booking id on lock/confirm; frontend lint + production build green.
 
 ## Agent / planner guidance
 When continuing frontend work:
 1. Prefer **small commits** in `frontend/` after each vertical slice; use author email `dagogodboss@gmail.com` if committing on behalf of the project owner.
-2. **Auth first** for any `/api/me/*` or booking mutation routes — unauthenticated users should hit `RequireAuth` or explicit login prompts.
-3. Reuse SDK hooks from `@natural-path/sdk`; avoid duplicating `fetch`/axios in UI code.
-4. After substantive integration milestones, **update this file** (`backend/memory/PRD.md`) so backlog and “done” lists stay truthful.
+2. **TDD for new logic:** add `*.test.js` next to small pure modules (errors, redirects, formatters) before or alongside implementation; run `npm test` before commit.
+3. **Auth first** for any `/api/me/*` or booking mutation routes — unauthenticated users should hit `RequireAuth` or explicit login prompts.
+4. Reuse SDK hooks from `@natural-path/sdk`; avoid duplicating `fetch`/axios in UI code.
+5. After substantive integration milestones, **update this file** (`backend/memory/PRD.md`) so backlog, the integration table, and the test memory section stay truthful.
 
 ## Implementation roadmap (next phases)
 Structured plan for remaining frontend + rollout work. Order assumes local backend first, then staging/production API.

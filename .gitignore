@@ -1,8 +1,8 @@
--e 
 # Environment files
 *.env
 *.env.*
--e 
-# Environment files
-*.env
-*.env.*
+
+# SDK (build + deps; see also sdk/.gitignore)
+sdk/node_modules/
+sdk/dist/
+sdk/dist-ssr/
