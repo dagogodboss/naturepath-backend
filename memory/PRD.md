@@ -81,6 +81,57 @@ Build a production-grade backend for "The Natural Path Spa Management System" wi
 - [x] Full documentation (README, Integration Guide)
 - [x] Usage examples
 
+### Frontend (Vite + React) — SDK integration in progress
+**Repo:** `frontend/` (separate git root from `backend/`).  
+**Local API:** `VITE_NATURAL_PATH_API_URL` (default `http://localhost:8000`). SDK consumed via `file:../backend/sdk` + Vite alias to SDK source.
+
+**Done (customer path):**
+- [x] `NaturalPathProvider` in app bootstrap; `onAuthError` → `/sign-in`
+- [x] Services list + service detail from API (`useServices`, `useService`); links use `service_id`
+- [x] Booking flow (`useBookingFlow`, practitioners, availability) + `?serviceId=` prefill
+- [x] Booking history (`useUserBookings`) with upcoming/past grouping
+- [x] **Auth:** `SignIn` uses `useAuth().login`; `RequireAuth` wraps `/book-appointment` and `/booking-history` (redirect with `state.from` for post-login return)
+- [x] ESLint flat config fixed (`react-hooks` `recommended-latest`); `vite.config` ESM-safe `__dirname`
+
+**Still to wire (high level):**
+- [ ] `SignUp` / `SignUpBooking` → `useAuth().register` (or dedicated register flow)
+- [ ] Customer header / nav: show user, logout (`useAuth().logout`)
+- [ ] `useRealtimeAvailability` on booking slot selection (optional polish)
+- [ ] Practitioner + admin screens → SDK admin/practitioner hooks
+- [ ] Production-like API URL + CORS/env for deploy
+
+## Agent / planner guidance
+When continuing frontend work:
+1. Prefer **small commits** in `frontend/` after each vertical slice; use author email `dagogodboss@gmail.com` if committing on behalf of the project owner.
+2. **Auth first** for any `/api/me/*` or booking mutation routes — unauthenticated users should hit `RequireAuth` or explicit login prompts.
+3. Reuse SDK hooks from `@natural-path/sdk`; avoid duplicating `fetch`/axios in UI code.
+4. After substantive integration milestones, **update this file** (`backend/memory/PRD.md`) so backlog and “done” lists stay truthful.
+
+## Implementation roadmap (next phases)
+Structured plan for remaining frontend + rollout work. Order assumes local backend first, then staging/production API.
+
+### Phase A — Customer account completion
+- Register screens wired to `register()`; optional email verification UX if backend adds it
+- Profile page: `useProfile`, `useUpdateProfile`
+- Global session UI: avatar/name, logout, optional `useRealtimeNotifications` for toasts
+
+### Phase B — Booking UX hardening
+- Loading/error boundaries consistent across services, booking, history
+- Optional: WebSocket live slots on booking page; countdown if slot lock TTL is exposed
+- Cancel booking: `useCancelBooking` from history detail when product requires it
+
+### Phase C — Practitioner & admin
+- Calendar / clients / reporting screens backed by `useAllBookings`, `useBookingsByDateRange`, analytics hooks
+- Role-based routing: hide admin routes from `customer` JWT (decode role or use `/api/me`)
+
+### Phase D — Environments & quality
+- `.env.example` for frontend; document `VITE_NATURAL_PATH_API_URL`
+- E2E smoke: login → book → confirm → see history
+- Production build: publish or link SDK (`npm` / workspace) instead of only local `file:` + alias
+
+### Phase E — Ops (from original backlog)
+- Resend/Twilio real keys; deployment; monitoring/logging
+
 ## API Endpoints
 
 ### Auth
@@ -140,7 +191,7 @@ Build a production-grade backend for "The Natural Path Spa Management System" wi
 - [x] SDK implementation
 
 ### P1 (High Priority)
-- [ ] Frontend implementation using SDK
+- [~] Frontend implementation using SDK (customer browse/book/history + auth gate in progress; see “Frontend” section above)
 - [ ] Production deployment configuration
 - [ ] Actual Resend/Twilio API key configuration
 
@@ -156,8 +207,8 @@ Build a production-grade backend for "The Natural Path Spa Management System" wi
 - [ ] Mobile app (React Native)
 
 ## Next Tasks
-1. Configure actual Resend API key for email notifications
-2. Configure actual Twilio credentials for SMS
-3. Build frontend using the SDK
-4. Deploy to production environment
+1. Frontend: SignUp flows, profile, logout/session UI; then practitioner/admin SDK wiring
+2. Configure actual Resend API key for email notifications
+3. Configure actual Twilio credentials for SMS
+4. Deploy to production environment (frontend + API; env URLs)
 5. Set up monitoring and logging
