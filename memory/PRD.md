@@ -107,6 +107,17 @@ Build a production-grade backend for "The Natural Path Spa Management System" wi
 - [ ] Practitioner + admin **data** on existing screens → SDK admin/practitioner hooks (UI shells exist; not store/Revel)
 - [ ] Production-like API URL + CORS/env for deploy; optional `.env.example` in frontend
 
+## AWS deployment
+
+**Runbook (manual + ECS/EC2 options):** see [`docs/DEPLOYMENT_AWS.md`](../docs/DEPLOYMENT_AWS.md).  
+**CLI note:** if `aws sts get-caller-identity` fails with session expired, run `aws login` (SSO) or refresh keys before pushing to ECR or updating ECS.
+
+**After deploy:** align frontend `VITE_NATURAL_PATH_API_URL` with the public API URL; API listens on **port 8001** in Docker (`backend/Dockerfile` / `docker-compose.yml`). Restrict CORS to the CloudFront / app origin.
+
+## Ecommerce (Revel) — planned
+
+**Product spec:** [`docs/ECOMMERCE_REVEL_PLAN.md`](../docs/ECOMMERCE_REVEL_PLAN.md) — order–inventory flow, delivery address, **no online payment** (back office / Revel), practitioner + guest UIs, backend phases, SDK hooks outline.
+
 ## Integration plan — remaining work (planner snapshot)
 Use this checklist to see **done vs left** without re-scanning the repo.
 
@@ -121,8 +132,8 @@ Use this checklist to see **done vs left** without re-scanning the repo.
 | Profile / session chrome | Not integrated | `useProfile`, logout in header |
 | Practitioner features (calendar, clients, services, availability) | **Done (core)** | `/appointments` calendar (`usePractitionerCalendar`), `/services-management` (`useCreateService` + `useMyPractitioner`), `/availability` (PATCH availability + `useGenerateSlots`). Backend: `GET /api/me/practitioner`, `GET /api/booking/practitioner/calendar`, practitioner `POST /services` (no featured/REVEL), self-only `generate-slots`. |
 | Admin dashboard UI | Not started | SDK hooks exist |
-| Revel UI | N/A | No UI |
-| Store / product UI (any role) | N/A | Deferred |
+| Revel UI | Planned | See [`docs/ECOMMERCE_REVEL_PLAN.md`](../docs/ECOMMERCE_REVEL_PLAN.md) (practitioner catalog + guest storefront + orders, no web payment) |
+| Store / product UI (any role) | Planned | Same doc; backend today uses **mock** `RevelService` until real API wired |
 
 ## Tests & integration memory (append as you verify)
 **Automated (Vitest):** `formatClientError`, `safePostLoginPath` — run `cd frontend && npm test`.  
@@ -225,7 +236,7 @@ Structured plan for remaining frontend + rollout work. Order assumes local backe
 
 ### P1 (High Priority)
 - [~] Frontend implementation using SDK (customer browse/book/history + auth gate in progress; see “Frontend” section above)
-- [ ] Production deployment configuration
+- [ ] **Production deployment on AWS** — follow [`docs/DEPLOYMENT_AWS.md`](../docs/DEPLOYMENT_AWS.md) (ECR, ECS or EC2, MongoDB Atlas or DocumentDB, ElastiCache, S3+CloudFront for SPA)
 - [ ] Actual Resend/Twilio API key configuration
 
 ### P2 (Medium Priority)
