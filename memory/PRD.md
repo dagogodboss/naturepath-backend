@@ -69,6 +69,7 @@ Build a production-grade backend for "The Natural Path Spa Management System" wi
 - [x] Seed data for testing
 - [x] Casbin policy-based RBAC (`core/rbac_model.conf`, `core/rbac_policy.csv`) with authorization audit logs in Mongo (`authorization_audit`)
 - [x] Startup seeding removed from app init; one-time seed scripts adopted (`scripts/seed_services.py`, `scripts/seed_owner.py`)
+- [x] Local dev runner added (`scripts/run-local.sh`) with Mongo env loading and automatic service/review seed verification
 - [x] CORS hardened via env (`CORS_ALLOWED_ORIGINS`) and no wildcard defaults
 
 ### SDK (100% Complete)
