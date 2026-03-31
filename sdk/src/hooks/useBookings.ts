@@ -5,7 +5,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { bookingApi } from '../api/endpoints';
+import { bookingApi, userApi } from '../api/endpoints';
 import { queryKeys } from './queryKeys';
 import type {
   Booking,
@@ -26,7 +26,7 @@ import type {
 export function useUserBookings() {
   return useQuery({
     queryKey: queryKeys.bookings.mine,
-    queryFn: () => bookingApi.getAll(),
+    queryFn: () => userApi.getMyBookings(),
     staleTime: 1 * 60 * 1000,
   });
 }

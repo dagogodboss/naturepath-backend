@@ -67,7 +67,8 @@ class AuthUseCase:
             phone=phone,
             role=role,
             is_active=True,
-            is_verified=False
+            is_verified=False,
+            is_discovery_completed=False,
         )
         
         user_dict = user.model_dump()

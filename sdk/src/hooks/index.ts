@@ -49,6 +49,7 @@ export {
 // User Hooks
 export {
   useProfile,
+  useDiscoveryEligibility,
   useMyPractitioner,
   useUpdateProfile,
   useNotifications,

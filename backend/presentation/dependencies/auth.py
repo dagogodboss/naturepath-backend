@@ -11,6 +11,7 @@ from infrastructure.repositories import (
     MongoUserRepository,
     MongoPractitionerRepository,
     MongoServiceRepository,
+    MongoServiceReviewRepository,
     MongoBookingRepository,
     MongoAvailabilitySlotRepository,
     MongoPaymentRepository,
@@ -41,6 +42,12 @@ def get_service_repo(db: AsyncIOMotorDatabase = Depends(get_database)) -> MongoS
     return MongoServiceRepository(db)
 
 
+def get_service_review_repo(
+    db: AsyncIOMotorDatabase = Depends(get_database),
+) -> MongoServiceReviewRepository:
+    return MongoServiceReviewRepository(db)
+
+
 def get_booking_repo(db: AsyncIOMotorDatabase = Depends(get_database)) -> MongoBookingRepository:
     return MongoBookingRepository(db)
 
@@ -69,10 +76,11 @@ def get_auth_use_case(
 
 
 async def get_service_use_case(
-    service_repo: MongoServiceRepository = Depends(get_service_repo)
+    service_repo: MongoServiceRepository = Depends(get_service_repo),
+    review_repo: MongoServiceReviewRepository = Depends(get_service_review_repo),
 ) -> ServiceUseCase:
     cache = await get_cache_service()
-    return ServiceUseCase(service_repo, cache)
+    return ServiceUseCase(service_repo, review_repo, cache)
 
 
 async def get_practitioner_use_case(
@@ -189,18 +197,16 @@ async def get_current_admin_or_practitioner(
     )
 
 
-def get_optional_user(
+async def get_optional_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(
         HTTPBearer(auto_error=False)
     ),
-    auth_use_case: AuthUseCase = Depends(get_auth_use_case)
+    auth_use_case: AuthUseCase = Depends(get_auth_use_case),
 ):
-    """Get user if authenticated, None otherwise"""
-    async def _get_user():
-        if not credentials:
-            return None
-        try:
-            return await auth_use_case.get_current_user(credentials.credentials)
-        except ValueError:
-            return None
-    return _get_user
+    """Return the current user when a valid Bearer token is sent; otherwise None."""
+    if not credentials:
+        return None
+    try:
+        return await auth_use_case.get_current_user(credentials.credentials)
+    except ValueError:
+        return None

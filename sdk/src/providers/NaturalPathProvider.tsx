@@ -8,6 +8,7 @@ import { createContext, useContext, useEffect, useMemo, useState, ReactNode } fr
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { initializeSDK, TokenStorage, NaturalPathConfig, resetApiClient } from '../api/client';
 import { authApi } from '../api/endpoints';
+import { AuthProvider } from './AuthProvider';
 
 // ==================== Types ====================
 
@@ -181,7 +182,7 @@ export function NaturalPathProvider({
   return (
     <NaturalPathContext.Provider value={contextValue}>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <AuthProvider>{children}</AuthProvider>
       </QueryClientProvider>
     </NaturalPathContext.Provider>
   );

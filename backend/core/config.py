@@ -3,6 +3,7 @@ Core Configuration Module - The Natural Path Spa Management System
 """
 import os
 from functools import lru_cache
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from typing import Optional
 
@@ -31,6 +32,27 @@ class Settings(BaseSettings):
     # Email (Resend)
     resend_api_key: Optional[str] = None
     sender_email: str = "onboarding@resend.dev"
+    # Email (SMTP fallback)
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_use_tls: bool = True
+    smtp_sender_email: Optional[str] = None
+
+    @field_validator("smtp_port", mode="before")
+    @classmethod
+    def _normalize_smtp_port(cls, value):
+        if value in ("", None):
+            return 587
+        return value
+
+    @field_validator("smtp_use_tls", mode="before")
+    @classmethod
+    def _normalize_smtp_tls(cls, value):
+        if value in ("", None):
+            return True
+        return value
     
     # SMS (Twilio)
     twilio_account_sid: Optional[str] = None

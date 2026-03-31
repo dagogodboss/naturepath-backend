@@ -126,6 +126,31 @@ class MongoServiceRepository(IServiceRepository):
         return await cursor.to_list(length=limit)
 
 
+class MongoServiceReviewRepository:
+    """Reviews displayed on service detail pages."""
+
+    def __init__(self, db: AsyncIOMotorDatabase):
+        self.collection = db.service_reviews
+
+    async def list_by_service(
+        self, service_id: str, limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        cursor = (
+            self.collection.find({"service_id": service_id}, {"_id": 0})
+            .sort("created_at", -1)
+            .limit(limit)
+        )
+        return await cursor.to_list(length=limit)
+
+    async def delete_by_service(self, service_id: str) -> int:
+        result = await self.collection.delete_many({"service_id": service_id})
+        return result.deleted_count
+
+    async def insert_many(self, docs: List[Dict[str, Any]]) -> None:
+        if docs:
+            await self.collection.insert_many(docs)
+
+
 class MongoBookingRepository(IBookingRepository):
     """MongoDB implementation of Booking repository"""
     

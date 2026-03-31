@@ -4,7 +4,10 @@ Service Use Cases - Application Layer
 import logging
 from typing import Optional, Dict, Any, List
 from domain.entities import Service, ServiceCategory, generate_id, utc_now
-from infrastructure.repositories import MongoServiceRepository
+from infrastructure.repositories import (
+    MongoServiceRepository,
+    MongoServiceReviewRepository,
+)
 from infrastructure.external import get_revel_service
 from infrastructure.cache import CacheService
 
@@ -17,11 +20,36 @@ class ServiceUseCase:
     def __init__(
         self,
         service_repo: MongoServiceRepository,
+        review_repo: MongoServiceReviewRepository,
         cache: Optional[CacheService] = None
     ):
         self.service_repo = service_repo
+        self.review_repo = review_repo
         self.cache = cache
         self.revel_service = get_revel_service()
+
+    @staticmethod
+    def _normalize_service(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not doc:
+            return doc
+        out = dict(doc)
+        out.setdefault("benefits", [])
+        if "warning_copy" not in out:
+            out["warning_copy"] = None
+        out.setdefault("rating_average", 0.0)
+        out.setdefault("rating_count", 0)
+        if "is_discovery_entry" not in out:
+            out["is_discovery_entry"] = False
+        return out
+
+    async def _with_reviews(self, doc: Dict[str, Any]) -> Dict[str, Any]:
+        base = self._normalize_service(doc) or {}
+        sid = base.get("service_id")
+        if sid and self.review_repo:
+            base["reviews"] = await self.review_repo.list_by_service(sid)
+        else:
+            base["reviews"] = []
+        return base
     
     async def create_service(
         self,
@@ -34,7 +62,10 @@ class ServiceUseCase:
         image_url: Optional[str] = None,
         is_featured: bool = False,
         max_capacity: int = 1,
-        revel_product_id: Optional[str] = None
+        revel_product_id: Optional[str] = None,
+        benefits: Optional[List[str]] = None,
+        warning_copy: Optional[str] = None,
+        is_discovery_entry: bool = False,
     ) -> Dict[str, Any]:
         """Create a new service"""
         # Validate with REVEL if product ID provided
@@ -55,7 +86,10 @@ class ServiceUseCase:
             is_featured=is_featured,
             is_active=True,
             max_capacity=max_capacity,
-            revel_product_id=revel_product_id
+            revel_product_id=revel_product_id,
+            benefits=list(benefits or []),
+            warning_copy=warning_copy,
+            is_discovery_entry=is_discovery_entry,
         )
         
         service_dict = service.model_dump()
@@ -71,7 +105,8 @@ class ServiceUseCase:
             await self.cache.delete(CacheService.featured_services_key())
         
         logger.info(f"Service created: {service.service_id} - {name}")
-        return service_dict
+        created = await self.service_repo.get_by_id(service.service_id)
+        return self._normalize_service(created) or service_dict
     
     async def update_service(
         self,
@@ -99,25 +134,29 @@ class ServiceUseCase:
             await self.cache.delete(CacheService.service_key(service_id))
         
         logger.info(f"Service updated: {service_id}")
-        return await self.service_repo.get_by_id(service_id)
+        updated = await self.service_repo.get_by_id(service_id)
+        return self._normalize_service(updated) or {}
     
     async def get_service_by_id(self, service_id: str) -> Dict[str, Any]:
-        """Get a service by ID"""
-        # Check cache first
+        """Get a service by ID, including reviews for the detail API."""
+        service = None
         if self.cache:
             cached = await self.cache.get(CacheService.service_key(service_id))
             if cached:
-                return cached
-        
+                service = cached
+        if not service:
+            service = await self.service_repo.get_by_id(service_id)
+            if not service:
+                raise ValueError("Service not found")
+            if self.cache:
+                await self.cache.set(CacheService.service_key(service_id), service, ttl=300)
+        return await self._with_reviews(service)
+
+    async def get_reviews_for_service(self, service_id: str) -> List[Dict[str, Any]]:
         service = await self.service_repo.get_by_id(service_id)
         if not service:
             raise ValueError("Service not found")
-        
-        # Cache the result
-        if self.cache:
-            await self.cache.set(CacheService.service_key(service_id), service, ttl=300)
-        
-        return service
+        return await self.review_repo.list_by_service(service_id)
     
     async def get_all_services(self, active_only: bool = True) -> List[Dict[str, Any]]:
         """Get all services"""
@@ -126,8 +165,12 @@ class ServiceUseCase:
             cached = await self.cache.get(CacheService.services_key())
             if cached:
                 if active_only:
-                    return [s for s in cached if s.get("is_active")]
-                return cached
+                    return [
+                        self._normalize_service(s)
+                        for s in cached
+                        if s.get("is_active")
+                    ]
+                return [self._normalize_service(s) for s in cached]
         
         if active_only:
             services = await self.service_repo.get_active()
@@ -138,7 +181,7 @@ class ServiceUseCase:
         if self.cache:
             await self.cache.set(CacheService.services_key(), services, ttl=300)
         
-        return services
+        return [self._normalize_service(s) for s in services]
     
     async def get_featured_services(self) -> List[Dict[str, Any]]:
         """Get featured services"""
@@ -146,7 +189,7 @@ class ServiceUseCase:
         if self.cache:
             cached = await self.cache.get(CacheService.featured_services_key())
             if cached:
-                return cached
+                return [self._normalize_service(s) for s in cached]
         
         services = await self.service_repo.get_featured()
         
@@ -154,11 +197,12 @@ class ServiceUseCase:
         if self.cache:
             await self.cache.set(CacheService.featured_services_key(), services, ttl=300)
         
-        return services
+        return [self._normalize_service(s) for s in services]
     
     async def get_services_by_category(self, category: str) -> List[Dict[str, Any]]:
         """Get services by category"""
-        return await self.service_repo.get_by_category(category)
+        rows = await self.service_repo.get_by_category(category)
+        return [self._normalize_service(s) for s in rows]
     
     async def delete_service(self, service_id: str) -> bool:
         """Soft delete a service (set is_active to False)"""

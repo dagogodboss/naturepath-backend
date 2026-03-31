@@ -39,6 +39,7 @@ export const queryKeys = {
   user: {
     profile: ['user', 'profile'] as const,
     myPractitioner: ['user', 'myPractitioner'] as const,
+    discoveryEligibility: ['user', 'discoveryEligibility'] as const,
     notifications: (unreadOnly?: boolean) => ['user', 'notifications', unreadOnly] as const,
   },
 

@@ -70,6 +70,7 @@ class User(BaseModel):
     role: UserRole = UserRole.CUSTOMER
     is_active: bool = True
     is_verified: bool = False
+    is_discovery_completed: bool = False
     profile_image_url: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
@@ -138,8 +139,24 @@ class Service(BaseModel):
     is_active: bool = True
     max_capacity: int = 1
     revel_product_id: Optional[str] = None  # REVEL POS integration
+    benefits: List[str] = Field(default_factory=list)
+    warning_copy: Optional[str] = None
+    rating_average: float = 0.0
+    rating_count: int = 0
+    # True for the entry-point discovery offering (visible to guests / pre-unlock customers).
+    is_discovery_entry: bool = False
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class ServiceReview(BaseModel):
+    """Customer review shown on service detail (stored in service_reviews collection)."""
+    review_id: str = Field(default_factory=generate_id)
+    service_id: str
+    author_name: str
+    rating: int = Field(ge=1, le=5)
+    body: str
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 # ==================== Booking Entity ====================

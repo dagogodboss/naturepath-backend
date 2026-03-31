@@ -12,9 +12,11 @@ import type {
   AuthResponse,
   // User
   User,
+  DiscoveryEligibility,
   UpdateProfileRequest,
   // Service
   Service,
+  ServiceReview,
   CreateServiceRequest,
   UpdateServiceRequest,
   // Practitioner
@@ -127,6 +129,14 @@ export const userApi = {
     const response = await getApiClient().post<{ marked_count: number }>('/api/me/notifications/read-all');
     return response.data;
   },
+
+  /**
+   * Get discovery booking eligibility for current user
+   */
+  getDiscoveryEligibility: async (): Promise<DiscoveryEligibility> => {
+    const response = await getApiClient().get<DiscoveryEligibility>('/api/me/discovery-eligibility');
+    return response.data;
+  },
 };
 
 // ==================== Services API ====================
@@ -154,6 +164,14 @@ export const servicesApi = {
    */
   getById: async (serviceId: string): Promise<Service> => {
     const response = await getApiClient().get<Service>(`/api/services/${serviceId}`);
+    return response.data;
+  },
+
+  /**
+   * Reviews for a service (same data is embedded on getById; use for refresh-only flows).
+   */
+  getReviews: async (serviceId: string): Promise<ServiceReview[]> => {
+    const response = await getApiClient().get<ServiceReview[]>(`/api/services/${serviceId}/reviews`);
     return response.data;
   },
 

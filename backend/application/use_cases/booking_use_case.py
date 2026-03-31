@@ -59,6 +59,15 @@ class BookingUseCase:
         self.event_repo = event_repo
         self.cache = cache
         self.revel_service = get_revel_service()
+
+    @staticmethod
+    def _is_discovery_service(service: Optional[Dict[str, Any]]) -> bool:
+        if not service:
+            return False
+        if service.get("is_discovery_entry") is True:
+            return True
+        name = str(service.get("name", "")).strip().lower()
+        return "discovery call" in name
     
     async def initiate_booking(
         self,
@@ -78,6 +87,14 @@ class BookingUseCase:
         service = await self.service_repo.get_by_id(service_id)
         if not service or not service.get("is_active"):
             raise ValueError("Service not found or inactive")
+
+        # Enforce discovery-first booking on the backend for non-discovery services.
+        if not self._is_discovery_service(service):
+            eligibility = await self.get_discovery_eligibility(customer_id)
+            if not eligibility.get("is_discovery_completed"):
+                raise ValueError(
+                    "Discovery call required before booking this service"
+                )
         
         # Validate practitioner exists
         practitioner = await self.practitioner_repo.get_by_id(practitioner_id)
@@ -312,6 +329,11 @@ class BookingUseCase:
             "payment_reference_id": payment_ref.payment_id,
             "confirmed_at": now.isoformat()
         })
+
+        # Hybrid discovery rule: booking history is the source of truth, but cache a
+        # user-level flag as soon as a discovery booking is confirmed.
+        if self._is_discovery_service(service):
+            await self.user_repo.update(user_id, {"is_discovery_completed": True})
         
         # Update slot status
         slot = booking["slot"]
@@ -373,6 +395,40 @@ class BookingUseCase:
             **updated_booking,
             "payment": created_payment,
             "revel_order": revel_order
+        }
+
+    async def get_discovery_eligibility(self, customer_id: str) -> Dict[str, Any]:
+        """
+        Determine whether a user can book non-discovery services.
+        Source of truth: booking history. Cache: user profile flag.
+        """
+        user = await self.user_repo.get_by_id(customer_id)
+        has_flag = bool((user or {}).get("is_discovery_completed", False))
+
+        bookings = await self.booking_repo.get_by_customer(customer_id)
+        has_discovery_booking = False
+        discovery_booking_id = None
+
+        for booking in bookings:
+            status = booking.get("status")
+            if status not in {"confirmed", "completed", "in_progress"}:
+                continue
+            service = await self.service_repo.get_by_id(booking.get("service_id"))
+            if self._is_discovery_service(service):
+                has_discovery_booking = True
+                discovery_booking_id = booking.get("booking_id")
+                break
+
+        # Keep cached flag in sync with booking-derived truth
+        if has_discovery_booking and not has_flag:
+            await self.user_repo.update(customer_id, {"is_discovery_completed": True})
+            has_flag = True
+
+        return {
+            "is_discovery_completed": has_discovery_booking or has_flag,
+            "has_discovery_booking": has_discovery_booking,
+            "has_discovery_flag": has_flag,
+            "discovery_booking_id": discovery_booking_id,
         }
     
     async def cancel_booking(

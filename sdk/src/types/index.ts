@@ -51,6 +51,7 @@ export interface User {
   role: UserRole;
   is_active: boolean;
   is_verified: boolean;
+  is_discovery_completed?: boolean;
   profile_image_url?: string | null;
   created_at: string;
   updated_at: string;
@@ -89,6 +90,13 @@ export interface UpdateProfileRequest {
   last_name?: string;
   phone?: string;
   profile_image_url?: string;
+}
+
+export interface DiscoveryEligibility {
+  is_discovery_completed: boolean;
+  has_discovery_booking: boolean;
+  has_discovery_flag: boolean;
+  discovery_booking_id?: string | null;
 }
 
 // ==================== Practitioner Types ====================
@@ -147,6 +155,15 @@ export interface UpdatePractitionerRequest {
 }
 
 // ==================== Service Types ====================
+export interface ServiceReview {
+  review_id: string;
+  service_id: string;
+  author_name: string;
+  rating: number;
+  body: string;
+  created_at: string;
+}
+
 export interface Service {
   service_id: string;
   name: string;
@@ -160,6 +177,11 @@ export interface Service {
   is_active: boolean;
   max_capacity: number;
   revel_product_id?: string | null;
+  benefits?: string[];
+  warning_copy?: string | null;
+  rating_average?: number;
+  rating_count?: number;
+  reviews?: ServiceReview[];
   created_at: string;
   updated_at: string;
 }
@@ -175,6 +197,9 @@ export interface CreateServiceRequest {
   is_featured?: boolean;
   max_capacity?: number;
   revel_product_id?: string;
+  benefits?: string[];
+  warning_copy?: string | null;
+  is_discovery_entry?: boolean;
 }
 
 export interface UpdateServiceRequest {
@@ -188,6 +213,9 @@ export interface UpdateServiceRequest {
   is_featured?: boolean;
   is_active?: boolean;
   max_capacity?: number;
+  benefits?: string[];
+  warning_copy?: string | null;
+  is_discovery_entry?: boolean;
 }
 
 // ==================== Availability Types ====================

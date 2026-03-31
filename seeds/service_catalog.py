@@ -1,0 +1,193 @@
+"""
+Canonical service definitions: benefits, optional warning, sample reviews.
+Matched to existing production seed names so `update_one` upserts by name.
+"""
+
+SERVICE_CATALOG = [
+    {
+        "name": "Discovery Call",
+        "is_discovery_entry": True,
+        "description": "A Discovery Call is a supportive conversation designed for both prospective and existing clients who would like guidance before taking their next step. This 15-30 minute phone call offers dedicated time to talk through goals, ask questions, and gain clarity on available options.",
+        "category": "wellness",
+        "duration_minutes": 30,
+        "price": 60.00,
+        "discount_price": 30.00,
+        "image_url": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=800",
+        "is_featured": True,
+        "is_active": True,
+        "max_capacity": 1,
+        "revel_product_id": "revel_discovery_call",
+        "warning_copy": "Please note, This is an introductory conversation only; formal consultation, written notes, or follow-up summaries are not included.",
+        "benefits": [
+            "For new clients, the Discovery Call provides an opportunity to explore your goals and determine whether our services are the right fit before scheduling a full consultation.",
+            "For existing clients, it is a simple way to check in, troubleshoot, and stay aligned between appointments without committing to a longer session.",
+        ],
+        "reviews": [
+            {
+                "author_name": "Chinyere Nwabueze",
+                "rating": 5,
+                "body": "The initial wellness consultation was thoughtful and unrushed. Nichole took time to understand my lifestyle and explained everything in a way that felt empowering, not overwhelming.",
+            },
+            {
+                "author_name": "Somtochukwu Anyaoku",
+                "rating": 4,
+                "body": "The initial wellness consultation was thoughtful and unrushed. Nichole took time to understand my lifestyle and explained everything in a way that felt empowering, not overwhelming.",
+            },
+        ],
+    },
+    {
+        "name": "Salt Session (Halotherapy)",
+        "description": "Our 45-minute Salt Session is a calming, restorative experience designed to help you slow down, breathe deeply, and relax. Guests sit comfortably in a softly lit salt room, surrounded by the warm glow of Himalayan salt lamps while fine, dry salt particles are gently dispersed into the air.",
+        "category": "wellness",
+        "duration_minutes": 45,
+        "price": 50.00,
+        "discount_price": 25.00,
+        "image_url": "https://images.unsplash.com/photo-1611078489935-0cb964de46d6?w=800",
+        "is_featured": True,
+        "is_active": True,
+        "max_capacity": 1,
+        "revel_product_id": "revel_salt_session",
+        "warning_copy": None,
+        "benefits": [
+            "May support respiratory comfort and easier breathing for many guests in a calming environment.",
+            "Offers dedicated downtime to decompress, reset stress, and enjoy quiet restoration.",
+            "Provides a gentle, non-invasive wellness ritual suitable as an add-on to your broader care plan.",
+        ],
+        "reviews": [
+            {
+                "author_name": "Chinyere Nwabueze",
+                "rating": 5,
+                "body": "The salt room was peaceful and the team made the whole visit simple. I left feeling lighter and more grounded.",
+            },
+            {
+                "author_name": "Somtochukwu Anyaoku",
+                "rating": 5,
+                "body": "Quiet, clean, and restorative. A lovely way to spend 45 minutes focused on breathing and relaxation.",
+            },
+        ],
+    },
+    {
+        "name": "1-Hour Consultation",
+        "description": "This one-hour consultation provides a focused, individualized review of your current health concerns, goals, and relevant history. The session is designed to assess contributing factors, clarify priorities, and identify areas that may benefit from further support or intervention.",
+        "category": "holistic",
+        "duration_minutes": 60,
+        "price": 200.00,
+        "discount_price": 175.00,
+        "image_url": "https://images.unsplash.com/photo-1573497019236-61f323342eb0?w=800",
+        "is_featured": True,
+        "is_active": True,
+        "max_capacity": 1,
+        "revel_product_id": "revel_consult_1h",
+        "warning_copy": None,
+        "benefits": [
+            "Personalized time to connect symptoms, history, and goals into a clearer picture.",
+            "Practical next steps tailored to your priorities—not a one-size-fits-all checklist.",
+            "Space to ask questions and understand options before committing to a longer plan.",
+        ],
+        "reviews": [
+            {
+                "author_name": "Chinyere Nwabueze",
+                "rating": 5,
+                "body": "Everything felt intentional. I walked away with clarity on what to focus on first.",
+            },
+            {
+                "author_name": "Somtochukwu Anyaoku",
+                "rating": 4,
+                "body": "Professional, thorough, and respectful of my time. The hour went by quickly because it was so focused.",
+            },
+        ],
+    },
+    {
+        "name": "2-Hours Extended Consultation",
+        "description": "This session includes everything from the 1-hour wellness consultation and expands the time for clients with complex histories, substantial documentation, or multiple functional reports requiring detailed review.",
+        "category": "holistic",
+        "duration_minutes": 120,
+        "price": 400.00,
+        "discount_price": 300.00,
+        "image_url": "https://images.unsplash.com/photo-1550831107-1553da8c8464?w=800",
+        "is_featured": False,
+        "is_active": True,
+        "max_capacity": 1,
+        "revel_product_id": "revel_consult_2h",
+        "warning_copy": None,
+        "benefits": [
+            "Extra time for layered histories, labs, and nuanced discussions without rushing.",
+            "Deeper exploration of patterns and priorities across multiple body systems.",
+            "Ideal when you want comprehensive guidance in a single, extended visit.",
+        ],
+        "reviews": [
+            {
+                "author_name": "Chinyere Nwabueze",
+                "rating": 5,
+                "body": "Worth the longer session—I finally had room to explain everything and feel heard.",
+            },
+            {
+                "author_name": "Somtochukwu Anyaoku",
+                "rating": 5,
+                "body": "Well organized and calm. Complex topics were explained in plain language.",
+            },
+        ],
+    },
+    {
+        "name": "30-Minute Follow Up Consultation",
+        "description": "Available to existing clients within one year of their initial consultation. A check-in to reflect, adjust, and stay connected to your evolving goals. If more than a year has passed, a 1-hour consultation is recommended.",
+        "category": "holistic",
+        "duration_minutes": 30,
+        "price": 150.00,
+        "discount_price": 75.00,
+        "image_url": "https://images.unsplash.com/photo-1629909613654-28e377c37b09?w=800",
+        "is_featured": False,
+        "is_active": True,
+        "max_capacity": 1,
+        "revel_product_id": "revel_followup_30m",
+        "warning_copy": None,
+        "benefits": [
+            "Keeps momentum between larger appointments with a focused tune-up.",
+            "Adjust recommendations as your routine, labs, or symptoms shift.",
+            "Efficient format when you mostly need answers to a few sharp questions.",
+        ],
+        "reviews": [
+            {
+                "author_name": "Chinyere Nwabueze",
+                "rating": 4,
+                "body": "Perfect for a quick check-in. I liked that it stayed on topic and actionable.",
+            },
+            {
+                "author_name": "Somtochukwu Anyaoku",
+                "rating": 5,
+                "body": "Great continuity of care—felt like the team remembered my story.",
+            },
+        ],
+    },
+    {
+        "name": "Direct-to-Consumer Lab Testing",
+        "description": "Get the lab tests you want, when you want them at over 90% off traditional lab prices.",
+        "category": "wellness",
+        "duration_minutes": 30,
+        "price": 150.00,
+        "discount_price": 75.00,
+        "image_url": "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=800",
+        "is_featured": False,
+        "is_active": True,
+        "max_capacity": 1,
+        "revel_product_id": "revel_lab_testing",
+        "warning_copy": None,
+        "benefits": [
+            "Access to testing options that support informed conversations with your care team.",
+            "Transparent pricing compared with many traditional lab pathways.",
+            "Convenient scheduling so you can move forward when you are ready.",
+        ],
+        "reviews": [
+            {
+                "author_name": "Chinyere Nwabueze",
+                "rating": 5,
+                "body": "Straightforward process and clear communication about next steps.",
+            },
+            {
+                "author_name": "Somtochukwu Anyaoku",
+                "rating": 4,
+                "body": "Helped me get the panels I wanted without the usual runaround.",
+            },
+        ],
+    },
+]

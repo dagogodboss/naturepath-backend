@@ -32,6 +32,15 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 
+class SendVerificationOtpRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyEmailOtpRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=8)
+
+
 # ==================== User DTOs ====================
 class UserResponse(BaseModel):
     user_id: str
@@ -120,6 +129,18 @@ class CreateServiceRequest(BaseModel):
     is_featured: bool = False
     max_capacity: int = 1
     revel_product_id: Optional[str] = None
+    benefits: List[str] = Field(default_factory=list)
+    warning_copy: Optional[str] = None
+    is_discovery_entry: bool = False
+
+
+class ServiceReviewResponse(BaseModel):
+    review_id: str
+    service_id: str
+    author_name: str
+    rating: int
+    body: str
+    created_at: str
 
 
 class ServiceResponse(BaseModel):
@@ -135,7 +156,12 @@ class ServiceResponse(BaseModel):
     is_active: bool
     max_capacity: int
     revel_product_id: Optional[str]
+    benefits: List[str] = []
+    warning_copy: Optional[str] = None
+    rating_average: float = 0.0
+    rating_count: int = 0
     created_at: str
+    reviews: List[ServiceReviewResponse] = Field(default_factory=list)
 
 
 class UpdateServiceRequest(BaseModel):
@@ -149,6 +175,9 @@ class UpdateServiceRequest(BaseModel):
     is_featured: Optional[bool] = None
     is_active: Optional[bool] = None
     max_capacity: Optional[int] = None
+    benefits: Optional[List[str]] = None
+    warning_copy: Optional[str] = None
+    is_discovery_entry: Optional[bool] = None
 
 
 # ==================== Booking DTOs ====================

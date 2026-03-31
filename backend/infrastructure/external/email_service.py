@@ -4,8 +4,10 @@ Email Service - Resend Integration
 import os
 import asyncio
 import logging
+import smtplib
 import resend
 from typing import Optional, Dict, Any, List
+from email.message import EmailMessage
 from core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -17,6 +19,12 @@ class EmailService:
     def __init__(self):
         self.api_key = settings.resend_api_key
         self.sender_email = settings.sender_email
+        self.smtp_host = settings.smtp_host
+        self.smtp_port = settings.smtp_port
+        self.smtp_username = settings.smtp_username
+        self.smtp_password = settings.smtp_password
+        self.smtp_use_tls = settings.smtp_use_tls
+        self.smtp_sender_email = settings.smtp_sender_email or self.sender_email
         if self.api_key:
             resend.api_key = self.api_key
     
@@ -39,31 +47,72 @@ class EmailService:
         Returns:
             Email send result
         """
-        if not self.api_key or self.api_key == "re_placeholder":
-            logger.warning("Resend API key not configured - email not sent")
-            return {"success": False, "message": "Email service not configured", "mock": True}
-        
-        params = {
-            "from": self.sender_email,
-            "to": [to_email],
-            "subject": subject,
-            "html": html_content
-        }
-        
-        if text_content:
-            params["text"] = text_content
-        
-        try:
-            email = await asyncio.to_thread(resend.Emails.send, params)
-            logger.info(f"Email sent to {to_email}: {subject}")
-            return {
-                "success": True,
-                "email_id": email.get("id"),
-                "message": f"Email sent to {to_email}"
+        if self.api_key and self.api_key != "re_placeholder":
+            params = {
+                "from": self.sender_email,
+                "to": [to_email],
+                "subject": subject,
+                "html": html_content
             }
-        except Exception as e:
-            logger.error(f"Failed to send email: {str(e)}")
-            return {"success": False, "message": str(e)}
+            
+            if text_content:
+                params["text"] = text_content
+            
+            try:
+                email = await asyncio.to_thread(resend.Emails.send, params)
+                logger.info(f"Email sent via Resend to {to_email}: {subject}")
+                return {
+                    "success": True,
+                    "provider": "resend",
+                    "email_id": email.get("id"),
+                    "message": f"Email sent to {to_email}"
+                }
+            except Exception as e:
+                logger.error(f"Failed to send email via Resend: {str(e)}")
+                return {"success": False, "provider": "resend", "message": str(e)}
+        
+        if self.smtp_host:
+            try:
+                await asyncio.to_thread(
+                    self._send_via_smtp,
+                    to_email,
+                    subject,
+                    html_content,
+                    text_content,
+                )
+                logger.info(f"Email sent via SMTP to {to_email}: {subject}")
+                return {
+                    "success": True,
+                    "provider": "smtp",
+                    "message": f"Email sent to {to_email}"
+                }
+            except Exception as e:
+                logger.error(f"Failed to send email via SMTP: {str(e)}")
+                return {"success": False, "provider": "smtp", "message": str(e)}
+
+        logger.warning("No email provider configured (Resend/SMTP) - email not sent")
+        return {"success": False, "message": "Email service not configured", "mock": True}
+
+    def _send_via_smtp(
+        self,
+        to_email: str,
+        subject: str,
+        html_content: str,
+        text_content: Optional[str] = None
+    ) -> None:
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = self.smtp_sender_email
+        msg["To"] = to_email
+        msg.set_content(text_content or "Please view this email in an HTML-compatible client.")
+        msg.add_alternative(html_content, subtype="html")
+
+        with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=20) as server:
+            if self.smtp_use_tls:
+                server.starttls()
+            if self.smtp_username and self.smtp_password:
+                server.login(self.smtp_username, self.smtp_password)
+            server.send_message(msg)
     
     async def send_booking_confirmation(
         self,
@@ -263,6 +312,31 @@ class EmailService:
         """
         
         return await self.send_email(to_email, subject, html_content)
+
+    async def send_verification_otp(
+        self,
+        to_email: str,
+        otp_code: str,
+        expires_minutes: int = 10
+    ) -> Dict[str, Any]:
+        """Send account verification OTP email."""
+        subject = "Your The Natural Path verification code"
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #1f2937;">
+            <h2 style="margin-bottom: 8px;">Verify your email</h2>
+            <p>Use the code below to verify your account:</p>
+            <div style="font-size: 28px; letter-spacing: 6px; font-weight: 700; margin: 16px 0;">
+                {otp_code}
+            </div>
+            <p>This code expires in {expires_minutes} minutes.</p>
+            <p>If you did not request this code, you can ignore this email.</p>
+        </body>
+        </html>
+        """
+        text_content = f"Your The Natural Path verification code is {otp_code}. It expires in {expires_minutes} minutes."
+        return await self.send_email(to_email, subject, html_content, text_content)
 
 
 # Singleton instance

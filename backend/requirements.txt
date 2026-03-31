@@ -12,7 +12,7 @@ pymongo>=4.6.1
 # Authentication
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
-bcrypt>=4.1.2
+bcrypt>=4.1.2,<5
 
 # Async HTTP Client
 httpx>=0.28.1

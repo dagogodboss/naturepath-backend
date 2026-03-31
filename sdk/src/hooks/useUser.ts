@@ -5,7 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '../api/endpoints';
 import { queryKeys } from './queryKeys';
-import type { Practitioner, UpdateProfileRequest } from '../types';
+import type { DiscoveryEligibility, Practitioner, UpdateProfileRequest } from '../types';
 
 /**
  * Hook to fetch current user profile
@@ -31,6 +31,18 @@ export function useMyPractitioner(enabled = true) {
     queryKey: queryKeys.user.myPractitioner,
     queryFn: (): Promise<Practitioner> => userApi.getMyPractitioner(),
     staleTime: 2 * 60 * 1000,
+    enabled,
+  });
+}
+
+/**
+ * Discovery booking eligibility for current user.
+ */
+export function useDiscoveryEligibility(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.user.discoveryEligibility,
+    queryFn: (): Promise<DiscoveryEligibility> => userApi.getDiscoveryEligibility(),
+    staleTime: 60 * 1000,
     enabled,
   });
 }

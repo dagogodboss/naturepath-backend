@@ -44,6 +44,7 @@ export type {
   NotificationType,
   // User
   User,
+  DiscoveryEligibility,
   RegisterRequest,
   LoginRequest,
   AuthResponse,
@@ -56,6 +57,7 @@ export type {
   UpdatePractitionerRequest,
   // Service
   Service,
+  ServiceReview,
   CreateServiceRequest,
   UpdateServiceRequest,
   // Availability
@@ -128,6 +130,7 @@ export {
   usePractitionerCalendar,
   // User
   useProfile,
+  useDiscoveryEligibility,
   useMyPractitioner,
   useUpdateProfile,
   useNotifications,

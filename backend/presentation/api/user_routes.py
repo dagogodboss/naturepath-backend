@@ -75,6 +75,15 @@ async def get_my_bookings(
     return await booking_use_case.get_customer_bookings(current_user["user_id"])
 
 
+@router.get("/discovery-eligibility", response_model=dict)
+async def get_discovery_eligibility(
+    current_user: dict = Depends(get_current_active_user),
+    booking_use_case: BookingUseCase = Depends(get_booking_use_case),
+):
+    """Return whether current user can book non-discovery services."""
+    return await booking_use_case.get_discovery_eligibility(current_user["user_id"])
+
+
 @router.get("/notifications", response_model=List[dict])
 async def get_my_notifications(
     unread_only: bool = False,

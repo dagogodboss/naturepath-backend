@@ -114,6 +114,8 @@ Build a production-grade backend for "The Natural Path Spa Management System" wi
 
 **After deploy:** align frontend `VITE_NATURAL_PATH_API_URL` with the public API URL; API listens on **port 8001** in Docker (`backend/Dockerfile` / `docker-compose.yml`). Restrict CORS to the CloudFront / app origin.
 
+**Review — still left after AWS goes live:** sign-up/forgot-password UX; customer header + logout; practitioner **Clients** / reporting shells wired to admin hooks; **admin dashboard UI**; real **Resend/Twilio** keys; CI/CD to ECR/ECS; WebSocket stickiness if multiple API tasks; **Ecommerce/Revel** build-out per `docs/ECOMMERCE_REVEL_PLAN.md` (mock Revel today).
+
 ## Ecommerce (Revel) — planned
 
 **Product spec:** [`docs/ECOMMERCE_REVEL_PLAN.md`](../docs/ECOMMERCE_REVEL_PLAN.md) — order–inventory flow, delivery address, **no online payment** (back office / Revel), practitioner + guest UIs, backend phases, SDK hooks outline.
