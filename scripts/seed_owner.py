@@ -50,7 +50,7 @@ async def main() -> None:
     db = client.get_default_database()
     now = _utc_now_iso()
 
-    owner_email = "admin@thenaturalpath.com"
+    owner_email = "Nmoore@thenaturalpathla.com"
     first_name = "Nichole"
     last_name = "Moore"
 

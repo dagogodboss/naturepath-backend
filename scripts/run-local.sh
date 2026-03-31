@@ -123,7 +123,68 @@ print(
 PY
 )"
 fi
+if [[ "$seed_check_status" -ne 0 && "$seed_check_status" -ne 7 ]]; then
+  echo "WARNING: Could not verify service/review seed status (Mongo may be unreachable)."
+fi
 echo "Seed status: $seed_check_output"
+
+echo "Checking owner/admin account..."
+owner_check_output="$(
+python - <<'PY'
+import os
+import sys
+from pymongo import MongoClient
+
+mongo_url = os.environ.get("MONGO_URL")
+db_name = os.environ.get("DB_NAME", "natural_path_spa")
+client = MongoClient(mongo_url)
+db = client[db_name]
+
+admin_count = db.users.count_documents({"role": "admin", "is_active": True})
+owner_count = db.users.count_documents(
+    {
+        "email": {"$in": ["admin@thenaturalpath.com", "Nmoore@thenaturalpathla.com"]},
+        "is_active": True,
+    }
+)
+print(f"active_admins={admin_count} active_owner_candidates={owner_count}")
+if admin_count == 0 and owner_count == 0:
+    sys.exit(9)
+PY
+)" || owner_check_status=$?
+owner_check_status="${owner_check_status:-0}"
+if [[ "$owner_check_status" -eq 9 ]]; then
+  if [[ -n "${OWNER_PASSWORD:-}" ]]; then
+    echo "No active admin/owner account found. Running scripts/seed_owner.py ..."
+    (
+      cd "$BACKEND_REPO_DIR"
+      PYTHONPATH=. MONGO_URL="$MONGO_URL" OWNER_PASSWORD="$OWNER_PASSWORD" python3 scripts/seed_owner.py
+    )
+    owner_check_output="$(
+python - <<'PY'
+import os
+from pymongo import MongoClient
+
+mongo_url = os.environ.get("MONGO_URL")
+db_name = os.environ.get("DB_NAME", "natural_path_spa")
+client = MongoClient(mongo_url)
+db = client[db_name]
+admin_count = db.users.count_documents({"role": "admin", "is_active": True})
+owner_count = db.users.count_documents(
+    {"email": {"$in": ["admin@thenaturalpath.com", "Nmoore@thenaturalpathla.com"]}, "is_active": True}
+)
+print(f"active_admins={admin_count} active_owner_candidates={owner_count}")
+PY
+)"
+  else
+    echo "WARNING: No active admin/owner account found."
+    echo "Set OWNER_PASSWORD in your environment to auto-seed owner via scripts/seed_owner.py."
+  fi
+fi
+if [[ "$owner_check_status" -ne 0 && "$owner_check_status" -ne 9 ]]; then
+  echo "WARNING: Could not verify owner/admin status (Mongo may be unreachable)."
+fi
+echo "Owner/admin status: $owner_check_output"
 
 echo "Preparing frontend environment..."
 cd "$FRONTEND_DIR"
