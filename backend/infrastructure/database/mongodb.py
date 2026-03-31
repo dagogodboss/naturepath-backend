@@ -90,6 +90,10 @@ class Database:
         await cls.db.events.create_index("event_id", unique=True)
         await cls.db.events.create_index("event_type")
         await cls.db.events.create_index("timestamp")
+
+        # Authorization audit logs
+        await cls.db.authorization_audit.create_index("timestamp")
+        await cls.db.authorization_audit.create_index([("user_id", 1), ("timestamp", -1)])
         
         logger.info("Database indexes created")
     

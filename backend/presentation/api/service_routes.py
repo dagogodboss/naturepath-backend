@@ -15,6 +15,7 @@ from presentation.dependencies import (
     get_practitioner_repo,
     get_service_use_case,
 )
+from core.rbac import Permission, has_permission
 
 router = APIRouter(prefix="/services", tags=["Services"])
 
@@ -25,7 +26,7 @@ async def _filter_services_for_caller(
     booking_use_case: BookingUseCase,
 ) -> List[Dict[str, Any]]:
     role = (optional_user or {}).get("role")
-    if role in ("admin", "practitioner"):
+    if has_permission(role, Permission.SERVICE_UPDATE):
         return services
 
     discovery_only = optional_user is None
@@ -47,7 +48,7 @@ async def _caller_may_view_service(
     if BookingUseCase._is_discovery_service(service):
         return True
     role = (optional_user or {}).get("role")
-    if role in ("admin", "practitioner"):
+    if has_permission(role, Permission.SERVICE_UPDATE):
         return True
     if optional_user is None:
         return False
@@ -124,12 +125,14 @@ async def create_service(
 ):
     """Create a new service (admin or practitioner). Practitioners get the service linked to their profile."""
     effective = request
-    if ctx["user"].get("role") == "practitioner":
+    if not has_permission(ctx["user"].get("role"), Permission.USER_ROLE_MANAGE):
         effective = request.model_copy(
             update={"is_featured": False, "revel_product_id": None, "is_discovery_entry": False}
         )
     is_discovery_entry = (
-        bool(effective.is_discovery_entry) if ctx["user"].get("role") == "admin" else False
+        bool(effective.is_discovery_entry)
+        if has_permission(ctx["user"].get("role"), Permission.USER_ROLE_MANAGE)
+        else False
     )
     created = await service_use_case.create_service(
         name=effective.name,
@@ -146,7 +149,7 @@ async def create_service(
         warning_copy=effective.warning_copy,
         is_discovery_entry=is_discovery_entry,
     )
-    if ctx["user"].get("role") == "practitioner" and ctx.get("practitioner"):
+    if not has_permission(ctx["user"].get("role"), Permission.USER_ROLE_MANAGE) and ctx.get("practitioner"):
         p = ctx["practitioner"]
         services = list(p.get("services", []))
         sid = created["service_id"]

@@ -1,0 +1,43 @@
+# Customer
+p, customer, profile:read, use
+p, customer, profile:write, use
+p, customer, booking:create, use
+p, customer, booking:read:own, use
+p, customer, service:read, use
+
+# Staff
+p, staff, profile:read, use
+p, staff, profile:write, use
+p, staff, booking:read:all, use
+p, staff, booking:manage, use
+p, staff, service:read, use
+
+# Manager
+p, manager, profile:read, use
+p, manager, profile:write, use
+p, manager, booking:read:all, use
+p, manager, booking:manage, use
+p, manager, service:read, use
+p, manager, service:create, use
+p, manager, service:update, use
+p, manager, admin:dashboard:read, use
+
+# Admin
+p, admin, profile:read, use
+p, admin, profile:write, use
+p, admin, booking:create, use
+p, admin, booking:read:own, use
+p, admin, booking:read:all, use
+p, admin, booking:manage, use
+p, admin, practitioner:profile:manage, use
+p, admin, practitioner:slot:manage, use
+p, admin, service:read, use
+p, admin, service:create, use
+p, admin, service:update, use
+p, admin, service:delete, use
+p, admin, admin:dashboard:read, use
+p, admin, user:role:manage, use
+p, admin, user:status:manage, use
+
+# Practitioner inherits admin access by policy.
+g, practitioner, admin

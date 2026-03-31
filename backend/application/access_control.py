@@ -1,6 +1,8 @@
 """Pure access checks for practitioner-scoped resources (testable without HTTP)."""
 from __future__ import annotations
 
+from core.rbac import Permission, has_permission, normalize_role
+
 
 class PractitionerAccessDenied(Exception):
     """Raised when a practitioner attempts to act on another practitioner's resource."""
@@ -17,9 +19,10 @@ def assert_admin_or_same_practitioner(
     Admin may access any practitioner resource.
     Practitioner may access only resources for their own practitioner_id.
     """
-    if user_role == "admin":
+    role = normalize_role(user_role)
+    if has_permission(role, Permission.USER_ROLE_MANAGE):
         return
-    if user_role == "practitioner":
+    if has_permission(role, Permission.PRACTITIONER_PROFILE_MANAGE):
         if acting_practitioner_id and acting_practitioner_id == resource_practitioner_id:
             return
     raise PractitionerAccessDenied(

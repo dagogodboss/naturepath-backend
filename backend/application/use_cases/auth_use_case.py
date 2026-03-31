@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from core.config import settings
+from core.rbac import normalize_role
 from domain.entities import User, UserRole, generate_id, utc_now
 from infrastructure.repositories import MongoUserRepository
 from workers.notification_worker import send_welcome_email
@@ -58,6 +59,7 @@ class AuthUseCase:
             raise ValueError("User with this email already exists")
         
         # Create user
+        canonical_role = UserRole(normalize_role(role.value))
         user = User(
             user_id=generate_id(),
             email=email,
@@ -65,7 +67,7 @@ class AuthUseCase:
             first_name=first_name,
             last_name=last_name,
             phone=phone,
-            role=role,
+            role=canonical_role,
             is_active=True,
             is_verified=False,
             is_discovery_completed=False,
@@ -84,7 +86,7 @@ class AuthUseCase:
             logger.warning(f"Failed to queue welcome email: {e}")
         
         # Generate tokens
-        token_data = {"sub": user.user_id, "email": email, "role": role.value}
+        token_data = {"sub": user.user_id, "email": email, "role": user.role.value}
         access_token = self._create_access_token(token_data)
         refresh_token = self._create_refresh_token(token_data)
         
@@ -109,6 +111,7 @@ class AuthUseCase:
         user = await self.user_repo.get_by_email(email)
         if not user:
             raise ValueError("Invalid email or password")
+        user["role"] = normalize_role(user.get("role"))
         
         if not self._verify_password(password, user["password_hash"]):
             raise ValueError("Invalid email or password")
@@ -163,6 +166,7 @@ class AuthUseCase:
             
             if not user or not user.get("is_active", True):
                 raise ValueError("User not found or inactive")
+            user["role"] = normalize_role(user.get("role"))
             
             # Generate new tokens
             token_data = {
@@ -208,6 +212,7 @@ class AuthUseCase:
         user = await self.user_repo.get_by_id(user_id)
         if not user:
             raise ValueError("User not found")
+        user["role"] = normalize_role(user.get("role"))
         
         # Remove sensitive data
         user.pop("password_hash", None)

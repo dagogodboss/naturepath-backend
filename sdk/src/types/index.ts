@@ -5,7 +5,7 @@
  */
 
 // ==================== Enums ====================
-export type UserRole = 'customer' | 'practitioner' | 'admin';
+export type UserRole = 'customer' | 'staff' | 'manager' | 'practitioner' | 'admin';
 
 export type BookingStatus = 
   | 'draft' 

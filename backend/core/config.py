@@ -3,9 +3,9 @@ Core Configuration Module - The Natural Path Spa Management System
 """
 import os
 from functools import lru_cache
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, List
 
 
 class Settings(BaseSettings):
@@ -15,9 +15,15 @@ class Settings(BaseSettings):
     app_name: str = "The Natural Path Spa"
     app_env: str = "development"
     debug: bool = True
+    deployment_target: str = "local"  # local | aws
+    use_docker_network: bool = False
+    cors_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     
     # MongoDB
-    mongo_url: str = "mongodb://localhost:27017"
+    mongo_url: Optional[str] = None
+    mongo_host_local: str = "127.0.0.1"
+    mongo_host_docker: str = "mongodb"
+    mongo_port: int = 27017
     db_name: str = "natural_path_spa"
     
     # JWT
@@ -27,7 +33,11 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     
     # Redis
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: Optional[str] = None
+    redis_host_local: str = "127.0.0.1"
+    redis_host_docker: str = "redis"
+    redis_port: int = 6379
+    redis_db: int = 0
     
     # Email (Resend)
     resend_api_key: Optional[str] = None
@@ -53,6 +63,26 @@ class Settings(BaseSettings):
         if value in ("", None):
             return True
         return value
+
+    @model_validator(mode="after")
+    def _hydrate_runtime_urls(self):
+        use_docker = self.use_docker_network or self.deployment_target.lower() == "aws"
+        if not self.mongo_url:
+            mongo_host = self.mongo_host_docker if use_docker else self.mongo_host_local
+            self.mongo_url = f"mongodb://{mongo_host}:{self.mongo_port}"
+        if not self.redis_url:
+            redis_host = self.redis_host_docker if use_docker else self.redis_host_local
+            self.redis_url = f"redis://{redis_host}:{self.redis_port}/{self.redis_db}"
+        if self.app_env.lower() in ("production", "prod"):
+            if self.jwt_secret_key == "natural-path-spa-super-secret-key-2024":
+                raise ValueError("JWT_SECRET_KEY must be overridden in production")
+            if "*" in self.cors_origins:
+                raise ValueError("CORS wildcard is not allowed in production")
+        return self
+
+    @property
+    def cors_origins(self) -> List[str]:
+        return [v.strip() for v in self.cors_allowed_origins.split(",") if v.strip()]
     
     # SMS (Twilio)
     twilio_account_sid: Optional[str] = None
@@ -73,7 +103,7 @@ class Settings(BaseSettings):
     revel_establishment_id: int = 1
 
     class Config:
-        env_file = ".env"
+        env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
         extra = "ignore"
 
 

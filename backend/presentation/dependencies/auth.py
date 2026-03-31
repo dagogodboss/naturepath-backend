@@ -1,7 +1,8 @@
 """
 API Dependencies - Presentation Layer
 """
-from fastapi import Depends, HTTPException, status
+from datetime import datetime, timezone
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from typing import Optional
@@ -25,6 +26,30 @@ from application.use_cases import (
     ServiceUseCase,
     PractitionerUseCase
 )
+from core.rbac import Permission, has_permission, normalize_role
+
+async def _audit_authorization(
+    db: AsyncIOMotorDatabase,
+    *,
+    user_id: str | None,
+    role: str | None,
+    permission: Permission,
+    allowed: bool,
+    path: str,
+    method: str,
+):
+    await db.authorization_audit.insert_one(
+        {
+            "user_id": user_id,
+            "role": role,
+            "permission": permission.value,
+            "allowed": allowed,
+            "path": path,
+            "method": method,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
 
 security = HTTPBearer()
 
@@ -135,27 +160,78 @@ async def get_current_active_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is disabled"
         )
+    current_user["role"] = normalize_role(current_user.get("role"))
     return current_user
 
 
+def require_permission(permission: Permission):
+    async def _require_permission(
+        request: Request,
+        current_user: dict = Depends(get_current_active_user),
+        db: AsyncIOMotorDatabase = Depends(get_database),
+    ):
+        allowed = has_permission(current_user.get("role"), permission)
+        await _audit_authorization(
+            db,
+            user_id=current_user.get("user_id"),
+            role=current_user.get("role"),
+            permission=permission,
+            allowed=allowed,
+            path=request.url.path,
+            method=request.method,
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission required: {permission.value}",
+            )
+        return current_user
+
+    return _require_permission
+
+
 async def get_current_admin(
-    current_user: dict = Depends(get_current_active_user)
+    request: Request,
+    current_user: dict = Depends(get_current_active_user),
+    db: AsyncIOMotorDatabase = Depends(get_database),
 ):
-    """Get current admin user"""
-    if current_user.get("role") != "admin":
+    """Get current elevated user (admin/practitioner/manager with user-role-manage permission)."""
+    allowed = has_permission(current_user.get("role"), Permission.USER_ROLE_MANAGE)
+    await _audit_authorization(
+        db,
+        user_id=current_user.get("user_id"),
+        role=current_user.get("role"),
+        permission=Permission.USER_ROLE_MANAGE,
+        allowed=allowed,
+        path=request.url.path,
+        method=request.method,
+    )
+    if not allowed:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
+            detail="Admin-level access required"
         )
     return current_user
 
 
 async def get_current_practitioner(
+    request: Request,
     current_user: dict = Depends(get_current_active_user),
-    practitioner_repo: MongoPractitionerRepository = Depends(get_practitioner_repo)
+    practitioner_repo: MongoPractitionerRepository = Depends(get_practitioner_repo),
+    db: AsyncIOMotorDatabase = Depends(get_database),
 ):
     """Get current practitioner user"""
-    if current_user.get("role") not in ["practitioner", "admin"]:
+    allowed = has_permission(current_user.get("role"), Permission.PRACTITIONER_PROFILE_MANAGE)
+    await _audit_authorization(
+        db,
+        user_id=current_user.get("user_id"),
+        role=current_user.get("role"),
+        permission=Permission.PRACTITIONER_PROFILE_MANAGE,
+        allowed=allowed,
+        path=request.url.path,
+        method=request.method,
+    )
+    if not allowed:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Practitioner access required"
@@ -163,7 +239,7 @@ async def get_current_practitioner(
     
     # Get practitioner profile
     practitioner = await practitioner_repo.get_by_user_id(current_user["user_id"])
-    if not practitioner and current_user.get("role") != "admin":
+    if not practitioner and not has_permission(current_user.get("role"), Permission.USER_ROLE_MANAGE):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Practitioner profile not found"
@@ -173,17 +249,37 @@ async def get_current_practitioner(
 
 
 async def get_current_admin_or_practitioner(
+    request: Request,
     current_user: dict = Depends(get_current_active_user),
     practitioner_repo: MongoPractitionerRepository = Depends(get_practitioner_repo),
+    db: AsyncIOMotorDatabase = Depends(get_database),
 ):
     """
     Admin (no practitioner profile required) or practitioner with a linked profile.
     Used for creating services and generating availability as a practitioner.
     """
     role = current_user.get("role")
-    if role == "admin":
+    if has_permission(role, Permission.USER_ROLE_MANAGE):
+        await _audit_authorization(
+            db,
+            user_id=current_user.get("user_id"),
+            role=role,
+            permission=Permission.USER_ROLE_MANAGE,
+            allowed=True,
+            path=request.url.path,
+            method=request.method,
+        )
         return {"user": current_user, "practitioner": None}
-    if role == "practitioner":
+    if has_permission(role, Permission.PRACTITIONER_PROFILE_MANAGE):
+        await _audit_authorization(
+            db,
+            user_id=current_user.get("user_id"),
+            role=role,
+            permission=Permission.PRACTITIONER_PROFILE_MANAGE,
+            allowed=True,
+            path=request.url.path,
+            method=request.method,
+        )
         practitioner = await practitioner_repo.get_by_user_id(current_user["user_id"])
         if not practitioner:
             raise HTTPException(
@@ -207,6 +303,8 @@ async def get_optional_user(
     if not credentials:
         return None
     try:
-        return await auth_use_case.get_current_user(credentials.credentials)
+        user = await auth_use_case.get_current_user(credentials.credentials)
+        user["role"] = normalize_role(user.get("role"))
+        return user
     except ValueError:
         return None

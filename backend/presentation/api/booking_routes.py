@@ -14,6 +14,7 @@ from presentation.dependencies import (
     get_current_admin,
     get_current_practitioner,
 )
+from core.rbac import Permission, has_permission
 
 router = APIRouter(prefix="/booking", tags=["Booking"])
 
@@ -94,7 +95,7 @@ async def get_booking(
 ):
     """Get a specific booking by ID"""
     try:
-        is_admin = current_user.get("role") == "admin"
+        is_admin = has_permission(current_user.get("role"), Permission.BOOKING_READ_ALL)
         return await booking_use_case.get_booking_by_id(
             booking_id=booking_id,
             user_id=current_user["user_id"],
@@ -112,7 +113,7 @@ async def cancel_booking(
 ):
     """Cancel a booking"""
     try:
-        is_admin = current_user.get("role") == "admin"
+        is_admin = has_permission(current_user.get("role"), Permission.BOOKING_MANAGE)
         return await booking_use_case.cancel_booking(
             booking_id=request.booking_id,
             user_id=current_user["user_id"],

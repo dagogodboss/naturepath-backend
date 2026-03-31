@@ -17,6 +17,7 @@ from infrastructure.repositories import (
     MongoPractitionerRepository,
 )
 from application.use_cases import BookingUseCase
+from core.rbac import Permission, has_permission
 
 router = APIRouter(prefix="/me", tags=["User Profile"])
 
@@ -35,7 +36,7 @@ async def get_my_practitioner_profile(
     practitioner_repo: MongoPractitionerRepository = Depends(get_practitioner_repo),
 ):
     """Return practitioner profile for the logged-in practitioner (or admin with a linked profile)."""
-    if current_user.get("role") not in ("practitioner", "admin"):
+    if not has_permission(current_user.get("role"), Permission.PRACTITIONER_PROFILE_MANAGE):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Practitioner or admin role required",

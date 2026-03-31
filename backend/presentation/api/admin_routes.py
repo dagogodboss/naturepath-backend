@@ -20,6 +20,7 @@ from infrastructure.repositories import (
     MongoBookingRepository,
     MongoPaymentRepository
 )
+from core.rbac import normalize_role
 
 router = APIRouter(prefix="/admin", tags=["Admin Dashboard"])
 
@@ -209,15 +210,16 @@ async def update_user_role(
     user_repo: MongoUserRepository = Depends(get_user_repo)
 ):
     """Update user role (Admin only)"""
-    if role not in ["customer", "practitioner", "admin"]:
+    normalized = normalize_role(role)
+    if normalized not in ["customer", "staff", "manager", "practitioner", "admin"]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
     
     user = await user_repo.get_by_id(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     
-    await user_repo.update(user_id, {"role": role})
-    return {"success": True, "user_id": user_id, "new_role": role}
+    await user_repo.update(user_id, {"role": normalized})
+    return {"success": True, "user_id": user_id, "new_role": normalized}
 
 
 @router.patch("/users/{user_id}/status")

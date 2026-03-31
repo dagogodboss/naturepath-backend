@@ -67,6 +67,9 @@ Build a production-grade backend for "The Natural Path Spa Management System" wi
 - [x] Admin dashboard endpoints
 - [x] Booking analytics endpoints
 - [x] Seed data for testing
+- [x] Casbin policy-based RBAC (`core/rbac_model.conf`, `core/rbac_policy.csv`) with authorization audit logs in Mongo (`authorization_audit`)
+- [x] Startup seeding removed from app init; one-time seed scripts adopted (`scripts/seed_services.py`, `scripts/seed_owner.py`)
+- [x] CORS hardened via env (`CORS_ALLOWED_ORIGINS`) and no wildcard defaults
 
 ### SDK (100% Complete)
 - [x] TypeScript types for all entities
@@ -97,22 +100,23 @@ Build a production-grade backend for "The Natural Path Spa Management System" wi
 - [x] **Auth:** `SignIn` uses `useAuth().login`; `safePostLoginPath` for internal redirects only; shared `formatClientError` for API messages
 - [x] **Auth gates:** `RequireAuth` on `/book-appointment`, `/booking-history`, and **practitioner shell routes** (`/availability`, `/practitioner`, `/services-management`, `/appointments`, `/reschedule`, `/reporting`)
 - [x] `InputField` label/`htmlFor`/`id` via `useId` (a11y)
+- [x] Service management supports `benefits` create/edit (one-per-line UI -> array payload)
 - [x] **Vitest** (`npm test`): `src/lib/clientErrors.test.js`, `src/lib/safeRedirect.test.js`
 - [x] ESLint flat config (`react-hooks` `recommended-latest`); `vite.config` ESM-safe `__dirname`
 
 **Still to wire (high level):**
 - [ ] `SignUp` / `SignUpBooking` → `useAuth().register` (or dedicated register flow)
-- [ ] Customer header / nav: show user, logout (`useAuth().logout`)
+- [x] Customer header / nav auth-aware links + logout
 - [ ] `useRealtimeAvailability` on booking slot selection (optional polish)
 - [ ] Practitioner + admin **data** on existing screens → SDK admin/practitioner hooks (UI shells exist; not store/Revel)
-- [ ] Production-like API URL + CORS/env for deploy; optional `.env.example` in frontend
+- [x] Production-like CORS/env controls in backend config
 
 ## AWS deployment
 
 **Runbook (manual + ECS/EC2 options):** see [`docs/DEPLOYMENT_AWS.md`](../docs/DEPLOYMENT_AWS.md).  
 **CLI note:** if `aws sts get-caller-identity` fails with session expired, run `aws login` (SSO) or refresh keys before pushing to ECR or updating ECS.
 
-**After deploy:** align frontend `VITE_NATURAL_PATH_API_URL` with the public API URL; API listens on **port 8001** in Docker (`backend/Dockerfile` / `docker-compose.yml`). Restrict CORS to the CloudFront / app origin.
+**After deploy:** align frontend `VITE_NATURAL_PATH_API_URL` with the public API URL; API listens on **port 8001** in Docker (`backend/Dockerfile` / `docker-compose.yml`). Keep `CORS_ALLOWED_ORIGINS` strict to CloudFront / app origin(s).
 
 **Review — still left after AWS goes live:** sign-up/forgot-password UX; customer header + logout; practitioner **Clients** / reporting shells wired to admin hooks; **admin dashboard UI**; real **Resend/Twilio** keys; CI/CD to ECR/ECS; WebSocket stickiness if multiple API tasks; **Ecommerce/Revel** build-out per `docs/ECOMMERCE_REVEL_PLAN.md` (mock Revel today).
 
@@ -225,10 +229,15 @@ Structured plan for remaining frontend + rollout work. Order assumes local backe
 - WS /ws/availability/{practitioner_id}/{date}
 - WS /ws/notifications/{user_id}
 
-## Test Credentials
-- Admin: admin@thenaturalpath.com / admin123
-- Practitioner: sarah@thenaturalpath.com / practitioner123
-- Practitioner: michael@thenaturalpath.com / practitioner123
+## Owner Bootstrap
+- One-time script: `PYTHONPATH=. python3 scripts/seed_owner.py`
+- Required env vars:
+  - `MONGO_URL` (or `MONGODB_URL`)
+  - `OWNER_PASSWORD` (set securely outside repo)
+- Owner account seeded/updated as:
+  - Name: Nichole Moore
+  - Email: admin@thenaturalpath.com
+  - Role: practitioner (admin-equivalent permissions via Casbin role inheritance)
 
 ## Prioritized Backlog
 

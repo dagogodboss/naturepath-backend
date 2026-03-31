@@ -19,6 +19,7 @@ from presentation.dependencies import (
     get_current_active_user,
     get_current_admin_or_practitioner,
 )
+from core.rbac import Permission, has_permission
 
 router = APIRouter(prefix="/practitioners", tags=["Practitioners"])
 
@@ -108,7 +109,7 @@ async def update_practitioner(
     practitioner = current_practitioner.get("practitioner")
     user = current_practitioner.get("user")
     
-    if user.get("role") != "admin":
+    if not has_permission(user.get("role"), Permission.USER_ROLE_MANAGE):
         if not practitioner or practitioner["practitioner_id"] != practitioner_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

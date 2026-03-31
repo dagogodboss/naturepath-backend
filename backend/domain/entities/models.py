@@ -20,6 +20,8 @@ def utc_now() -> datetime:
 
 class UserRole(str, Enum):
     CUSTOMER = "customer"
+    STAFF = "staff"
+    MANAGER = "manager"
     PRACTITIONER = "practitioner"
     ADMIN = "admin"
 
