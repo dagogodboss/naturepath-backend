@@ -101,6 +101,8 @@ class Settings(BaseSettings):
     revel_api_key: str = "mock_revel_key"
     revel_api_secret: str = "mock_revel_secret"
     revel_establishment_id: int = 1
+    revel_webhook_tolerance_seconds: int = 300
+    revel_webhook_replay_ttl_seconds: int = 86400
 
     class Config:
         env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")

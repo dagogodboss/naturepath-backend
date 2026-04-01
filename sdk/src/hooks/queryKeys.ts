@@ -31,6 +31,8 @@ export const queryKeys = {
     byStatus: (status: string) => ['bookings', 'status', status] as const,
     byDateRange: (start: string, end: string, practitionerId?: string) =>
       ['bookings', 'dateRange', start, end, practitionerId] as const,
+    serviceSlots: (serviceId: string, date: string) =>
+      ['bookings', 'serviceSlots', serviceId, date] as const,
     practitionerCalendar: (start: string, end: string) =>
       ['bookings', 'practitionerCalendar', start, end] as const,
   },
@@ -47,12 +49,24 @@ export const queryKeys = {
   admin: {
     stats: ['admin', 'stats'] as const,
     analytics: (period: string) => ['admin', 'analytics', period] as const,
+    storeFunnel: (days: number) => ['admin', 'analytics', 'store-funnel', days] as const,
     customers: ['admin', 'customers'] as const,
     users: ['admin', 'users'] as const,
+    rbacBaseline: ['admin', 'rbac', 'baseline'] as const,
+    rbacOverrides: ['admin', 'rbac', 'overrides'] as const,
   },
 
   // Health
   health: ['health'] as const,
+
+  // Store / Commerce
+  store: {
+    products: (params?: string) => ['store', 'products', params || 'default'] as const,
+    myOrders: ['store', 'orders', 'mine'] as const,
+    orderDetail: (orderId: string) => ['store', 'orders', orderId] as const,
+    practitionerOrders: (status?: string) =>
+      ['store', 'practitioner', 'orders', status || 'all'] as const,
+  },
 } as const;
 
 export type QueryKeys = typeof queryKeys;

@@ -189,7 +189,7 @@ class BookingSlotDTO(BaseModel):
 
 class InitiateBookingRequest(BaseModel):
     service_id: str
-    practitioner_id: str
+    practitioner_id: Optional[str] = None
     slot: BookingSlotDTO
     notes: Optional[str] = None
 

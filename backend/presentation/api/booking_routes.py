@@ -44,6 +44,20 @@ async def initiate_booking(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
+@router.get("/service-slots", response_model=List[dict])
+async def get_service_slots(
+    service_id: str,
+    date: str,
+    current_user: dict = Depends(get_current_active_user),
+    booking_use_case: BookingUseCase = Depends(get_booking_use_case),
+):
+    """
+    Available slot windows for a service on a date.
+    Practitioner is chosen server-side during initiate.
+    """
+    return await booking_use_case.get_service_available_slots(service_id=service_id, date=date)
+
+
 @router.post("/lock-slot", response_model=dict)
 async def lock_booking_slot(
     booking_id: str,
@@ -95,7 +109,7 @@ async def get_booking(
 ):
     """Get a specific booking by ID"""
     try:
-        is_admin = has_permission(current_user.get("role"), Permission.BOOKING_READ_ALL)
+        is_admin = has_permission(current_user, Permission.BOOKING_READ_ALL)
         return await booking_use_case.get_booking_by_id(
             booking_id=booking_id,
             user_id=current_user["user_id"],
@@ -113,7 +127,7 @@ async def cancel_booking(
 ):
     """Cancel a booking"""
     try:
-        is_admin = has_permission(current_user.get("role"), Permission.BOOKING_MANAGE)
+        is_admin = has_permission(current_user, Permission.BOOKING_MANAGE)
         return await booking_use_case.cancel_booking(
             booking_id=request.booking_id,
             user_id=current_user["user_id"],
@@ -144,6 +158,28 @@ async def get_practitioner_calendar(
         start_date=start_date,
         end_date=end_date,
     )
+
+
+@router.post("/practitioner/{booking_id}/complete", response_model=dict)
+async def complete_practitioner_session(
+    booking_id: str,
+    ctx: dict = Depends(get_current_practitioner),
+    booking_use_case: BookingUseCase = Depends(get_booking_use_case),
+):
+    """Mark a booking completed (assigned practitioner or admin with profile)."""
+    user = ctx["user"]
+    if not has_permission(user, Permission.BOOKING_COMPLETE):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permission denied: booking:complete",
+        )
+    try:
+        return await booking_use_case.complete_booking_session(
+            booking_id=booking_id,
+            practitioner_user_id=user["user_id"],
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 # Admin routes

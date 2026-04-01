@@ -170,7 +170,7 @@ def require_permission(permission: Permission):
         current_user: dict = Depends(get_current_active_user),
         db: AsyncIOMotorDatabase = Depends(get_database),
     ):
-        allowed = has_permission(current_user.get("role"), permission)
+        allowed = has_permission(current_user, permission)
         await _audit_authorization(
             db,
             user_id=current_user.get("user_id"),
@@ -195,8 +195,8 @@ async def get_current_admin(
     current_user: dict = Depends(get_current_active_user),
     db: AsyncIOMotorDatabase = Depends(get_database),
 ):
-    """Get current elevated user (admin/practitioner/manager with user-role-manage permission)."""
-    allowed = has_permission(current_user.get("role"), Permission.USER_ROLE_MANAGE)
+    """User with user:role:manage (admin, owner via Casbin inheritance, or per-user grant)."""
+    allowed = has_permission(current_user, Permission.USER_ROLE_MANAGE)
     await _audit_authorization(
         db,
         user_id=current_user.get("user_id"),
@@ -221,7 +221,7 @@ async def get_current_practitioner(
     db: AsyncIOMotorDatabase = Depends(get_database),
 ):
     """Get current practitioner user"""
-    allowed = has_permission(current_user.get("role"), Permission.PRACTITIONER_PROFILE_MANAGE)
+    allowed = has_permission(current_user, Permission.PRACTITIONER_PROFILE_MANAGE)
     await _audit_authorization(
         db,
         user_id=current_user.get("user_id"),
@@ -239,7 +239,7 @@ async def get_current_practitioner(
     
     # Get practitioner profile
     practitioner = await practitioner_repo.get_by_user_id(current_user["user_id"])
-    if not practitioner and not has_permission(current_user.get("role"), Permission.USER_ROLE_MANAGE):
+    if not practitioner and not has_permission(current_user, Permission.USER_ROLE_MANAGE):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Practitioner profile not found"
@@ -259,7 +259,7 @@ async def get_current_admin_or_practitioner(
     Used for creating services and generating availability as a practitioner.
     """
     role = current_user.get("role")
-    if has_permission(role, Permission.USER_ROLE_MANAGE):
+    if has_permission(current_user, Permission.USER_ROLE_MANAGE):
         await _audit_authorization(
             db,
             user_id=current_user.get("user_id"),
@@ -270,7 +270,7 @@ async def get_current_admin_or_practitioner(
             method=request.method,
         )
         return {"user": current_user, "practitioner": None}
-    if has_permission(role, Permission.PRACTITIONER_PROFILE_MANAGE):
+    if has_permission(current_user, Permission.PRACTITIONER_PROFILE_MANAGE):
         await _audit_authorization(
             db,
             user_id=current_user.get("user_id"),

@@ -11,6 +11,7 @@ p, staff, profile:write, use
 p, staff, booking:read:all, use
 p, staff, booking:manage, use
 p, staff, service:read, use
+p, staff, service:update, use
 
 # Manager
 p, manager, profile:read, use
@@ -29,6 +30,7 @@ p, admin, booking:create, use
 p, admin, booking:read:own, use
 p, admin, booking:read:all, use
 p, admin, booking:manage, use
+p, admin, booking:complete, use
 p, admin, practitioner:profile:manage, use
 p, admin, practitioner:slot:manage, use
 p, admin, service:read, use
@@ -39,5 +41,15 @@ p, admin, admin:dashboard:read, use
 p, admin, user:role:manage, use
 p, admin, user:status:manage, use
 
-# Practitioner inherits admin access by policy.
-g, practitioner, admin
+# Owner inherits admin capabilities via grouping
+g, owner, admin
+
+# Practitioner: services + own bookings (calendar, complete session), profile & slots
+p, practitioner, profile:read, use
+p, practitioner, profile:write, use
+p, practitioner, service:read, use
+p, practitioner, service:create, use
+p, practitioner, service:update, use
+p, practitioner, practitioner:profile:manage, use
+p, practitioner, practitioner:slot:manage, use
+p, practitioner, booking:complete, use

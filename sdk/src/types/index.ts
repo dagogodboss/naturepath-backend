@@ -5,7 +5,7 @@
  */
 
 // ==================== Enums ====================
-export type UserRole = 'customer' | 'staff' | 'manager' | 'practitioner' | 'admin';
+export type UserRole = 'customer' | 'staff' | 'manager' | 'practitioner' | 'admin' | 'owner';
 
 export type BookingStatus = 
   | 'draft' 
@@ -271,9 +271,14 @@ export interface Booking {
 
 export interface InitiateBookingRequest {
   service_id: string;
-  practitioner_id: string;
+  practitioner_id?: string;
   slot: BookingSlot;
   notes?: string;
+}
+
+export interface ServiceSlotWindow {
+  start_time: string;
+  end_time: string;
 }
 
 export interface LockSlotResponse {
@@ -390,6 +395,32 @@ export interface BookingAnalytics {
   booking_trends: BookingInsight[];
 }
 
+export interface StoreFunnelAnalytics {
+  period_days: number;
+  unique_sessions: number;
+  funnel: {
+    product_list_viewed: number;
+    add_to_cart: number;
+    checkout_started: number;
+    order_placed: number;
+    payment_success: number;
+    payment_failed: number;
+    checkout_failed: number;
+  };
+  rates: {
+    checkout_to_order_pct: number;
+    payment_success_pct: number;
+  };
+  payment_method_split: Record<
+    string,
+    {
+      order_placed: number;
+      payment_success: number;
+      payment_failed: number;
+    }
+  >;
+}
+
 // ==================== API Response Types ====================
 export interface ApiError {
   detail: string;
@@ -400,6 +431,116 @@ export interface HealthCheck {
   status: string;
   service: string;
   version: string;
+}
+
+// ==================== Store / Commerce Types ====================
+export type StorePaymentMethod = 'prepaid_online' | 'pay_on_delivery' | 'manual_backoffice';
+export type StorePaymentState =
+  | 'pending'
+  | 'authorized'
+  | 'captured'
+  | 'failed'
+  | 'manual_due'
+  | 'refunded';
+export type StoreFulfillmentState =
+  | 'placed'
+  | 'confirmed'
+  | 'preparing'
+  | 'fulfilled'
+  | 'delivered'
+  | 'rejected'
+  | 'refunded';
+
+export interface StoreProduct {
+  product_id: string;
+  revel_product_id: string;
+  name: string;
+  category: string;
+  price: number;
+  discount_price?: number | null;
+  stock_qty?: number;
+  is_active: boolean;
+  is_active_web: boolean;
+  image_url?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface StoreAddress {
+  full_name: string;
+  phone: string;
+  email: string;
+  line1: string;
+  line2?: string | null;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
+  delivery_notes?: string | null;
+}
+
+export interface StoreOrderItem {
+  product_id: string;
+  quantity: number;
+  name?: string;
+  unit_price?: number;
+  line_total?: number;
+}
+
+export interface CreateStoreOrderRequest {
+  items: StoreOrderItem[];
+  address: StoreAddress;
+  payment_method: StorePaymentMethod;
+  customer_note?: string;
+}
+
+export interface StoreOrder {
+  order_id: string;
+  customer_id?: string | null;
+  items: StoreOrderItem[];
+  address: StoreAddress;
+  payment_method: StorePaymentMethod;
+  payment_status: StorePaymentState;
+  fulfillment_status: StoreFulfillmentState;
+  subtotal: number;
+  tax: number;
+  total: number;
+  currency: string;
+  customer_note?: string | null;
+  payment_link_url?: string | null;
+  invoice_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StoreProductsResponse {
+  items: StoreProduct[];
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+// ==================== Admin RBAC ====================
+export interface RbacBaselineResponse {
+  permissions: string[];
+  role_hints: Record<string, string[]>;
+  override_help: Record<string, string>;
+}
+
+export interface RbacPolicyOverride {
+  _id: string;
+  ptype: 'p' | 'g';
+  v0: string;
+  v1: string;
+  v2?: string;
+  created_at?: string;
+}
+
+export interface RbacOverrideCreateRequest {
+  ptype: 'p' | 'g';
+  v0: string;
+  v1: string;
+  v2?: string | null;
 }
 
 // ==================== WebSocket Types ====================

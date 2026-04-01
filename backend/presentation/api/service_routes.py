@@ -25,8 +25,7 @@ async def _filter_services_for_caller(
     optional_user: Optional[Dict[str, Any]],
     booking_use_case: BookingUseCase,
 ) -> List[Dict[str, Any]]:
-    role = (optional_user or {}).get("role")
-    if has_permission(role, Permission.SERVICE_UPDATE):
+    if optional_user is not None and has_permission(optional_user, Permission.SERVICE_UPDATE):
         return services
 
     discovery_only = optional_user is None
@@ -47,8 +46,7 @@ async def _caller_may_view_service(
 ) -> bool:
     if BookingUseCase._is_discovery_service(service):
         return True
-    role = (optional_user or {}).get("role")
-    if has_permission(role, Permission.SERVICE_UPDATE):
+    if optional_user is not None and has_permission(optional_user, Permission.SERVICE_UPDATE):
         return True
     if optional_user is None:
         return False
@@ -125,13 +123,13 @@ async def create_service(
 ):
     """Create a new service (admin or practitioner). Practitioners get the service linked to their profile."""
     effective = request
-    if not has_permission(ctx["user"].get("role"), Permission.USER_ROLE_MANAGE):
+    if not has_permission(ctx["user"], Permission.USER_ROLE_MANAGE):
         effective = request.model_copy(
             update={"is_featured": False, "revel_product_id": None, "is_discovery_entry": False}
         )
     is_discovery_entry = (
         bool(effective.is_discovery_entry)
-        if has_permission(ctx["user"].get("role"), Permission.USER_ROLE_MANAGE)
+        if has_permission(ctx["user"], Permission.USER_ROLE_MANAGE)
         else False
     )
     created = await service_use_case.create_service(
@@ -149,7 +147,7 @@ async def create_service(
         warning_copy=effective.warning_copy,
         is_discovery_entry=is_discovery_entry,
     )
-    if not has_permission(ctx["user"].get("role"), Permission.USER_ROLE_MANAGE) and ctx.get("practitioner"):
+    if not has_permission(ctx["user"], Permission.USER_ROLE_MANAGE) and ctx.get("practitioner"):
         p = ctx["practitioner"]
         services = list(p.get("services", []))
         sid = created["service_id"]
@@ -163,12 +161,32 @@ async def create_service(
 async def update_service(
     service_id: str,
     request: UpdateServiceRequest,
-    current_admin: dict = Depends(get_current_admin),
-    service_use_case: ServiceUseCase = Depends(get_service_use_case)
+    ctx: dict = Depends(get_current_admin_or_practitioner),
+    service_use_case: ServiceUseCase = Depends(get_service_use_case),
 ):
-    """Update a service (Admin only)"""
+    """Update a service (admin/owner or practitioner for their linked offerings)."""
+    user = ctx["user"]
+    practitioner = ctx.get("practitioner")
+    updates = request.model_dump(exclude_unset=True, exclude_none=True)
+    if not has_permission(user, Permission.USER_ROLE_MANAGE):
+        if not practitioner:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Practitioner profile required to update services",
+            )
+        if service_id not in practitioner.get("services", []):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not allowed to update this service",
+            )
+        for k in ("is_featured", "revel_product_id", "is_discovery_entry"):
+            updates.pop(k, None)
+    if not updates:
+        try:
+            return await service_use_case.get_service_by_id(service_id)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     try:
-        updates = request.model_dump(exclude_unset=True, exclude_none=True)
         return await service_use_case.update_service(service_id, **updates)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

@@ -47,6 +47,40 @@ export function usePractitionerCalendar(
   });
 }
 
+export function useServiceAvailability(
+  serviceId: string | undefined,
+  date: string | undefined,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: queryKeys.bookings.serviceSlots(serviceId || '', date || ''),
+    queryFn: () => bookingApi.getServiceSlots(serviceId!, date!),
+    enabled: enabled && !!serviceId && !!date,
+    staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
+  });
+}
+
+/**
+ * Mark a practitioner's booking session as completed (confirmed or in progress).
+ */
+export function useCompletePractitionerSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (bookingId: string) => bookingApi.completePractitionerSession(bookingId),
+    onSuccess: (booking) => {
+      queryClient.setQueryData(queryKeys.bookings.detail(booking.booking_id), booking);
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          Array.isArray(q.queryKey) &&
+          q.queryKey[0] === 'bookings' &&
+          q.queryKey[1] === 'practitionerCalendar',
+      });
+    },
+  });
+}
+
 /**
  * Hook to fetch a single booking by ID
  * 
@@ -109,10 +143,11 @@ export function useLockSlot() {
         return { ...old, status: 'pending' as BookingStatus };
       });
       
-      // Invalidate availability for the practitioner/date
+      // Invalidate availability
       queryClient.invalidateQueries({
         predicate: (query) =>
-          query.queryKey[0] === 'practitioners' && query.queryKey[1] === 'availability',
+          (query.queryKey[0] === 'practitioners' && query.queryKey[1] === 'availability') ||
+          (query.queryKey[0] === 'bookings' && query.queryKey[1] === 'serviceSlots'),
       });
     },
   });
@@ -146,7 +181,8 @@ export function useConfirmBooking() {
       // Invalidate availability
       queryClient.invalidateQueries({
         predicate: (query) =>
-          query.queryKey[0] === 'practitioners' && query.queryKey[1] === 'availability',
+          (query.queryKey[0] === 'practitioners' && query.queryKey[1] === 'availability') ||
+          (query.queryKey[0] === 'bookings' && query.queryKey[1] === 'serviceSlots'),
       });
     },
   });
@@ -180,7 +216,8 @@ export function useCancelBooking() {
       // Invalidate availability (slot becomes available again)
       queryClient.invalidateQueries({
         predicate: (query) =>
-          query.queryKey[0] === 'practitioners' && query.queryKey[1] === 'availability',
+          (query.queryKey[0] === 'practitioners' && query.queryKey[1] === 'availability') ||
+          (query.queryKey[0] === 'bookings' && query.queryKey[1] === 'serviceSlots'),
       });
     },
   });
@@ -230,7 +267,8 @@ export function useBookingFlow() {
       queryClient.invalidateQueries({ queryKey: queryKeys.bookings.mine });
       queryClient.invalidateQueries({
         predicate: (query) =>
-          query.queryKey[0] === 'practitioners' && query.queryKey[1] === 'availability',
+          (query.queryKey[0] === 'practitioners' && query.queryKey[1] === 'availability') ||
+          (query.queryKey[0] === 'bookings' && query.queryKey[1] === 'serviceSlots'),
       });
     },
   });

@@ -67,11 +67,22 @@ export type {
   Booking,
   BookingSlot,
   InitiateBookingRequest,
+  ServiceSlotWindow,
   LockSlotResponse,
   ConfirmBookingRequest,
   CancelBookingRequest,
   RescheduleBookingRequest,
   BookingConfirmationResponse,
+  // Store
+  StorePaymentMethod,
+  StorePaymentState,
+  StoreFulfillmentState,
+  StoreProduct,
+  StoreAddress,
+  StoreOrderItem,
+  CreateStoreOrderRequest,
+  StoreOrder,
+  StoreProductsResponse,
   // Payment
   Payment,
   RevelOrder,
@@ -81,6 +92,10 @@ export type {
   AdminStats,
   BookingInsight,
   BookingAnalytics,
+  StoreFunnelAnalytics,
+  RbacBaselineResponse,
+  RbacPolicyOverride,
+  RbacOverrideCreateRequest,
   // API
   ApiError,
   HealthCheck,
@@ -128,6 +143,8 @@ export {
   useBookingsByDateRange,
   useAdminCancelBooking,
   usePractitionerCalendar,
+  useServiceAvailability,
+  useCompletePractitionerSession,
   // User
   useProfile,
   useDiscoveryEligibility,
@@ -139,16 +156,33 @@ export {
   // Admin
   useAdminStats,
   useBookingAnalytics,
+  useStoreFunnelAnalytics,
   useCustomers,
   useUsers,
   useUpdateUserRole,
   useUpdateUserStatus,
+  useRbacBaseline,
+  useRbacOverrides,
+  useCreateRbacOverride,
+  useDeleteRbacOverride,
+  useReloadRbacPolicies,
   // WebSocket
   useRealtimeAvailability,
   useRealtimeNotifications,
   useWebSocket,
   // Health
   useHealthCheck,
+  // Store
+  useStoreProducts,
+  useStoreOrder,
+  useMyStoreOrders,
+  usePractitionerStoreOrders,
+  useSyncStoreProducts,
+  useUpdateStoreProduct,
+  useCreateStoreOrder,
+  usePayStoreOrder,
+  useSendSmsPayLink,
+  useStoreOrderOps,
 } from './hooks';
 
 // ==================== API (for advanced usage) ====================
@@ -160,6 +194,7 @@ export {
   bookingApi,
   adminApi,
   healthApi,
+  storeApi,
 } from './api/endpoints';
 
 export {

@@ -4,6 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../api/endpoints';
+import type { RbacOverrideCreateRequest } from '../types';
 import { queryKeys } from './queryKeys';
 import type { UserRole } from '../types';
 
@@ -42,6 +43,15 @@ export function useBookingAnalytics(period: 'day' | 'week' | 'month' = 'week') {
   });
 }
 
+export function useStoreFunnelAnalytics(days = 7, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.admin.storeFunnel(days),
+    queryFn: () => adminApi.getStoreFunnelAnalytics(days),
+    staleTime: 2 * 60 * 1000,
+    enabled,
+  });
+}
+
 /**
  * Hook to fetch all customers
  * 
@@ -66,11 +76,12 @@ export function useCustomers() {
  * const { data: users } = useUsers();
  * ```
  */
-export function useUsers() {
+export function useUsers(enabled = true) {
   return useQuery({
     queryKey: queryKeys.admin.users,
     queryFn: () => adminApi.getUsers(),
     staleTime: 5 * 60 * 1000,
+    enabled,
   });
 }
 
@@ -114,6 +125,54 @@ export function useUpdateUserStatus() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.admin.users });
       queryClient.invalidateQueries({ queryKey: queryKeys.admin.customers });
+    },
+  });
+}
+
+export function useRbacBaseline(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.admin.rbacBaseline,
+    queryFn: () => adminApi.getRbacBaseline(),
+    staleTime: 10 * 60 * 1000,
+    enabled,
+  });
+}
+
+export function useRbacOverrides(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.admin.rbacOverrides,
+    queryFn: () => adminApi.listRbacOverrides(),
+    staleTime: 30 * 1000,
+    enabled,
+  });
+}
+
+export function useCreateRbacOverride() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: RbacOverrideCreateRequest) => adminApi.createRbacOverride(body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.admin.rbacOverrides });
+    },
+  });
+}
+
+export function useDeleteRbacOverride() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (docId: string) => adminApi.deleteRbacOverride(docId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.admin.rbacOverrides });
+    },
+  });
+}
+
+export function useReloadRbacPolicies() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => adminApi.reloadRbacPolicies(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.admin.rbacOverrides });
     },
   });
 }

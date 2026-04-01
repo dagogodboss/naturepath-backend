@@ -44,6 +44,8 @@ export {
   useBookingsByDateRange,
   useAdminCancelBooking,
   usePractitionerCalendar,
+  useServiceAvailability,
+  useCompletePractitionerSession,
 } from './useBookings';
 
 // User Hooks
@@ -61,10 +63,16 @@ export {
 export {
   useAdminStats,
   useBookingAnalytics,
+  useStoreFunnelAnalytics,
   useCustomers,
   useUsers,
   useUpdateUserRole,
   useUpdateUserStatus,
+  useRbacBaseline,
+  useRbacOverrides,
+  useCreateRbacOverride,
+  useDeleteRbacOverride,
+  useReloadRbacPolicies,
 } from './useAdmin';
 
 // WebSocket Hooks
@@ -76,3 +84,17 @@ export {
 
 // Health Hook
 export { useHealthCheck } from './useHealth';
+
+// Store Hooks
+export {
+  useStoreProducts,
+  useStoreOrder,
+  useMyStoreOrders,
+  usePractitionerStoreOrders,
+  useSyncStoreProducts,
+  useUpdateStoreProduct,
+  useCreateStoreOrder,
+  usePayStoreOrder,
+  useSendSmsPayLink,
+  useStoreOrderOps,
+} from './useStore';

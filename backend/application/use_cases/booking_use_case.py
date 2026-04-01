@@ -68,12 +68,135 @@ class BookingUseCase:
             return True
         name = str(service.get("name", "")).strip().lower()
         return "discovery call" in name
+
+    @staticmethod
+    def _slot_key(start_time: str, end_time: str) -> str:
+        return f"{start_time}-{end_time}"
+
+    async def _candidate_slots_for_practitioner(
+        self,
+        practitioner: Dict[str, Any],
+        date: str,
+    ) -> List[Dict[str, str]]:
+        """
+        Return slot windows that this practitioner can take on a given date.
+        - Prefer concrete availability_slots documents with status=available.
+        - If no slots exist at all for that date, derive windows from weekly availability.
+        """
+        practitioner_id = practitioner["practitioner_id"]
+        available = await self.slot_repo.get_available_slots(practitioner_id, date)
+        if available:
+            return [
+                {"start_time": s["start_time"], "end_time": s["end_time"]}
+                for s in available
+            ]
+
+        # If slots exist but none are available, do not synthesize windows.
+        existing = await self.slot_repo.collection.find(
+            {"practitioner_id": practitioner_id, "date": date}, {"_id": 0, "slot_id": 1}
+        ).to_list(length=1)
+        if existing:
+            return []
+
+        # Fall back to static weekly availability profile.
+        date_obj = datetime.strptime(date, "%Y-%m-%d")
+        day_of_week = date_obj.weekday()
+        windows: List[Dict[str, str]] = []
+        for avail in practitioner.get("availability", []):
+            if avail.get("day_of_week") != day_of_week or not avail.get("is_available", True):
+                continue
+            start_hour = int(str(avail["start_time"]).split(":")[0])
+            end_hour = int(str(avail["end_time"]).split(":")[0])
+            for hour in range(start_hour, end_hour):
+                windows.append(
+                    {
+                        "start_time": f"{hour:02d}:00",
+                        "end_time": f"{hour + 1:02d}:00",
+                    }
+                )
+        return windows
+
+    async def _eligible_practitioners(self, service_id: str) -> List[Dict[str, Any]]:
+        practitioners = await self.practitioner_repo.get_by_service(service_id)
+        eligible: List[Dict[str, Any]] = []
+        for practitioner in practitioners:
+            user = await self.user_repo.get_by_id(practitioner["user_id"])
+            if user and user.get("is_active", True):
+                eligible.append(practitioner)
+        return eligible
+
+    async def get_service_available_slots(
+        self,
+        service_id: str,
+        date: str,
+    ) -> List[Dict[str, str]]:
+        practitioners = await self._eligible_practitioners(service_id)
+        if not practitioners:
+            return []
+        windows_map: Dict[str, Dict[str, str]] = {}
+        for practitioner in practitioners:
+            windows = await self._candidate_slots_for_practitioner(practitioner, date)
+            for w in windows:
+                windows_map[self._slot_key(w["start_time"], w["end_time"])] = {
+                    "start_time": w["start_time"],
+                    "end_time": w["end_time"],
+                }
+        return sorted(windows_map.values(), key=lambda w: w["start_time"])
+
+    async def _select_practitioner_round_robin(
+        self,
+        service_id: str,
+        date: str,
+        start_time: str,
+        end_time: str,
+    ) -> Dict[str, Any]:
+        """
+        Pick a practitioner who is both service-eligible and slot-available.
+        Round-robin cursor persists in Mongo collection booking_assignment_state.
+        """
+        practitioners = await self._eligible_practitioners(service_id)
+        candidates: List[Dict[str, Any]] = []
+        for practitioner in practitioners:
+            windows = await self._candidate_slots_for_practitioner(practitioner, date)
+            if any(
+                w["start_time"] == start_time and w["end_time"] == end_time
+                for w in windows
+            ):
+                candidates.append(practitioner)
+        if not candidates:
+            raise ValueError("No practitioner available for this time slot")
+
+        candidates = sorted(candidates, key=lambda p: p["practitioner_id"])
+        state_coll = self.booking_repo.collection.database.booking_assignment_state
+        state_key = f"service:{service_id}"
+        state = await state_coll.find_one({"state_key": state_key}, {"_id": 0})
+        last_id = (state or {}).get("last_practitioner_id")
+        chosen = candidates[0]
+        if last_id:
+            ids = [c["practitioner_id"] for c in candidates]
+            if last_id in ids:
+                chosen = candidates[(ids.index(last_id) + 1) % len(candidates)]
+        return chosen
+
+    async def _persist_assignment_cursor(self, service_id: str, practitioner_id: str) -> None:
+        state_coll = self.booking_repo.collection.database.booking_assignment_state
+        await state_coll.update_one(
+            {"state_key": f"service:{service_id}"},
+            {
+                "$set": {
+                    "state_key": f"service:{service_id}",
+                    "last_practitioner_id": practitioner_id,
+                    "updated_at": utc_now().isoformat(),
+                }
+            },
+            upsert=True,
+        )
     
     async def initiate_booking(
         self,
         customer_id: str,
         service_id: str,
-        practitioner_id: str,
+        practitioner_id: Optional[str],
         date: str,
         start_time: str,
         end_time: str,
@@ -96,14 +219,25 @@ class BookingUseCase:
                     "Discovery call required before booking this service"
                 )
         
-        # Validate practitioner exists
-        practitioner = await self.practitioner_repo.get_by_id(practitioner_id)
-        if not practitioner:
-            raise ValueError("Practitioner not found")
-        
-        # Validate practitioner offers this service
-        if service_id not in practitioner.get("services", []):
-            raise ValueError("Practitioner does not offer this service")
+        practitioner: Optional[Dict[str, Any]] = None
+        # Backward-compatible path: explicit practitioner still accepted.
+        if practitioner_id:
+            practitioner = await self.practitioner_repo.get_by_id(practitioner_id)
+            if not practitioner:
+                raise ValueError("Practitioner not found")
+            if service_id not in practitioner.get("services", []):
+                raise ValueError("Practitioner does not offer this service")
+            windows = await self._candidate_slots_for_practitioner(practitioner, date)
+            if not any(w["start_time"] == start_time and w["end_time"] == end_time for w in windows):
+                raise ValueError("Practitioner is not available for this time slot")
+        else:
+            practitioner = await self._select_practitioner_round_robin(
+                service_id=service_id,
+                date=date,
+                start_time=start_time,
+                end_time=end_time,
+            )
+            practitioner_id = practitioner["practitioner_id"]
         
         # Validate with REVEL POS if service has revel_product_id
         if service.get("revel_product_id"):
@@ -133,6 +267,7 @@ class BookingUseCase:
         }
         
         await self.booking_repo.create(booking_dict)
+        await self._persist_assignment_cursor(service_id, practitioner_id)
         
         # Fetch the booking from DB (to avoid _id mutation issue)
         created_booking = await self.booking_repo.get_by_id(booking.booking_id)
@@ -512,6 +647,38 @@ class BookingUseCase:
         
         logger.info(f"Booking cancelled: {booking_id}")
         
+        return await self.booking_repo.get_by_id(booking_id)
+
+    async def complete_booking_session(
+        self,
+        booking_id: str,
+        practitioner_user_id: str,
+    ) -> Dict[str, Any]:
+        """Mark a booking completed for the practitioner who owns it."""
+        booking = await self.booking_repo.get_by_id(booking_id)
+        if not booking:
+            raise ValueError("Booking not found")
+        practitioner = await self.practitioner_repo.get_by_id(booking["practitioner_id"])
+        if not practitioner or practitioner["user_id"] != practitioner_user_id:
+            raise ValueError("Unauthorized")
+        st = booking.get("status")
+        if st not in ("confirmed", "in_progress"):
+            raise ValueError(f"Cannot complete booking in {st} status")
+        slot = booking["slot"]
+        now = utc_now().isoformat()
+        await self.booking_repo.update(
+            booking_id,
+            {
+                "status": "completed",
+                "completed_at": now,
+                "updated_at": now,
+            },
+        )
+        if self.cache:
+            await self.cache.delete(
+                CacheService.availability_key(booking["practitioner_id"], slot["date"])
+            )
+        logger.info(f"Booking marked completed: {booking_id}")
         return await self.booking_repo.get_by_id(booking_id)
     
     async def get_customer_bookings(

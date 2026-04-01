@@ -31,6 +31,7 @@ from presentation import (
     booking_router,
     admin_router,
     webhook_router,
+    store_router,
     availability_websocket_handler,
     user_notification_websocket_handler
 )
@@ -47,7 +48,11 @@ async def lifespan(app: FastAPI):
     
     # Connect to MongoDB
     await Database.connect()
-    
+
+    from core.rbac import load_policy_overrides_from_db
+    await load_policy_overrides_from_db(Database.get_db())
+    logger.info("RBAC policy overrides loaded")
+
     # Initialize cache
     cache = await get_cache_service()
     logger.info("Cache service initialized")
@@ -125,6 +130,7 @@ app.include_router(practitioner_router, prefix="/api")
 app.include_router(booking_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(webhook_router, prefix="/api")
+app.include_router(store_router, prefix="/api")
 
 
 # WebSocket endpoints

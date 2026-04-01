@@ -21,8 +21,10 @@ from infrastructure.repositories import (
     MongoPaymentRepository
 )
 from core.rbac import normalize_role
+from .admin_rbac_routes import router as admin_rbac_router
 
 router = APIRouter(prefix="/admin", tags=["Admin Dashboard"])
+router.include_router(admin_rbac_router, prefix="/rbac", tags=["Admin RBAC"])
 
 
 @router.get("/stats", response_model=dict)
@@ -211,7 +213,7 @@ async def update_user_role(
 ):
     """Update user role (Admin only)"""
     normalized = normalize_role(role)
-    if normalized not in ["customer", "staff", "manager", "practitioner", "admin"]:
+    if normalized not in ["customer", "staff", "manager", "practitioner", "admin", "owner"]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
     
     user = await user_repo.get_by_id(user_id)
@@ -236,3 +238,81 @@ async def update_user_status(
     
     await user_repo.update(user_id, {"is_active": is_active})
     return {"success": True, "user_id": user_id, "is_active": is_active}
+
+
+@router.get("/analytics/store-funnel", response_model=dict)
+async def get_store_funnel_analytics(
+    days: int = 7,
+    current_admin: dict = Depends(get_current_admin),
+):
+    """Store conversion funnel and payment method split for recent period."""
+    if days < 1 or days > 90:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="days must be between 1 and 90")
+
+    from infrastructure.database import get_database
+
+    db = get_database()
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(days=days)
+    query = {"created_at": {"$gte": start}}
+
+    event_names = [
+        "product_list_viewed",
+        "add_to_cart",
+        "checkout_started",
+        "order_placed",
+        "payment_success",
+        "payment_failed",
+        "checkout_failed",
+    ]
+
+    counts = {name: 0 for name in event_names}
+    for name in event_names:
+        counts[name] = await db.analytics_events.count_documents({**query, "event_name": name})
+
+    payment_methods = {}
+    async for row in db.analytics_events.aggregate(
+        [
+            {"$match": {**query, "event_name": {"$in": ["order_placed", "payment_success", "payment_failed"]}}},
+            {
+                "$project": {
+                    "method": {"$ifNull": ["$metadata.paymentMethod", "unknown"]},
+                    "event_name": 1,
+                }
+            },
+            {
+                "$group": {
+                    "_id": {"method": "$method", "event": "$event_name"},
+                    "count": {"$sum": 1},
+                }
+            },
+        ]
+    ):
+        method = row["_id"]["method"]
+        event = row["_id"]["event"]
+        payment_methods.setdefault(method, {"order_placed": 0, "payment_success": 0, "payment_failed": 0})
+        payment_methods[method][event] = row["count"]
+
+    sessions = await db.analytics_events.distinct("session_id", query)
+    unique_sessions = len([s for s in sessions if s])
+    checkout_to_order_rate = (
+        round((counts["order_placed"] / counts["checkout_started"]) * 100, 2)
+        if counts["checkout_started"]
+        else 0.0
+    )
+    payment_success_rate = (
+        round((counts["payment_success"] / counts["order_placed"]) * 100, 2)
+        if counts["order_placed"]
+        else 0.0
+    )
+
+    return {
+        "period_days": days,
+        "unique_sessions": unique_sessions,
+        "funnel": counts,
+        "rates": {
+            "checkout_to_order_pct": checkout_to_order_rate,
+            "payment_success_pct": payment_success_rate,
+        },
+        "payment_method_split": payment_methods,
+    }

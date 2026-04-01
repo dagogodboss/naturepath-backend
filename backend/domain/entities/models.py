@@ -24,6 +24,7 @@ class UserRole(str, Enum):
     MANAGER = "manager"
     PRACTITIONER = "practitioner"
     ADMIN = "admin"
+    OWNER = "owner"
 
 
 class BookingStatus(str, Enum):

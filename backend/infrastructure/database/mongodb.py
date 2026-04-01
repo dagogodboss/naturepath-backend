@@ -94,6 +94,28 @@ class Database:
         # Authorization audit logs
         await cls.db.authorization_audit.create_index("timestamp")
         await cls.db.authorization_audit.create_index([("user_id", 1), ("timestamp", -1)])
+
+        # Casbin policy overrides (hot-reloaded into enforcer)
+        await cls.db.rbac_policy_overrides.create_index([("ptype", 1), ("v0", 1), ("v1", 1)])
+
+        # Booking auto-assignment cursor state (round-robin)
+        await cls.db.booking_assignment_state.create_index("state_key", unique=True)
+
+        # Store products / ecommerce orders
+        await cls.db.store_products.create_index("product_id", unique=True)
+        await cls.db.store_products.create_index("revel_product_id")
+        await cls.db.store_products.create_index([("is_active_web", 1), ("category", 1)])
+        await cls.db.store_orders.create_index("order_id", unique=True)
+        await cls.db.store_orders.create_index([("customer_id", 1), ("created_at", -1)])
+        await cls.db.store_orders.create_index([("fulfillment_status", 1), ("payment_status", 1)])
+        await cls.db.store_admin_audit.create_index([("created_at", -1), ("actor_user_id", 1)])
+        await cls.db.webhook_events.create_index([("provider", 1), ("event_id", 1)], unique=True)
+        await cls.db.webhook_events.create_index(
+            "received_at",
+            expireAfterSeconds=settings.revel_webhook_replay_ttl_seconds,
+        )
+        await cls.db.analytics_events.create_index([("event_name", 1), ("created_at", -1)])
+        await cls.db.analytics_events.create_index("created_at")
         
         logger.info("Database indexes created")
     

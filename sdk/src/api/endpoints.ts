@@ -29,6 +29,7 @@ import type {
   // Booking
   Booking,
   InitiateBookingRequest,
+  ServiceSlotWindow,
   LockSlotResponse,
   ConfirmBookingRequest,
   CancelBookingRequest,
@@ -38,8 +39,17 @@ import type {
   // Admin
   AdminStats,
   BookingAnalytics,
+  StoreFunnelAnalytics,
+  RbacBaselineResponse,
+  RbacPolicyOverride,
+  RbacOverrideCreateRequest,
   // Health
   HealthCheck,
+  // Store
+  StoreProduct,
+  StoreProductsResponse,
+  StoreOrder,
+  CreateStoreOrderRequest,
 } from '../types';
 
 // ==================== Auth API ====================
@@ -291,6 +301,16 @@ export const bookingApi = {
   },
 
   /**
+   * Slot windows available for a service/date across all practitioners.
+   */
+  getServiceSlots: async (serviceId: string, date: string): Promise<ServiceSlotWindow[]> => {
+    const response = await getApiClient().get<ServiceSlotWindow[]>('/api/booking/service-slots', {
+      params: { service_id: serviceId, date },
+    });
+    return response.data;
+  },
+
+  /**
    * Step 2: Lock the time slot
    */
   lockSlot: async (bookingId: string): Promise<LockSlotResponse> => {
@@ -336,6 +356,16 @@ export const bookingApi = {
     const response = await getApiClient().get<Booking[]>('/api/booking/practitioner/calendar', {
       params: { start_date: startDate, end_date: endDate },
     });
+    return response.data;
+  },
+
+  /**
+   * Mark session completed (practitioner assigned to booking or admin with profile)
+   */
+  completePractitionerSession: async (bookingId: string): Promise<Booking> => {
+    const response = await getApiClient().post<Booking>(
+      `/api/booking/practitioner/${bookingId}/complete`
+    );
     return response.data;
   },
 
@@ -402,6 +432,13 @@ export const adminApi = {
     return response.data;
   },
 
+  getStoreFunnelAnalytics: async (days = 7): Promise<StoreFunnelAnalytics> => {
+    const response = await getApiClient().get<StoreFunnelAnalytics>('/api/admin/analytics/store-funnel', {
+      params: { days },
+    });
+    return response.data;
+  },
+
   /**
    * Get all customers
    */
@@ -435,6 +472,30 @@ export const adminApi = {
       params: { is_active: isActive },
     });
   },
+
+  getRbacBaseline: async (): Promise<RbacBaselineResponse> => {
+    const response = await getApiClient().get<RbacBaselineResponse>('/api/admin/rbac/baseline');
+    return response.data;
+  },
+
+  listRbacOverrides: async (): Promise<RbacPolicyOverride[]> => {
+    const response = await getApiClient().get<RbacPolicyOverride[]>('/api/admin/rbac/overrides');
+    return response.data;
+  },
+
+  createRbacOverride: async (body: RbacOverrideCreateRequest): Promise<RbacPolicyOverride> => {
+    const response = await getApiClient().post<RbacPolicyOverride>('/api/admin/rbac/overrides', body);
+    return response.data;
+  },
+
+  deleteRbacOverride: async (docId: string): Promise<void> => {
+    await getApiClient().delete(`/api/admin/rbac/overrides/${docId}`);
+  },
+
+  reloadRbacPolicies: async (): Promise<{ reloaded: boolean }> => {
+    const response = await getApiClient().post<{ reloaded: boolean }>('/api/admin/rbac/reload');
+    return response.data;
+  },
 };
 
 // ==================== Health API ====================
@@ -444,6 +505,133 @@ export const healthApi = {
    */
   check: async (): Promise<HealthCheck> => {
     const response = await getApiClient().get<HealthCheck>('/api/health');
+    return response.data;
+  },
+};
+
+// ==================== Store API ====================
+export const storeApi = {
+  getProducts: async (params?: {
+    q?: string;
+    category?: string;
+    page?: number;
+    page_size?: number;
+  }): Promise<StoreProductsResponse> => {
+    // Backend Query allows page_size le=48; clamp so callers never get 422.
+    const safe = params ? { ...params } : undefined;
+    if (safe?.page_size != null) {
+      safe.page_size = Math.min(Math.max(1, safe.page_size), 48);
+    }
+    const response = await getApiClient().get<StoreProductsResponse>('/api/store/products', {
+      params: safe,
+    });
+    return response.data;
+  },
+
+  getProductsByIds: async (productIds: string[]): Promise<{ items: StoreProduct[] }> => {
+    const response = await getApiClient().post<{ items: StoreProduct[] }>('/api/store/products/by-ids', {
+      product_ids: productIds,
+    });
+    return response.data;
+  },
+
+  syncRevelProducts: async (): Promise<{ success: boolean; synced: number }> => {
+    const response = await getApiClient().post<{ success: boolean; synced: number }>(
+      '/api/store/admin/sync-revel-products'
+    );
+    return response.data;
+  },
+
+  updateProduct: async (
+    productId: string,
+    data: Partial<StoreProduct>
+  ): Promise<StoreProduct> => {
+    const response = await getApiClient().patch<StoreProduct>(
+      `/api/store/admin/products/${productId}`,
+      data
+    );
+    return response.data;
+  },
+
+  createOrder: async (data: CreateStoreOrderRequest): Promise<StoreOrder> => {
+    const response = await getApiClient().post<StoreOrder>('/api/store/checkout/orders', data);
+    return response.data;
+  },
+
+  payOrder: async (
+    orderId: string,
+    paymentMethod: 'card' | 'wallet' | 'manual' = 'card',
+    actionToken?: string
+  ): Promise<StoreOrder> => {
+    const response = await getApiClient().post<StoreOrder>(
+      `/api/store/checkout/orders/${orderId}/pay`,
+      null,
+      { params: { payment_method: paymentMethod, ...(actionToken ? { action_token: actionToken } : {}) } }
+    );
+    return response.data;
+  },
+
+  sendSmsPayLink: async (
+    orderId: string,
+    actionToken?: string
+  ): Promise<{ success: boolean; order_id: string; payment_link_url: string }> => {
+    const response = await getApiClient().post<{
+      success: boolean;
+      order_id: string;
+      payment_link_url: string;
+    }>(`/api/store/checkout/orders/${orderId}/sms-pay-link`, null, {
+      params: actionToken ? { action_token: actionToken } : undefined,
+    });
+    return response.data;
+  },
+
+  getOrder: async (orderId: string): Promise<StoreOrder> => {
+    const response = await getApiClient().get<StoreOrder>(`/api/store/orders/${orderId}`);
+    return response.data;
+  },
+
+  getMyOrders: async (): Promise<StoreOrder[]> => {
+    const response = await getApiClient().get<StoreOrder[]>('/api/store/orders/mine');
+    return response.data;
+  },
+
+  getPractitionerOrders: async (status?: string): Promise<StoreOrder[]> => {
+    const response = await getApiClient().get<StoreOrder[]>('/api/store/practitioner/orders', {
+      params: status ? { status_filter: status } : undefined,
+    });
+    return response.data;
+  },
+
+  confirmOrder: async (orderId: string, reason?: string): Promise<StoreOrder> => {
+    const response = await getApiClient().post<StoreOrder>(`/api/store/admin/orders/${orderId}/confirm`, {
+      reason,
+    });
+    return response.data;
+  },
+
+  fulfillOrder: async (orderId: string, reason?: string): Promise<StoreOrder> => {
+    const response = await getApiClient().post<StoreOrder>(`/api/store/admin/orders/${orderId}/fulfill`, {
+      reason,
+    });
+    return response.data;
+  },
+
+  rejectOrder: async (orderId: string, reason: string): Promise<StoreOrder> => {
+    const response = await getApiClient().post<StoreOrder>(`/api/store/admin/orders/${orderId}/reject`, {
+      reason,
+    });
+    return response.data;
+  },
+
+  refundOrder: async (orderId: string, amount?: number): Promise<StoreOrder> => {
+    const response = await getApiClient().post<StoreOrder>(`/api/store/admin/orders/${orderId}/refund`, {
+      amount,
+    });
+    return response.data;
+  },
+
+  sendInvoice: async (orderId: string): Promise<StoreOrder> => {
+    const response = await getApiClient().post<StoreOrder>(`/api/store/admin/orders/${orderId}/invoice`);
     return response.data;
   },
 };

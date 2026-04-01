@@ -6,6 +6,7 @@ from .practitioner_routes import router as practitioner_router
 from .booking_routes import router as booking_router
 from .admin_routes import router as admin_router
 from .webhook_routes import router as webhook_router
+from .store_routes import router as store_router
 
 __all__ = [
     "auth_router",
@@ -14,5 +15,6 @@ __all__ = [
     "practitioner_router",
     "booking_router",
     "admin_router",
-    "webhook_router"
+    "webhook_router",
+    "store_router",
 ]

@@ -4,8 +4,8 @@ One-time owner bootstrap script.
 
 Creates or updates the primary owner account:
   - Full name: Nichole Moore
-  - Email: admin@thenaturalpath.com
-  - Role: practitioner (inherits admin permissions via Casbin policy)
+  - Email: Nmoore@thenaturalpathla.com (override in script if needed)
+  - Role: owner (inherits admin via Casbin g, owner, admin)
 
 Usage:
   export MONGO_URL="mongodb+srv://..."
@@ -62,7 +62,7 @@ async def main() -> None:
         "password_hash": pwd_context.hash(owner_password),
         "first_name": first_name,
         "last_name": last_name,
-        "role": "practitioner",
+        "role": "owner",
         "is_active": True,
         "is_verified": True,
         "updated_at": now,
@@ -102,7 +102,7 @@ async def main() -> None:
 
     print(
         "Seeded owner account and practitioner profile:"
-        f" {first_name} {last_name} <{owner_email}> role=practitioner(admin-equivalent)"
+        f" {first_name} {last_name} <{owner_email}> role=owner (admin-equivalent via Casbin)"
     )
     client.close()
 

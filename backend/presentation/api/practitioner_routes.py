@@ -109,7 +109,7 @@ async def update_practitioner(
     practitioner = current_practitioner.get("practitioner")
     user = current_practitioner.get("user")
     
-    if not has_permission(user.get("role"), Permission.USER_ROLE_MANAGE):
+    if not has_permission(user, Permission.USER_ROLE_MANAGE):
         if not practitioner or practitioner["practitioner_id"] != practitioner_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
