@@ -192,6 +192,9 @@ if [[ ! -d "node_modules" ]]; then
   npm install
 fi
 
+# Run Celery notification tasks in-process so booking confirmations send without Redis/worker.
+export CELERY_TASK_ALWAYS_EAGER="${CELERY_TASK_ALWAYS_EAGER:-1}"
+
 echo "Starting backend on http://localhost:8001 ..."
 cd "$BACKEND_DIR"
 MONGO_URL="$MONGO_URL" uvicorn server:app --host 0.0.0.0 --port 8001 >"$BACKEND_LOG" 2>&1 &

@@ -1,7 +1,11 @@
 """
 Booking API Routes - Complete Booking Flow
 """
+from datetime import datetime
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from typing import List
 from application.dto import (
     InitiateBookingRequest, LockSlotRequest, ConfirmBookingRequest,
@@ -17,6 +21,72 @@ from presentation.dependencies import (
 from core.rbac import Permission, has_permission
 
 router = APIRouter(prefix="/booking", tags=["Booking"])
+
+
+def _escape_ics_text(value: str) -> str:
+    return (
+        (value or "")
+        .replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\r\n", "\n")
+        .replace("\n", "\\n")
+    )
+
+
+def _ics_datetime_local(date_str: str, time_str: str) -> str:
+    """ICS local floating time YYYYMMDDTHHMMSS (no Z)."""
+    t = (time_str or "00:00").strip()
+    if len(t) == 5:
+        t += ":00"
+    parts = t.split(":")
+    hh, mm = parts[0], parts[1] if len(parts) > 1 else "00"
+    ss = parts[2] if len(parts) > 2 else "00"
+    ds = date_str.replace("-", "")
+    return f"{ds}T{hh.zfill(2)}{mm.zfill(2)}{ss.zfill(2)}"
+
+
+def _build_booking_ical(booking: dict) -> str:
+    slot = booking.get("slot") or {}
+    service = booking.get("service") or {}
+    practitioner = booking.get("practitioner") or {}
+    cust = booking.get("customer") or {}
+    date_s = slot.get("date") or ""
+    start = slot.get("start_time") or "09:00"
+    end = slot.get("end_time") or start
+    summary = service.get("name") or "Appointment"
+    pname = ""
+    if practitioner:
+        pname = f"{practitioner.get('first_name', '')} {practitioner.get('last_name', '')}".strip()
+    desc_bits = [
+        f"Booking ID: {booking.get('booking_id', '')}",
+        f"Client: {cust.get('first_name', '')} {cust.get('last_name', '')}".strip(),
+    ]
+    if pname:
+        desc_bits.append(f"Practitioner: {pname}")
+    description = _escape_ics_text(" | ".join(b for b in desc_bits if b))
+    summary_esc = _escape_ics_text(summary)
+    uid = f"{booking.get('booking_id', str(uuid4()))}@natural-path-spa"
+    dtstamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    dtstart = _ics_datetime_local(date_s, start)
+    dtend = _ics_datetime_local(date_s, end)
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Natural Path Spa//Booking//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "BEGIN:VEVENT",
+        f"UID:{uid}",
+        f"DTSTAMP:{dtstamp}",
+        f"DTSTART:{dtstart}",
+        f"DTEND:{dtend}",
+        f"SUMMARY:{summary_esc}",
+        f"DESCRIPTION:{description}",
+        "END:VEVENT",
+        "END:VCALENDAR",
+    ]
+    return "\r\n".join(lines) + "\r\n"
 
 
 @router.post("/initiate", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -99,6 +169,34 @@ async def confirm_booking(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/{booking_id}/ical")
+async def download_booking_ical(
+    booking_id: str,
+    current_user: dict = Depends(get_current_active_user),
+    booking_use_case: BookingUseCase = Depends(get_booking_use_case),
+):
+    """
+    Download an iCalendar (.ics) file for a booking (add to Apple/Google/Outlook calendar).
+    """
+    try:
+        is_admin = has_permission(current_user, Permission.BOOKING_READ_ALL)
+        booking = await booking_use_case.get_booking_by_id(
+            booking_id=booking_id,
+            user_id=current_user["user_id"],
+            is_admin=is_admin,
+        )
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+    body = _build_booking_ical(booking)
+    return Response(
+        content=body,
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="booking-{booking_id}.ics"'
+        },
+    )
 
 
 @router.get("/{booking_id}", response_model=dict)

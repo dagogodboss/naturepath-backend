@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
     
+    # Celery — when True, tasks run in-process (no Redis/worker needed; use for local dev)
+    celery_task_always_eager: bool = False
+
     # Redis
     redis_url: Optional[str] = None
     redis_host_local: str = "127.0.0.1"
