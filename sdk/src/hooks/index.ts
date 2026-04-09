@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - Hooks Module
+ * natural-path-sdk - Hooks Module
  */
 
 // Query Keys

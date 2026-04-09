@@ -2,7 +2,7 @@
 
 ## Complete Setup Guide for Frontend Engineers
 
-This guide walks you through integrating the `@natural-path/sdk` into your React TypeScript application.
+This guide walks you through integrating the `natural-path-sdk` into your React TypeScript application.
 
 ---
 
@@ -42,13 +42,13 @@ This guide walks you through integrating the `@natural-path/sdk` into your React
 
 ```bash
 # Using npm
-npm install @natural-path/sdk @tanstack/react-query
+npm install natural-path-sdk @tanstack/react-query
 
 # Using yarn
-yarn add @natural-path/sdk @tanstack/react-query
+yarn add natural-path-sdk @tanstack/react-query
 
 # Using pnpm
-pnpm add @natural-path/sdk @tanstack/react-query
+pnpm add natural-path-sdk @tanstack/react-query
 ```
 
 ---
@@ -62,7 +62,7 @@ Wrap your application with `NaturalPathProvider`:
 ```tsx
 // src/App.tsx
 import React from 'react';
-import { NaturalPathProvider } from '@natural-path/sdk';
+import { NaturalPathProvider } from 'natural-path-sdk';
 import { Router } from './Router';
 
 const API_URL = process.env.REACT_APP_API_URL || 'https://api.thenaturalpath.com';
@@ -104,7 +104,7 @@ REACT_APP_API_URL=https://api.thenaturalpath.com
 ```tsx
 // src/pages/LoginPage.tsx
 import React, { useState } from 'react';
-import { useAuth } from '@natural-path/sdk';
+import { useAuth } from 'natural-path-sdk';
 import { useNavigate } from 'react-router-dom';
 
 export function LoginPage() {
@@ -156,7 +156,7 @@ export function LoginPage() {
 ```tsx
 // src/pages/RegisterPage.tsx
 import React, { useState } from 'react';
-import { useAuth, type RegisterRequest } from '@natural-path/sdk';
+import { useAuth, type RegisterRequest } from 'natural-path-sdk';
 
 export function RegisterPage() {
   const { register, isLoading, error } = useAuth();
@@ -187,7 +187,7 @@ export function RegisterPage() {
 
 ```tsx
 // src/components/ProtectedRoute.tsx
-import { useAuth } from '@natural-path/sdk';
+import { useAuth } from 'natural-path-sdk';
 import { Navigate, Outlet } from 'react-router-dom';
 
 export function ProtectedRoute() {
@@ -209,7 +209,7 @@ export function ProtectedRoute() {
 
 ```tsx
 // src/components/AdminRoute.tsx
-import { useAuth } from '@natural-path/sdk';
+import { useAuth } from 'natural-path-sdk';
 import { Navigate, Outlet } from 'react-router-dom';
 
 export function AdminRoute() {
@@ -236,7 +236,7 @@ export function AdminRoute() {
 ```tsx
 // src/pages/ServicesPage.tsx
 import React from 'react';
-import { useServices, useFeaturedServices, type Service } from '@natural-path/sdk';
+import { useServices, useFeaturedServices, type Service } from 'natural-path-sdk';
 
 export function ServicesPage() {
   const { data: services, isLoading, error } = useServices();
@@ -315,7 +315,7 @@ import {
   formatDate,
   addDays,
   type AvailabilitySlot 
-} from '@natural-path/sdk';
+} from 'natural-path-sdk';
 
 interface Props {
   practitionerId: string;
@@ -409,7 +409,7 @@ import {
   type Service,
   type Practitioner,
   type AvailabilitySlot,
-} from '@natural-path/sdk';
+} from 'natural-path-sdk';
 
 type BookingStep = 'service' | 'practitioner' | 'datetime' | 'confirm' | 'success';
 
@@ -560,7 +560,7 @@ export function BookingPage() {
 ```tsx
 // src/components/LiveAvailability.tsx
 import React from 'react';
-import { useRealtimeAvailability } from '@natural-path/sdk';
+import { useRealtimeAvailability } from 'natural-path-sdk';
 
 interface Props {
   practitionerId: string;
@@ -611,7 +611,7 @@ export function LiveAvailability({ practitionerId, date, onSlotSelect }: Props) 
 
 ```tsx
 // src/components/NotificationListener.tsx
-import { useRealtimeNotifications } from '@natural-path/sdk';
+import { useRealtimeNotifications } from 'natural-path-sdk';
 import { toast } from 'react-toastify'; // or your preferred toast library
 
 interface Props {
@@ -681,7 +681,7 @@ export class ErrorBoundary extends Component<Props, State> {
 ### Query Error Handling
 
 ```tsx
-import { useServices } from '@natural-path/sdk';
+import { useServices } from 'natural-path-sdk';
 
 function ServicesPage() {
   const { data, error, isError, refetch } = useServices();
@@ -702,7 +702,7 @@ function ServicesPage() {
 ### Mutation Error Handling
 
 ```tsx
-import { useCreateBooking } from '@natural-path/sdk';
+import { useCreateBooking } from 'natural-path-sdk';
 import { useState } from 'react';
 
 function BookingForm() {
@@ -751,7 +751,7 @@ function BookingForm() {
 ### Manual Cache Invalidation
 
 ```tsx
-import { useQueryClient, queryKeys } from '@natural-path/sdk';
+import { useQueryClient, queryKeys } from 'natural-path-sdk';
 
 function AdminActions() {
   const queryClient = useQueryClient();
@@ -773,7 +773,7 @@ function AdminActions() {
 ### Prefetching Data
 
 ```tsx
-import { useQueryClient, servicesApi, queryKeys } from '@natural-path/sdk';
+import { useQueryClient, servicesApi, queryKeys } from 'natural-path-sdk';
 
 function HomePage() {
   const queryClient = useQueryClient();
@@ -804,7 +804,7 @@ function HomePage() {
 ### 1. Type Your Props
 
 ```tsx
-import type { Service, Practitioner } from '@natural-path/sdk';
+import type { Service, Practitioner } from 'natural-path-sdk';
 
 interface ServiceCardProps {
   service: Service;
@@ -851,7 +851,7 @@ function App() {
 ### 4. Optimistic Updates
 
 ```tsx
-import { useQueryClient, useCancelBooking, queryKeys } from '@natural-path/sdk';
+import { useQueryClient, useCancelBooking, queryKeys } from 'natural-path-sdk';
 
 function BookingActions({ booking }) {
   const queryClient = useQueryClient();

@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - Providers Module
+ * natural-path-sdk - Providers Module
  */
 
 export {

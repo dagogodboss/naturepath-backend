@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - Type Definitions
+ * natural-path-sdk - Type Definitions
  * 
  * Core types matching the backend API DTOs
  */

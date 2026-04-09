@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - WebSocket Manager
+ * natural-path-sdk - WebSocket Manager
  * 
  * Real-time availability updates and notifications
  */

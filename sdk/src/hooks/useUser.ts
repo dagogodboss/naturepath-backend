@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - User & Profile Hooks
+ * natural-path-sdk - User & Profile Hooks
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

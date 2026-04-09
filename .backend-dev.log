@@ -1,0 +1,1048 @@
+INFO:     Started server process [88715]
+INFO:     Waiting for application startup.
+2026-04-01 11:01:10,147 - server - INFO - Starting The Natural Path Spa Management System...
+2026-04-01 11:01:10,609 - infrastructure.database.mongodb - INFO - Connected to MongoDB: natural_path_spa
+2026-04-01 11:01:13,100 - infrastructure.database.mongodb - INFO - Database indexes created
+2026-04-01 11:01:13,119 - casbin.policy - INFO - Model:
+2026-04-01 11:01:13,120 - casbin.policy - INFO - r.r: sub, obj, act
+2026-04-01 11:01:13,120 - casbin.policy - INFO - p.p: sub, obj, act
+2026-04-01 11:01:13,120 - casbin.policy - INFO - e.e: some(where (p_eft == allow))
+2026-04-01 11:01:13,120 - casbin.policy - INFO - m.m: g(r_sub, p_sub) && r_obj == p_obj && r_act == p_act
+2026-04-01 11:01:13,121 - casbin.policy - INFO - g.g: _, _
+2026-04-01 11:01:13,153 - casbin.policy - INFO - Policy:
+2026-04-01 11:01:13,153 - casbin.policy - INFO - p : sub, obj, act : [['customer', 'profile:read', 'use'], ['customer', 'profile:write', 'use'], ['customer', 'booking:create', 'use'], ['customer', 'booking:read:own', 'use'], ['customer', 'service:read', 'use'], ['staff', 'profile:read', 'use'], ['staff', 'profile:write', 'use'], ['staff', 'booking:read:all', 'use'], ['staff', 'booking:manage', 'use'], ['staff', 'service:read', 'use'], ['staff', 'service:update', 'use'], ['manager', 'profile:read', 'use'], ['manager', 'profile:write', 'use'], ['manager', 'booking:read:all', 'use'], ['manager', 'booking:manage', 'use'], ['manager', 'service:read', 'use'], ['manager', 'service:create', 'use'], ['manager', 'service:update', 'use'], ['manager', 'admin:dashboard:read', 'use'], ['admin', 'profile:read', 'use'], ['admin', 'profile:write', 'use'], ['admin', 'booking:create', 'use'], ['admin', 'booking:read:own', 'use'], ['admin', 'booking:read:all', 'use'], ['admin', 'booking:manage', 'use'], ['admin', 'booking:complete', 'use'], ['admin', 'practitioner:profile:manage', 'use'], ['admin', 'practitioner:slot:manage', 'use'], ['admin', 'service:read', 'use'], ['admin', 'service:create', 'use'], ['admin', 'service:update', 'use'], ['admin', 'service:delete', 'use'], ['admin', 'admin:dashboard:read', 'use'], ['admin', 'user:role:manage', 'use'], ['admin', 'user:status:manage', 'use'], ['practitioner', 'profile:read', 'use'], ['practitioner', 'profile:write', 'use'], ['practitioner', 'service:read', 'use'], ['practitioner', 'service:create', 'use'], ['practitioner', 'service:update', 'use'], ['practitioner', 'practitioner:profile:manage', 'use'], ['practitioner', 'practitioner:slot:manage', 'use'], ['practitioner', 'booking:complete', 'use']]
+2026-04-01 11:01:13,153 - casbin.policy - INFO - g : _, _ : [['owner', 'admin']]
+2026-04-01 11:01:13,153 - casbin.policy - INFO - Role links for: g
+2026-04-01 11:01:13,153 - casbin.role - INFO - owner < admin
+2026-04-01 11:01:13,154 - server - INFO - RBAC policy overrides loaded
+2026-04-01 11:01:13,168 - infrastructure.cache.redis_cache - INFO - Connected to Redis cache
+2026-04-01 11:01:13,168 - server - INFO - Cache service initialized
+2026-04-01 11:01:13,168 - server - INFO - Application startup complete
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
+INFO:     127.0.0.1:61742 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61750 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61752 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61750 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61750 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61748 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+2026-04-01 11:01:34,536 - passlib.handlers.bcrypt - WARNING - (trapped) error reading bcrypt version
+Traceback (most recent call last):
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/passlib/handlers/bcrypt.py", line 620, in _load_backend_mixin
+    version = _bcrypt.__about__.__version__
+              ^^^^^^^^^^^^^^^^^
+AttributeError: module 'bcrypt' has no attribute '__about__'
+2026-04-01 11:01:35,297 - application.use_cases.auth_use_case - INFO - User registered: smoke_f6635aae@example.com
+INFO:     127.0.0.1:61846 - "POST /api/auth/register HTTP/1.1" 201 Created
+2026-04-01 11:01:35,814 - application.use_cases.auth_use_case - INFO - User logged in: smoke_f6635aae@example.com
+INFO:     127.0.0.1:61854 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61860 - "GET /api/booking/service-slots?service_id=a08bb0b1-4bbd-45c8-b4bf-2a26a15c56cb&date=2026-04-02 HTTP/1.1" 200 OK
+2026-04-01 11:01:35,957 - infrastructure.external.revel_service - WARNING - REVEL: Service not found - revel_discovery_call
+2026-04-01 11:01:35,957 - application.use_cases.booking_use_case - WARNING - Service a08bb0b1-4bbd-45c8-b4bf-2a26a15c56cb not found in REVEL POS
+2026-04-01 11:01:35,987 - application.use_cases.booking_use_case - INFO - Booking initiated: e7b32726-6d4a-4f0c-a5a2-cd49e7ca5389
+INFO:     127.0.0.1:61862 - "POST /api/booking/initiate HTTP/1.1" 201 Created
+INFO:     127.0.0.1:61864 - "GET /api/practitioners/by-service/a08bb0b1-4bbd-45c8-b4bf-2a26a15c56cb HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62095 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62194 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62192 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62194 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63441 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63445 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63446 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63445 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63494 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63492 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63501 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63494 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63543 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63545 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63494 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63545 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63597 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63554 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63595 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63597 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50744 - "OPTIONS /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50746 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50748 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50752 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:50755 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50752 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:50752 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50755 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50734 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50752 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50755 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50750 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52154 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:52156 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:52154 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52156 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52146 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52156 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52154 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52153 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55400 - "OPTIONS /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55407 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55409 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55830 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57749 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57750 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57752 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:57752 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:57752 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57754 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57752 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57754 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57754 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57752 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57737 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57748 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57878 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57856 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57881 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57877 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58435 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58440 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58440 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58438 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59046 - "OPTIONS /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59048 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59873 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60038 - "OPTIONS /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60040 - "POST /api/auth/login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:60215 - "OPTIONS /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60217 - "OPTIONS /api/me/discovery-eligibility HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60219 - "GET /api/me/discovery-eligibility HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:60219 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60217 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60219 - "GET /api/me/discovery-eligibility HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60219 - "OPTIONS /api/booking/service-slots?service_id=a08bb0b1-4bbd-45c8-b4bf-2a26a15c56cb&date=2026-04-01 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60219 - "GET /api/booking/service-slots?service_id=a08bb0b1-4bbd-45c8-b4bf-2a26a15c56cb&date=2026-04-01 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60360 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60360 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60362 - "GET /api/me/discovery-eligibility HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60360 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60384 - "GET /api/booking/service-slots?service_id=a08bb0b1-4bbd-45c8-b4bf-2a26a15c56cb&date=2026-04-01 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60384 - "OPTIONS /api/booking/service-slots?service_id=a08bb0b1-4bbd-45c8-b4bf-2a26a15c56cb&date=2026-04-02 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60384 - "GET /api/booking/service-slots?service_id=a08bb0b1-4bbd-45c8-b4bf-2a26a15c56cb&date=2026-04-02 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60438 - "OPTIONS /api/booking/initiate HTTP/1.1" 200 OK
+2026-04-01 14:34:38,948 - infrastructure.external.revel_service - WARNING - REVEL: Service not found - revel_discovery_call
+2026-04-01 14:34:38,949 - application.use_cases.booking_use_case - WARNING - Service a08bb0b1-4bbd-45c8-b4bf-2a26a15c56cb not found in REVEL POS
+2026-04-01 14:34:39,005 - application.use_cases.booking_use_case - INFO - Booking initiated: bc8d2d89-34f5-484f-a021-bc983d1172fe
+INFO:     127.0.0.1:60438 - "POST /api/booking/initiate HTTP/1.1" 201 Created
+INFO:     127.0.0.1:60438 - "OPTIONS /api/booking/lock-slot?booking_id=bc8d2d89-34f5-484f-a021-bc983d1172fe HTTP/1.1" 200 OK
+2026-04-01 14:34:39,059 - application.use_cases.booking_use_case - INFO - Slot locked for booking: bc8d2d89-34f5-484f-a021-bc983d1172fe
+INFO:     127.0.0.1:60438 - "POST /api/booking/lock-slot?booking_id=bc8d2d89-34f5-484f-a021-bc983d1172fe HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60438 - "OPTIONS /api/booking/confirm HTTP/1.1" 200 OK
+2026-04-01 14:34:39,286 - infrastructure.external.revel_service - INFO - REVEL: Order created - REVEL_ORD_F152BC53C007, Total: $32.77
+2026-04-01 14:34:39,696 - infrastructure.external.revel_service - INFO - REVEL: Order status updated - REVEL_ORD_F152BC53C007 -> paid
+2026-04-01 14:34:39,696 - infrastructure.external.revel_service - INFO - REVEL: Payment processed - REVEL_TXN_20FF6E343319, Amount: $32.77
+2026-04-01 14:34:39,856 - application.use_cases.booking_use_case - INFO - Booking confirmed: bc8d2d89-34f5-484f-a021-bc983d1172fe
+INFO:     127.0.0.1:60438 - "POST /api/booking/confirm HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60438 - "GET /api/booking/service-slots?service_id=a08bb0b1-4bbd-45c8-b4bf-2a26a15c56cb&date=2026-04-02 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60568 - "GET /api/booking/service-slots?service_id=a08bb0b1-4bbd-45c8-b4bf-2a26a15c56cb&date=2026-04-02 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62166 - "OPTIONS /api/me/bookings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62177 - "GET /api/me/bookings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62138 - "GET /api/booking/service-slots?service_id=a08bb0b1-4bbd-45c8-b4bf-2a26a15c56cb&date=2026-04-02 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62265 - "GET /api/me/discovery-eligibility HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62263 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63519 - "POST /api/auth/login HTTP/1.1" 401 Unauthorized
+2026-04-01 14:43:06,397 - application.use_cases.auth_use_case - INFO - User logged in: Nmoore@thenaturalpathla.com
+INFO:     127.0.0.1:63601 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63601 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63601 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63601 - "OPTIONS /api/me/practitioner HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63601 - "GET /api/me/practitioner HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63601 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63601 - "GET /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63743 - "OPTIONS /api/booking/practitioner/bc8d2d89-34f5-484f-a021-bc983d1172fe/complete HTTP/1.1" 200 OK
+2026-04-01 14:43:29,764 - application.use_cases.booking_use_case - INFO - Booking marked completed: bc8d2d89-34f5-484f-a021-bc983d1172fe
+INFO:     127.0.0.1:63743 - "POST /api/booking/practitioner/bc8d2d89-34f5-484f-a021-bc983d1172fe/complete HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63743 - "GET /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63801 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-05-01&end_date=2026-05-31 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63801 - "GET /api/booking/practitioner/calendar?start_date=2026-05-01&end_date=2026-05-31 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63891 - "OPTIONS /api/admin/rbac/baseline HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63893 - "OPTIONS /api/admin/rbac/overrides HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63894 - "OPTIONS /api/admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63893 - "GET /api/admin/rbac/baseline HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63894 - "GET /api/admin/rbac/overrides HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63898 - "GET /api/admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64085 - "OPTIONS /api/admin/rbac/reload HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64085 - "POST /api/admin/rbac/reload HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64085 - "GET /api/admin/rbac/overrides HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64205 - "OPTIONS /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64205 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64264 - "GET /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64721 - "OPTIONS /api/admin/analytics/store-funnel?days=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64721 - "GET /api/admin/analytics/store-funnel?days=7 HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:64721 - "GET /api/admin/analytics/store-funnel?days=7 HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:64721 - "GET /api/admin/analytics/store-funnel?days=7 HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:64721 - "GET /api/admin/analytics/store-funnel?days=7 HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:49670 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49676 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49676 - "OPTIONS /api/store/products?page_size=20 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49670 - "OPTIONS /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49670 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49678 - "GET /api/store/products?page_size=20 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49745 - "OPTIONS /api/store/admin/sync-revel-products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49745 - "POST /api/store/admin/sync-revel-products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49745 - "GET /api/store/products?page_size=20 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49904 - "OPTIONS /api/store/admin/products/revel_svc_005 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49906 - "PATCH /api/store/admin/products/revel_svc_005 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49906 - "GET /api/store/products?page_size=20 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49965 - "OPTIONS /api/store/practitioner/orders?status_filter=refunded HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49965 - "GET /api/store/practitioner/orders?status_filter=refunded HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49965 - "OPTIONS /api/store/practitioner/orders?status_filter=placed HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49965 - "GET /api/store/practitioner/orders?status_filter=placed HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50084 - "OPTIONS /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50098 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50128 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50129 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50131 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50098 - "GET /api/store/products?page_size=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50129 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50129 - "OPTIONS /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50098 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50131 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50131 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50129 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:50098 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:50227 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:50248 - "OPTIONS /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50249 - "OPTIONS /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:50248 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50249 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50245 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:50509 - "OPTIONS /api/store/checkout/orders HTTP/1.1" 200 OK
+2026-04-01 14:51:33,974 - server - ERROR - Unhandled exception: [TypeError("'ObjectId' object is not iterable"), TypeError('vars() argument must have __dict__ attribute')]
+Traceback (most recent call last):
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 328, in jsonable_encoder
+    data = dict(obj)
+TypeError: 'ObjectId' object is not iterable
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 333, in jsonable_encoder
+    data = vars(obj)
+TypeError: vars() argument must have __dict__ attribute
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ~~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.2/Frameworks/Python.framework/Versions/3.14/lib/python3.14/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/server.py", line 109, in add_process_time_header
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/cors.py", line 96, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/cors.py", line 154, in simple_response
+    await self.app(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 695, in app
+    content = await serialize_response(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<11 lines>...
+    )
+    ^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 317, in serialize_response
+    return jsonable_encoder(response_content)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 289, in jsonable_encoder
+    encoded_value = jsonable_encoder(
+        value,
+    ...<4 lines>...
+        sqlalchemy_safe=sqlalchemy_safe,
+    )
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 336, in jsonable_encoder
+    raise ValueError(errors) from e
+ValueError: [TypeError("'ObjectId' object is not iterable"), TypeError('vars() argument must have __dict__ attribute')]
+INFO:     127.0.0.1:50509 - "POST /api/store/checkout/orders HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 328, in jsonable_encoder
+    data = dict(obj)
+TypeError: 'ObjectId' object is not iterable
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 333, in jsonable_encoder
+    data = vars(obj)
+TypeError: vars() argument must have __dict__ attribute
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/uvicorn/protocols/http/httptools_impl.py", line 416, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self.scope, self.receive, self.send
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/applications.py", line 1159, in __call__
+    await super().__call__(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ~~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.2/Frameworks/Python.framework/Versions/3.14/lib/python3.14/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/server.py", line 109, in add_process_time_header
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/cors.py", line 96, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/cors.py", line 154, in simple_response
+    await self.app(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 695, in app
+    content = await serialize_response(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<11 lines>...
+    )
+    ^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 317, in serialize_response
+    return jsonable_encoder(response_content)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 289, in jsonable_encoder
+    encoded_value = jsonable_encoder(
+        value,
+    ...<4 lines>...
+        sqlalchemy_safe=sqlalchemy_safe,
+    )
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 336, in jsonable_encoder
+    raise ValueError(errors) from e
+ValueError: [TypeError("'ObjectId' object is not iterable"), TypeError('vars() argument must have __dict__ attribute')]
+2026-04-01 14:51:35,133 - server - ERROR - Unhandled exception: [TypeError("'ObjectId' object is not iterable"), TypeError('vars() argument must have __dict__ attribute')]
+Traceback (most recent call last):
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 328, in jsonable_encoder
+    data = dict(obj)
+TypeError: 'ObjectId' object is not iterable
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 333, in jsonable_encoder
+    data = vars(obj)
+TypeError: vars() argument must have __dict__ attribute
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ~~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.2/Frameworks/Python.framework/Versions/3.14/lib/python3.14/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/server.py", line 109, in add_process_time_header
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/cors.py", line 96, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/cors.py", line 154, in simple_response
+    await self.app(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 695, in app
+    content = await serialize_response(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<11 lines>...
+    )
+    ^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 317, in serialize_response
+    return jsonable_encoder(response_content)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 289, in jsonable_encoder
+    encoded_value = jsonable_encoder(
+        value,
+    ...<4 lines>...
+        sqlalchemy_safe=sqlalchemy_safe,
+    )
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 336, in jsonable_encoder
+    raise ValueError(errors) from e
+ValueError: [TypeError("'ObjectId' object is not iterable"), TypeError('vars() argument must have __dict__ attribute')]
+INFO:     127.0.0.1:50530 - "POST /api/store/checkout/orders HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 328, in jsonable_encoder
+    data = dict(obj)
+TypeError: 'ObjectId' object is not iterable
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 333, in jsonable_encoder
+    data = vars(obj)
+TypeError: vars() argument must have __dict__ attribute
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/uvicorn/protocols/http/httptools_impl.py", line 416, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self.scope, self.receive, self.send
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/applications.py", line 1159, in __call__
+    await super().__call__(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ~~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.2/Frameworks/Python.framework/Versions/3.14/lib/python3.14/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/server.py", line 109, in add_process_time_header
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/cors.py", line 96, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/cors.py", line 154, in simple_response
+    await self.app(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 695, in app
+    content = await serialize_response(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<11 lines>...
+    )
+    ^
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 317, in serialize_response
+    return jsonable_encoder(response_content)
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 289, in jsonable_encoder
+    encoded_value = jsonable_encoder(
+        value,
+    ...<4 lines>...
+        sqlalchemy_safe=sqlalchemy_safe,
+    )
+  File "/Users/mac/naturepath/backend/backend/.venv/lib/python3.14/site-packages/fastapi/encoders.py", line 336, in jsonable_encoder
+    raise ValueError(errors) from e
+ValueError: [TypeError("'ObjectId' object is not iterable"), TypeError('vars() argument must have __dict__ attribute')]
+INFO:     127.0.0.1:50534 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:53129 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53127 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:53285 - "OPTIONS /api/store/products?page_size=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53285 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:53287 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53285 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:53285 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:53285 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:53708 - "OPTIONS /api/store/admin/orders/np_ord_5c427b1eda4e4c16/confirm HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53708 - "POST /api/store/admin/orders/np_ord_5c427b1eda4e4c16/confirm HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53708 - "OPTIONS /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53708 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53708 - "OPTIONS /api/store/admin/orders/np_ord_5c427b1eda4e4c16/fulfill HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53708 - "POST /api/store/admin/orders/np_ord_5c427b1eda4e4c16/fulfill HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53708 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53708 - "OPTIONS /api/store/admin/orders/np_ord_5c427b1eda4e4c16/invoice HTTP/1.1" 200 OK
+2026-04-01 15:00:25,967 - infrastructure.external.email_service - ERROR - Failed to send email via Resend: Invalid `to` field. The email address needs to follow the `email@example.com` or `Name <email@example.com>` format.
+INFO:     127.0.0.1:53708 - "POST /api/store/admin/orders/np_ord_5c427b1eda4e4c16/invoice HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53708 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53843 - "OPTIONS /api/store/admin/sync-revel-products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53843 - "POST /api/store/admin/sync-revel-products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53843 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:53843 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:53843 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:53843 - "POST /api/store/admin/sync-revel-products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53843 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:54101 - "OPTIONS /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54102 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54103 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54103 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:54102 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:54101 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54301 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54302 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54296 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54306 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54294 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:54292 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:54296 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54424 - "OPTIONS /api/store/products?q=H&page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54423 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:54426 - "GET /api/store/products?q=H&page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54423 - "OPTIONS /api/store/products?q=Ho&page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54423 - "GET /api/store/products?q=Ho&page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54426 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:54423 - "OPTIONS /api/store/products?q=Hor&page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54423 - "GET /api/store/products?q=Hor&page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54426 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:54426 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:54423 - "OPTIONS /api/store/products?q=Hot&page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54426 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:54423 - "GET /api/store/products?q=Hot&page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54504 - "OPTIONS /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54505 - "OPTIONS /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54504 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54505 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54501 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:54499 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:54582 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54582 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54717 - "OPTIONS /api/store/checkout/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54717 - "POST /api/store/checkout/orders HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:54717 - "POST /api/store/checkout/orders HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:54717 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:58462 - "OPTIONS /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58464 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58470 - "OPTIONS /api/store/products?page_size=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58472 - "OPTIONS /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58482 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:58450 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58478 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58480 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:58484 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58484 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:58484 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:58484 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61285 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61287 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61303 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61304 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61327 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:61329 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:61341 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61329 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61327 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:61304 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:61300 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61310 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61308 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:61311 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:61349 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61208 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61341 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61327 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61308 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61349 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61341 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61327 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61308 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61341 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61341 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61508 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61508 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61508 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:59576 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59577 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59576 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59583 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59576 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59589 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59591 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59593 - "OPTIONS /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59595 - "OPTIONS /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59598 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59599 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59630 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59630 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59630 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59634 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59576 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59641 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59642 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59583 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59626 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59628 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59651 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59628 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59626 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59653 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59569 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59661 - "OPTIONS /api/store/products?page_size=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59662 - "OPTIONS /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59667 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:59662 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59619 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:59617 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:59722 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:59764 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:59764 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:59869 - "OPTIONS /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59867 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:59868 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:59871 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59871 - "OPTIONS /api/store/products?page_size=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59868 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:59868 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:59868 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:59868 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:59868 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:59938 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:59983 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59984 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59979 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:59980 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:59983 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60015 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60015 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60015 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60015 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60185 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60187 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60187 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60185 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60185 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60185 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60185 - "OPTIONS /api/store/admin/orders/np_ord_8082837d90494228/reject HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60185 - "POST /api/store/admin/orders/np_ord_8082837d90494228/reject HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60185 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60185 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60185 - "OPTIONS /api/store/admin/orders/np_ord_8082837d90494228/invoice HTTP/1.1" 200 OK
+2026-04-01 16:27:53,041 - infrastructure.external.email_service - ERROR - Failed to send email via Resend: Invalid `to` field. The email address needs to follow the `email@example.com` or `Name <email@example.com>` format.
+INFO:     127.0.0.1:60185 - "POST /api/store/admin/orders/np_ord_8082837d90494228/invoice HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60185 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60278 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60278 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60278 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60280 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60280 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60280 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60280 - "OPTIONS /api/store/admin/sync-revel-products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60280 - "POST /api/store/admin/sync-revel-products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60280 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60280 - "POST /api/store/admin/sync-revel-products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60280 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60318 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60280 - "POST /api/store/admin/sync-revel-products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60280 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60344 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60280 - "POST /api/store/admin/sync-revel-products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60280 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60280 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60280 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:60280 - "POST /api/store/admin/sync-revel-products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60280 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61206 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61196 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61207 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61198 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61206 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61198 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61198 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61209 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61252 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61255 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61255 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61252 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61309 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61308 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61901 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61903 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61895 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61901 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61905 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61892 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61905 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61895 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61901 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61895 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61901 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61895 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61938 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:61936 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:62292 - "POST /api/store/admin/sync-revel-products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62292 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:62292 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:62292 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:62292 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:62331 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62332 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62329 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62366 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62331 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62329 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62332 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62368 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62419 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62422 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62416 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62421 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62460 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62460 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62460 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62492 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62493 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62493 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62493 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62493 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62565 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62562 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62566 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62560 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62562 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62565 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:62566 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62560 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62562 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:62565 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:62587 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62565 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62587 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62565 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63054 - "OPTIONS /api/store/products?page_size=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63055 - "OPTIONS /api/store/products?page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63057 - "OPTIONS /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63064 - "GET /api/store/products?page_size=50 HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:63068 - "GET /api/store/practitioner/orders HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:63066 - "GET /api/store/products?page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63068 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63066 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63066 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63444 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63445 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63455 - "OPTIONS /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63457 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63458 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63459 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63463 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63471 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63477 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63475 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:63479 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:63469 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63445 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63481 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63473 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63471 - "GET /api/store/products?page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63487 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64212 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64218 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64218 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64220 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64228 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64228 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64222 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:64224 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:64218 - "GET /api/store/products?page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64226 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64841 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64843 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64843 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64845 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64843 - "GET /api/store/products?page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64853 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64852 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64849 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:64847 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:64853 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65036 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64855 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65032 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65042 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65034 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65034 - "OPTIONS /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65042 - "OPTIONS /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65042 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65032 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65032 - "OPTIONS /api/store/products?category=facial&page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65032 - "GET /api/store/products?category=facial&page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65042 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65169 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65167 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:49838 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49838 - "OPTIONS /api/store/products?page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49836 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49842 - "OPTIONS /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49840 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49846 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49844 - "GET /api/store/products?page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49852 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49854 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49856 - "OPTIONS /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49858 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49860 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49866 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49864 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49868 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49862 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:49852 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:50999 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51000 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51002 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:51002 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51000 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:51000 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51002 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51000 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51002 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50996 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51010 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:51012 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51010 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:51000 - "GET /api/store/practitioner/orders HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51012 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51010 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51012 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51010 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51002 - "GET /api/store/products?page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51009 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51006 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:51004 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:52328 - "OPTIONS /api/me/practitioner HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52337 - "GET /api/me/practitioner HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52337 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52344 - "GET /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52989 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-05-01&end_date=2026-05-31 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52991 - "GET /api/booking/practitioner/calendar?start_date=2026-05-01&end_date=2026-05-31 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52991 - "GET /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52991 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-03-01&end_date=2026-03-31 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53017 - "GET /api/booking/practitioner/calendar?start_date=2026-03-01&end_date=2026-03-31 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59214 - "OPTIONS /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59217 - "OPTIONS /api/me/practitioner HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59218 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-03-01&end_date=2026-03-31 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59232 - "GET /api/me/practitioner HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59234 - "GET /api/booking/practitioner/calendar?start_date=2026-03-01&end_date=2026-03-31 HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59232 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59234 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59240 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59234 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59220 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59234 - "GET /api/me/practitioner HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59226 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59240 - "GET /api/booking/practitioner/calendar?start_date=2026-03-01&end_date=2026-03-31 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59411 - "GET /api/booking/practitioner/calendar?start_date=2026-03-01&end_date=2026-03-31 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60319 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60318 - "GET /api/me/practitioner HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60319 - "GET /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61390 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61392 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61395 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61396 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61399 - "OPTIONS /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61400 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61402 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61408 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:61416 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:61418 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61420 - "OPTIONS /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61408 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:61416 - "GET /api/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:61384 - "GET /api/services HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61408 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61422 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61416 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61424 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61422 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61416 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61424 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61408 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61408 - "OPTIONS /api/me/practitioner HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61410 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:61412 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:61408 - "GET /api/me/practitioner HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61408 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61414 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61408 - "GET /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63321 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63321 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63321 - "GET /api/me/practitioner HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63321 - "GET /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63323 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-04-05&end_date=2026-04-11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63365 - "GET /api/booking/practitioner/calendar?start_date=2026-04-05&end_date=2026-04-11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63365 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-03-29&end_date=2026-04-04 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63365 - "GET /api/booking/practitioner/calendar?start_date=2026-03-29&end_date=2026-04-04 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63365 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-03-22&end_date=2026-03-28 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63400 - "GET /api/booking/practitioner/calendar?start_date=2026-03-22&end_date=2026-03-28 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63400 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-04-12&end_date=2026-04-18 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63400 - "GET /api/booking/practitioner/calendar?start_date=2026-04-12&end_date=2026-04-18 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63439 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-01 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63439 - "GET /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-01 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63489 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-05-01 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63489 - "GET /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-05-01 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63489 - "OPTIONS /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-05-29 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63489 - "GET /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-05-29 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63553 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63555 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63555 - "GET /api/me/practitioner HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63555 - "GET /api/booking/practitioner/calendar?start_date=2026-04-01&end_date=2026-04-30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65144 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65146 - "OPTIONS /api/store/analytics/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65150 - "OPTIONS /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65151 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65152 - "OPTIONS /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65160 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65160 - "GET /api/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65158 - "GET /api/store/products?page_size=24 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65156 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65154 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65162 - "OPTIONS /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65242 - "OPTIONS /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65244 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65242 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65244 - "OPTIONS /api/store/products?category=facial&page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65242 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65244 - "GET /api/store/products?category=facial&page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65273 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65275 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65350 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65360 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65350 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65350 - "OPTIONS /api/store/products?category=wellness&page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65350 - "GET /api/store/products?category=wellness&page_size=48 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65360 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65390 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65403 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65404 - "POST /api/store/products/by-ids HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65400 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:65390 - "POST /api/store/analytics/events HTTP/1.1" 202 Accepted
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+2026-04-01 20:03:47,529 - server - INFO - Shutting down...
+2026-04-01 20:03:48,483 - infrastructure.database.mongodb - INFO - Disconnected from MongoDB
+2026-04-01 20:03:48,641 - infrastructure.cache.redis_cache - INFO - Disconnected from Redis
+2026-04-01 20:03:48,641 - server - INFO - Application shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [88715]

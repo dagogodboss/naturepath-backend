@@ -1,7 +1,7 @@
 # AWS deployment runbook — Natural Path (API + workers + data + static frontend)
 
 This document describes how to deploy the **FastAPI backend** (port **8001** in Docker), **Celery workers**, **MongoDB**, **Redis**, and the **Vite React frontend** to AWS.  
-Your local AWS CLI returned `Your session has expired. Please reauthenticate using 'aws login'.` — complete **Prerequisites** before running any `aws` commands.
+Complete **Prerequisites** before running `aws` or `docker` commands (including a valid AWS session: `aws sts get-caller-identity`).
 
 ---
 
@@ -15,7 +15,18 @@ Your local AWS CLI returned `Your session has expired. Please reauthenticate usi
    export AWS_REGION=us-east-1
    aws sts get-caller-identity
    ```
-3. **Install tools:** AWS CLI v2, Docker, `jq` (optional).
+3. **Install tools:** AWS CLI v2, Docker CLI, Compose plugin (or `docker-compose`), `jq` (optional).
+
+### Docker on macOS (Colima)
+
+Local image builds and ECR push use the **Docker CLI**. On this project, **Colima** provides the Docker engine (instead of Docker Desktop).
+
+1. Install (Homebrew example): `brew install colima docker docker-compose`
+2. Start the Linux VM that runs Docker: `colima start`
+3. Verify: `colima status`, then `docker ps` (should connect without “cannot connect to Docker daemon”).
+4. If `docker` fails, try `colima stop && colima start` and confirm no other tool is pointing at a stale context (`docker context ls`).
+
+Use the same `docker build` / `docker login` / `docker push` commands in section 3 once Colima is running. For local **API + DB** day-to-day dev, `./run-local.sh` uses Python + Node directly and does not require Colima unless you are exercising Docker.
 
 ---
 
@@ -35,11 +46,14 @@ Your local AWS CLI returned `Your session has expired. Please reauthenticate usi
 
 Backend Dockerfile: `backend/backend/Dockerfile` — exposes **8001**.
 
+From the **monorepo root** (`naturepath/`, parent of `backend/` and `frontend/`):
+
 ```bash
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 export AWS_REGION=${AWS_REGION:-us-east-1}
 aws ecr create-repository --repository-name natural-path-api --region $AWS_REGION 2>/dev/null || true
 
+# macOS + Colima: ensure `colima start` completed so `docker` can reach the daemon
 aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 
 docker build -t natural-path-api:latest -f backend/backend/Dockerfile backend/backend
@@ -155,9 +169,26 @@ Set **CORS** on the API to allow the CloudFront domain.
 
 - IAM roles/policies (least privilege per service)
 - WAF, GuardDuty, backup policies
-- CI/CD (GitHub Actions → ECR → ECS is a common next step)
+- **Backend** CI/CD is partially covered by `.github/workflows/deploy-backend-ecs.yml` (you still supply AWS secrets / IAM).
 
 For **Infrastructure as Code**, add Terraform or AWS CDK in a follow-up and mirror the same topology.
+
+### CI — deploy on `git push` (implemented in-repo)
+
+Git has **`pre-push`** (runs before the remote accepts the object) but **no `post-push` hook**, so a “deploy after push without blocking my laptop” flow should live on the **remote**:
+
+- This repo includes **`.github/workflows/deploy-backend-ecs.yml`**, which builds the API image on **GitHub-hosted runners** (no Colima needed), pushes to **ECR**, and runs **`ecs update-service --force-new-deployment`** when you push to **`main`** / **`master`** and `backend/backend/**` changes.
+
+**Repository secrets** (GitHub → **Settings → Secrets and variables → Actions**):
+
+| Secret | Purpose |
+|--------|---------|
+| `AWS_ACCESS_KEY_ID` | IAM user or key allowed to push to ECR and update the ECS service |
+| `AWS_SECRET_ACCESS_KEY` | Matching secret key |
+
+Optional: replace long-lived keys with **OIDC** + an IAM role (`aws-actions/configure-aws-credentials` with `role-to-assume`).
+
+**Husky** at the repo root (see root `package.json` and `.husky/pre-push`) is only for **optional local checks**. It does **not** run AWS deploy (avoids tying push success to your network, Colima, and AWS CLI). After a fresh clone, run `npm install` at the repo root so `husky` can set `core.hooksPath` (requires a `.git` directory). Uncomment lint in `.husky/pre-push` if you want pushes blocked on failing `npm run lint` in `frontend/`.
 
 ---
 

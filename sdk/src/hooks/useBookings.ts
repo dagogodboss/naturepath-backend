@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - Booking Hooks
+ * natural-path-sdk - Booking Hooks
  * 
  * Complete booking flow support with multi-step mutations
  */

@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - API Endpoints
+ * natural-path-sdk - API Endpoints
  * 
  * All API calls are centralized here
  */

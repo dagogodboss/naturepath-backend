@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - Service Hooks
+ * natural-path-sdk - Service Hooks
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

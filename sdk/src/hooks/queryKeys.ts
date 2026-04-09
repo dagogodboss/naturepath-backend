@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - Query Keys
+ * natural-path-sdk - Query Keys
  * 
  * Centralized query keys for React Query cache management
  */

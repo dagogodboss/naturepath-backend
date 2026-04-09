@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - API Module
+ * natural-path-sdk - API Module
  */
 
 export * from './client';

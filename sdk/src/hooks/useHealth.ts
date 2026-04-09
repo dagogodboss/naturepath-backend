@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - Health Check Hook
+ * natural-path-sdk - Health Check Hook
  */
 
 import { useQuery } from '@tanstack/react-query';

@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - WebSocket Hooks
+ * natural-path-sdk - WebSocket Hooks
  * 
  * Real-time availability and notification hooks
  */

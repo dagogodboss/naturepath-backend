@@ -18,7 +18,7 @@ import {
   type Booking,
   type BookingStatus,
   type UserRole,
-} from '@natural-path/sdk';
+} from 'natural-path-sdk';
 
 export function AdminDashboardExample() {
   return (

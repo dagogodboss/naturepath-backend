@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - Practitioner Hooks
+ * natural-path-sdk - Practitioner Hooks
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

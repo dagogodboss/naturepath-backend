@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - API Client
+ * natural-path-sdk - API Client
  * 
  * Axios-based HTTP client with automatic JWT handling
  */
@@ -37,7 +37,7 @@ export function initializeSDK(config: NaturalPathConfig, storage: TokenStorage):
 export function getConfig(): NaturalPathConfig {
   if (!globalConfig) {
     throw new Error(
-      '@natural-path/sdk: SDK not initialized. Call initializeSDK() or wrap your app with NaturalPathProvider.'
+      'natural-path-sdk: SDK not initialized. Call initializeSDK() or wrap your app with NaturalPathProvider.'
     );
   }
   return globalConfig;
@@ -49,7 +49,7 @@ export function getConfig(): NaturalPathConfig {
 export function getTokenStorage(): TokenStorage {
   if (!tokenStorage) {
     throw new Error(
-      '@natural-path/sdk: Token storage not initialized. Call initializeSDK() or wrap your app with NaturalPathProvider.'
+      'natural-path-sdk: Token storage not initialized. Call initializeSDK() or wrap your app with NaturalPathProvider.'
     );
   }
   return tokenStorage;

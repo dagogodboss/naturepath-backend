@@ -18,7 +18,7 @@ import {
   type Service,
   type Practitioner,
   type AvailabilitySlot,
-} from '@natural-path/sdk';
+} from 'natural-path-sdk';
 
 type Step = 'service' | 'practitioner' | 'datetime' | 'confirm' | 'success';
 

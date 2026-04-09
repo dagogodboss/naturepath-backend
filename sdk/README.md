@@ -1,12 +1,14 @@
-# @natural-path/sdk
+# natural-path-sdk
 
 > React TypeScript SDK for The Natural Path Spa Management System
 
-[![npm version](https://img.shields.io/npm/v/@natural-path/sdk.svg)](https://www.npmjs.com/package/@natural-path/sdk)
+[![npm version](https://img.shields.io/npm/v/natural-path-sdk.svg)](https://www.npmjs.com/package/natural-path-sdk)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 [![React Query](https://img.shields.io/badge/React%20Query-5.0-ff4154.svg)](https://tanstack.com/query)
 
 A fully-typed React SDK that provides hooks-based abstractions for the Natural Path Spa backend API. Built with React Query for optimal caching and state management.
+
+**Registry:** [natural-path-sdk on npm](https://www.npmjs.com/package/natural-path-sdk) — latest **`1.0.0`**. Install with `npm install natural-path-sdk` (peer: `@tanstack/react-query`). The monorepo `frontend/` app uses **`"natural-path-sdk": "^1.0.0"`** from the registry so it matches what external consumers install.
 
 ## Features
 
@@ -17,14 +19,31 @@ A fully-typed React SDK that provides hooks-based abstractions for the Natural P
 - **Complete Booking Flow** - Multi-step booking with slot locking
 - **Admin Dashboard** - Stats, analytics, and user management hooks
 
+## Publishing (maintainers)
+
+The repo includes [`.github/workflows/publish-sdk.yml`](../../.github/workflows/publish-sdk.yml).
+
+1. **npm (recommended for frontend consumers)**  
+   **Cost:** Publishing **public** packages is **free**; you only need a free [npmjs.com](https://www.npmjs.com) account. Paid npm plans are for **private** packages and org features you may not need.  
+   **Token:** GitHub → repo **Settings → Secrets → Actions** → add `NPM_TOKEN`. Create the token at [npm → Access Tokens](https://www.npmjs.com/settings/~/tokens) (sign in → **Generate New Token**). Use type **Automation** (classic) or a fine-grained token with permission to publish the `natural-path-sdk` package. The workflow uses it as `NODE_AUTH_TOKEN` during `npm publish` — you do **not** paste the token into the repo; only into GitHub Secrets.  
+   **Scope:** This package is published as **`natural-path-sdk`** (unscoped), so you do **not** need an npm org or `@scope` — only an account that is allowed to publish that name (first publish wins the name). Bump `version` in `backend/sdk/package.json`, merge, then either:
+   - **Local (token only in your shell):** `export NODE_AUTH_TOKEN=…` then run [`../scripts/publish-sdk-to-npm.sh`](../scripts/publish-sdk-to-npm.sh) from the monorepo (script lives under `backend/scripts/`).
+   - **Actions → Publish SDK → Run workflow** → choose **npm**, or  
+   - Push a git tag `sdk/v1.0.1` (must match the version you intend to publish).
+
+2. **GitHub Packages**  
+   Not configured for this package name (GPR works best with scoped `@org/pkg`). Use npm only unless you later rename to a scoped package.
+
+**Local SDK development (monorepo):** To test unpublished SDK changes in `frontend/`, use either `npm link` (`cd backend/sdk && npm link` then `cd frontend && npm link natural-path-sdk`) or temporarily set `"natural-path-sdk": "file:../backend/sdk"` and add a Vite alias to `../backend/sdk/src/index.ts` — revert before shipping so the app tracks the published package.
+
 ## Installation
 
 ```bash
-npm install @natural-path/sdk @tanstack/react-query
+npm install natural-path-sdk @tanstack/react-query
 # or
-yarn add @natural-path/sdk @tanstack/react-query
+yarn add natural-path-sdk @tanstack/react-query
 # or
-pnpm add @natural-path/sdk @tanstack/react-query
+pnpm add natural-path-sdk @tanstack/react-query
 ```
 
 ## Quick Start
@@ -32,7 +51,7 @@ pnpm add @natural-path/sdk @tanstack/react-query
 ### 1. Wrap your app with the provider
 
 ```tsx
-import { NaturalPathProvider } from '@natural-path/sdk';
+import { NaturalPathProvider } from 'natural-path-sdk';
 
 function App() {
   return (
@@ -52,7 +71,7 @@ function App() {
 ### 2. Use hooks in your components
 
 ```tsx
-import { useServices, useAuth, useBookingFlow } from '@natural-path/sdk';
+import { useServices, useAuth, useBookingFlow } from 'natural-path-sdk';
 
 function ServicesPage() {
   const { data: services, isLoading } = useServices();
@@ -74,7 +93,7 @@ function ServicesPage() {
 ### Login
 
 ```tsx
-import { useAuth } from '@natural-path/sdk';
+import { useAuth } from 'natural-path-sdk';
 
 function LoginPage() {
   const { login, isLoading, error } = useAuth();
@@ -130,7 +149,7 @@ if (isAuthenticated) {
 ### List Services
 
 ```tsx
-import { useServices, useFeaturedServices } from '@natural-path/sdk';
+import { useServices, useFeaturedServices } from 'natural-path-sdk';
 
 // All services
 const { data: services } = useServices();
@@ -145,7 +164,7 @@ const { data: massages } = useServices('massage');
 ### Get Single Service
 
 ```tsx
-import { useService } from '@natural-path/sdk';
+import { useService } from 'natural-path-sdk';
 
 const { data: service } = useService('service-id');
 ```
@@ -159,7 +178,7 @@ import {
   usePractitioners, 
   useFeaturedPractitioners,
   usePractitionersByService 
-} from '@natural-path/sdk';
+} from 'natural-path-sdk';
 
 // All practitioners
 const { data: practitioners } = usePractitioners();
@@ -174,7 +193,7 @@ const { data: massageTherapists } = usePractitionersByService('massage-service-i
 ### Get Availability
 
 ```tsx
-import { useAvailability } from '@natural-path/sdk';
+import { useAvailability } from 'natural-path-sdk';
 
 const { data: slots, isLoading } = useAvailability(
   'practitioner-id',
@@ -187,7 +206,7 @@ const { data: slots, isLoading } = useAvailability(
 ### Real-time Availability (WebSocket)
 
 ```tsx
-import { useRealtimeAvailability } from '@natural-path/sdk';
+import { useRealtimeAvailability } from 'natural-path-sdk';
 
 function AvailabilityCalendar({ practitionerId, date }) {
   const { slots, isConnected, lastUpdate } = useRealtimeAvailability(
@@ -217,7 +236,7 @@ The SDK provides a complete multi-step booking flow:
 ### Step-by-Step Approach
 
 ```tsx
-import { useCreateBooking, useLockSlot, useConfirmBooking } from '@natural-path/sdk';
+import { useCreateBooking, useLockSlot, useConfirmBooking } from 'natural-path-sdk';
 
 function BookingPage() {
   const createBooking = useCreateBooking();
@@ -252,7 +271,7 @@ function BookingPage() {
 ### Combined Flow Hook (Recommended)
 
 ```tsx
-import { useBookingFlow } from '@natural-path/sdk';
+import { useBookingFlow } from 'natural-path-sdk';
 
 function BookingWizard() {
   const {
@@ -296,7 +315,7 @@ function BookingWizard() {
 ### Cancel Booking
 
 ```tsx
-import { useCancelBooking } from '@natural-path/sdk';
+import { useCancelBooking } from 'natural-path-sdk';
 
 const { mutate: cancelBooking } = useCancelBooking();
 
@@ -309,7 +328,7 @@ cancelBooking({
 ## User Profile
 
 ```tsx
-import { useProfile, useUpdateProfile, useUserBookings } from '@natural-path/sdk';
+import { useProfile, useUpdateProfile, useUserBookings } from 'natural-path-sdk';
 
 function ProfilePage() {
   const { data: profile } = useProfile();
@@ -338,7 +357,7 @@ function ProfilePage() {
 ## Notifications
 
 ```tsx
-import { useNotifications, useMarkNotificationRead } from '@natural-path/sdk';
+import { useNotifications, useMarkNotificationRead } from 'natural-path-sdk';
 
 function NotificationsPanel() {
   const { data: notifications } = useNotifications();
@@ -363,7 +382,7 @@ function NotificationsPanel() {
 ### Real-time Notifications (WebSocket)
 
 ```tsx
-import { useRealtimeNotifications } from '@natural-path/sdk';
+import { useRealtimeNotifications } from 'natural-path-sdk';
 
 function App() {
   const { isConnected } = useRealtimeNotifications(
@@ -381,7 +400,7 @@ function App() {
 ### Dashboard Stats
 
 ```tsx
-import { useAdminStats } from '@natural-path/sdk';
+import { useAdminStats } from 'natural-path-sdk';
 
 function AdminDashboard() {
   const { data: stats } = useAdminStats();
@@ -399,7 +418,7 @@ function AdminDashboard() {
 ### Booking Analytics
 
 ```tsx
-import { useBookingAnalytics } from '@natural-path/sdk';
+import { useBookingAnalytics } from 'natural-path-sdk';
 
 const { data: weeklyAnalytics } = useBookingAnalytics('week');
 const { data: monthlyAnalytics } = useBookingAnalytics('month');
@@ -408,7 +427,7 @@ const { data: monthlyAnalytics } = useBookingAnalytics('month');
 ### User Management
 
 ```tsx
-import { useUsers, useUpdateUserRole, useUpdateUserStatus } from '@natural-path/sdk';
+import { useUsers, useUpdateUserRole, useUpdateUserStatus } from 'natural-path-sdk';
 
 function UserManagement() {
   const { data: users } = useUsers();
@@ -433,7 +452,7 @@ import {
   formatCurrency, 
   formatDuration,
   getWeekRange 
-} from '@natural-path/sdk';
+} from 'natural-path-sdk';
 
 formatDate(new Date());        // '2026-03-25'
 formatCurrency(150);           // '$150.00'
@@ -446,7 +465,7 @@ getWeekRange();                // { start: '2026-03-23', end: '2026-03-29' }
 ### Custom Query Client
 
 ```tsx
-import { NaturalPathProvider, QueryClient } from '@natural-path/sdk';
+import { NaturalPathProvider, QueryClient } from 'natural-path-sdk';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -464,7 +483,7 @@ const queryClient = new QueryClient({
 ### Custom Token Storage
 
 ```tsx
-import { NaturalPathProvider } from '@natural-path/sdk';
+import { NaturalPathProvider } from 'natural-path-sdk';
 
 const secureStorage = {
   getAccessToken: () => secureStore.get('access_token'),
@@ -487,7 +506,7 @@ const secureStorage = {
 ### Direct API Access
 
 ```tsx
-import { servicesApi, getApiClient } from '@natural-path/sdk';
+import { servicesApi, getApiClient } from 'natural-path-sdk';
 
 // Use pre-built API methods
 const services = await servicesApi.getAll();
@@ -500,7 +519,7 @@ const response = await client.get('/api/custom-endpoint');
 ### Manual Cache Invalidation
 
 ```tsx
-import { useQueryClient, queryKeys } from '@natural-path/sdk';
+import { useQueryClient, queryKeys } from 'natural-path-sdk';
 
 function RefreshButton() {
   const queryClient = useQueryClient();
@@ -524,7 +543,7 @@ import type {
   Booking, 
   User,
   AvailabilitySlot 
-} from '@natural-path/sdk';
+} from 'natural-path-sdk';
 
 interface ServiceCardProps {
   service: Service;

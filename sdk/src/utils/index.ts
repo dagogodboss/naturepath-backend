@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - Utility Functions
+ * natural-path-sdk - Utility Functions
  */
 
 /**

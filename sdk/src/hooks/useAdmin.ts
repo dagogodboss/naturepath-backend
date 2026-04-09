@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - Admin Hooks
+ * natural-path-sdk - Admin Hooks
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

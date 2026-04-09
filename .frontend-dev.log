@@ -1,0 +1,410 @@
+
+> nature-path@0.0.0 dev
+> vite --host 0.0.0.0 --port 5173
+
+
+  VITE v6.4.1  ready in 1060 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://192.168.101.3:5173/
+
+[2m[574.17ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[361.69ms][22m  [2m ↳ [22mSetup compiler
+[2m[ 94.29ms][22m  [2m ↳ [22mSetup scanner
+[2m[ 55.67ms][22m  [2m ↳ [22mScan for candidates
+[2m[  6.74ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 54.06ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+
+[2m[6.99ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[6.54ms][22m  [2m ↳ [22mSetup compiler
+[2m[0.15ms][22m  [2m ↳ [22mSetup scanner
+
+11:07:03 AM [vite] (client) page reload /Users/mac/naturepath/backend/sdk/src/api/endpoints.ts
+11:07:07 AM [vite] (client) page reload /Users/mac/naturepath/backend/sdk/src/hooks/queryKeys.ts
+11:07:07 AM [vite] (client) page reload /Users/mac/naturepath/backend/sdk/src/hooks/queryKeys.ts
+11:07:14 AM [vite] (client) page reload /Users/mac/naturepath/backend/sdk/src/hooks/useAdmin.ts
+11:07:22 AM [vite] (client) page reload /Users/mac/naturepath/backend/sdk/src/hooks/index.ts
+11:07:27 AM [vite] (client) page reload /Users/mac/naturepath/backend/sdk/src/index.ts
+11:07:46 AM [vite] (client) hmr update /src/pages/practitioner/Reporting.jsx, /src/index.css
+
+[2m[574.32ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[512.07ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 14.31ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 14.45ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+2:40:52 PM [vite] (client) hmr update /src/pages/customer/ProductStore.jsx, /src/index.css, /src/pages/customer/StoreCheckout.jsx
+2:40:55 PM [vite] (client) hmr update /src/pages/customer/ProductStore.jsx, /src/index.css, /src/pages/customer/StoreCheckout.jsx
+
+[2m[833.43ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[312.68ms][22m  [2m ↳ [22mScan for candidates
+[2m[  9.14ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[120.64ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+2:50:05 PM [vite] (client) hmr update /src/components/BottomNav.jsx, /src/index.css
+
+[2m[117.23ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[ 94.12ms][22m  [2m ↳ [22mScan for candidates
+[2m[  0.83ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 17.23ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+2:54:41 PM [vite] (client) hmr update /src/pages/customer/ProductStore.jsx, /src/index.css
+
+[2m[434.57ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[240.81ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 56.42ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[135.07ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+2:55:54 PM [vite] (client) hmr update /src/pages/customer/StoreCheckout.jsx, /src/index.css
+2:57:30 PM [vite] (client) hmr update /src/pages/customer/StoreOrders.jsx, /src/index.css
+2:58:08 PM [vite] (client) hmr update /src/pages/customer/StoreOrders.jsx, /src/index.css
+
+[2m[57992.03ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[ 6612.23ms][22m  [2m ↳ [22mScan for candidates
+[2m[   92.17ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[11676.83ms][22m  [2m ↳ [22mBuild CSS
+[2m[    0.02ms][22m  [2m ↳ [22mBuild Source Map
+
+2:58:27 PM [vite] (client) hmr update /src/pages/practitioner/StoreOperations.jsx, /src/index.css
+2:58:28 PM [vite] (client) hmr update /src/pages/practitioner/StoreOperations.jsx, /src/index.css
+
+[2m[14476.66ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[  285.04ms][22m  [2m ↳ [22mScan for candidates
+[2m[   43.76ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[13933.47ms][22m  [2m ↳ [22mBuild CSS
+[2m[    0.02ms][22m  [2m ↳ [22mBuild Source Map
+
+
+[2m[516.79ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[477.16ms][22m  [2m ↳ [22mScan for candidates
+[2m[  4.98ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 30.98ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+3:12:05 PM [vite] (client) hmr update /src/pages/auth/SignIn.jsx, /src/index.css, /src/pages/auth/SignUpBooking.jsx, /src/pages/auth/SignUp.jsx, /src/pages/auth/Verification.jsx, /src/pages/practitioner/AvailabilityManagement.jsx, /src/pages/customer/ServiceDetails.jsx, /src/pages/customer/BookingHistory.jsx, /src/pages/customer/Services.jsx, /src/pages/customer/ProductStore.jsx, /src/pages/customer/StoreCheckout.jsx, /src/pages/customer/StoreOrders.jsx, /src/pages/practitioner/StoreOperations.jsx, /src/pages/admin/RbacManagement.jsx, /src/pages/customer/BookingAppointment.jsx, /src/pages/practitioner/AppointmentCalendar.jsx, /src/pages/practitioner/ServicesManagement.jsx
+3:12:14 PM [vite] (client) hmr update /src/pages/customer/StoreCheckout.jsx, /src/index.css
+3:12:17 PM [vite] (client) hmr update /src/pages/customer/StoreCheckout.jsx, /src/index.css
+
+[2m[706.41ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[247.94ms][22m  [2m ↳ [22mScan for candidates
+[2m[  6.04ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 84.79ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+
+[2m[881.71ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[ 89.86ms][22m  [2m ↳ [22mScan for candidates
+[2m[  2.92ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[  0.25ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+3:12:23 PM [vite] (client) hmr update /src/pages/customer/StoreCheckout.jsx, /src/index.css
+
+[2m[482.90ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[119.60ms][22m  [2m ↳ [22mScan for candidates
+[2m[  4.67ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 22.16ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+3:12:44 PM [vite] (client) hmr update /src/pages/customer/StoreCheckout.jsx, /src/index.css
+
+[2m[53.71ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[32.65ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 9.50ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[11.11ms][22m  [2m ↳ [22mBuild CSS
+[2m[ 0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+3:12:49 PM [vite] (client) hmr update /src/pages/customer/StoreCheckout.jsx, /src/index.css
+
+[2m[125.77ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[ 82.02ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 20.63ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[  5.23ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+3:13:01 PM [vite] (client) hmr update /src/pages/customer/StoreCheckout.jsx, /src/index.css
+
+[2m[130.20ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[ 48.89ms][22m  [2m ↳ [22mScan for candidates
+[2m[  1.36ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 78.56ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+3:13:09 PM [vite] (client) hmr update /src/pages/customer/StoreCheckout.jsx, /src/index.css
+
+[2m[29.60ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[23.86ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 0.58ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 4.34ms][22m  [2m ↳ [22mBuild CSS
+[2m[ 0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+3:13:21 PM [vite] (client) hmr update /src/pages/customer/StoreCheckout.jsx, /src/index.css
+
+[2m[1874.58ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[1676.66ms][22m  [2m ↳ [22mScan for candidates
+[2m[  67.44ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 124.68ms][22m  [2m ↳ [22mBuild CSS
+[2m[   0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+3:13:27 PM [vite] (client) hmr update /src/App.jsx, /src/index.css
+
+[2m[139.65ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[115.09ms][22m  [2m ↳ [22mScan for candidates
+[2m[  3.59ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[  1.21ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+3:13:32 PM [vite] Internal server error: Failed to resolve import "./pages/customer/ProductDetail" from "src/App.jsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/mac/naturepath/frontend/src/App.jsx:23:26
+  37 |  import PractitionerProfile from "./pages/customer/PractitionerProfile";
+  38 |  import ProductStore from "./pages/customer/ProductStore";
+  39 |  import ProductDetail from "./pages/customer/ProductDetail";
+     |                             ^
+  40 |  import StoreCheckout from "./pages/customer/StoreCheckout";
+  41 |  import StoreOrders from "./pages/customer/StoreOrders";
+      at TransformPluginContext._formatLog (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42528:41)
+      at TransformPluginContext.error (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42525:16)
+      at normalizeUrl (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40504:23)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40623:37
+      at async Promise.all (index 25)
+      at async TransformPluginContext.transform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40550:7)
+      at async EnvironmentPluginContainer.transform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42323:18)
+      at async loadAndTransform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:35739:27)
+3:13:32 PM [vite] Internal server error: Failed to resolve import "./pages/customer/ProductDetail" from "src/App.jsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/mac/naturepath/frontend/src/App.jsx:23:26
+  37 |  import PractitionerProfile from "./pages/customer/PractitionerProfile";
+  38 |  import ProductStore from "./pages/customer/ProductStore";
+  39 |  import ProductDetail from "./pages/customer/ProductDetail";
+     |                             ^
+  40 |  import StoreCheckout from "./pages/customer/StoreCheckout";
+  41 |  import StoreOrders from "./pages/customer/StoreOrders";
+      at TransformPluginContext._formatLog (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42528:41)
+      at TransformPluginContext.error (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42525:16)
+      at normalizeUrl (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40504:23)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40623:37
+      at async Promise.all (index 25)
+      at async TransformPluginContext.transform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40550:7)
+      at async EnvironmentPluginContainer.transform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42323:18)
+      at async loadAndTransform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:35739:27)
+3:13:33 PM [vite] Internal server error: Failed to resolve import "./pages/customer/ProductDetail" from "src/App.jsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/mac/naturepath/frontend/src/App.jsx:23:26
+  37 |  import PractitionerProfile from "./pages/customer/PractitionerProfile";
+  38 |  import ProductStore from "./pages/customer/ProductStore";
+  39 |  import ProductDetail from "./pages/customer/ProductDetail";
+     |                             ^
+  40 |  import StoreCheckout from "./pages/customer/StoreCheckout";
+  41 |  import StoreOrders from "./pages/customer/StoreOrders";
+      at TransformPluginContext._formatLog (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42528:41)
+      at TransformPluginContext.error (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42525:16)
+      at normalizeUrl (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40504:23)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40623:37
+      at async Promise.all (index 25)
+      at async TransformPluginContext.transform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40550:7)
+      at async EnvironmentPluginContainer.transform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42323:18)
+      at async loadAndTransform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:35739:27)
+3:13:37 PM [vite] (client) page reload src/App.jsx
+3:13:37 PM [vite] (client) page reload src/App.jsx
+3:13:37 PM [vite] (client) Pre-transform error: Failed to resolve import "./pages/customer/ProductDetail" from "src/App.jsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/mac/naturepath/frontend/src/App.jsx:23:26
+  37 |  import PractitionerProfile from "./pages/customer/PractitionerProfile";
+  38 |  import ProductStore from "./pages/customer/ProductStore";
+  39 |  import ProductDetail from "./pages/customer/ProductDetail";
+     |                             ^
+  40 |  import StoreCheckout from "./pages/customer/StoreCheckout";
+  41 |  import StoreOrders from "./pages/customer/StoreOrders";
+3:13:41 PM [vite] (client) Pre-transform error: Failed to resolve import "./pages/customer/ProductDetail" from "src/App.jsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/mac/naturepath/frontend/src/App.jsx:23:26
+  37 |  import PractitionerProfile from "./pages/customer/PractitionerProfile";
+  38 |  import ProductStore from "./pages/customer/ProductStore";
+  39 |  import ProductDetail from "./pages/customer/ProductDetail";
+     |                             ^
+  40 |  import StoreCheckout from "./pages/customer/StoreCheckout";
+  41 |  import StoreOrders from "./pages/customer/StoreOrders";
+3:13:41 PM [vite] Internal server error: Failed to resolve import "./pages/customer/ProductDetail" from "src/App.jsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/mac/naturepath/frontend/src/App.jsx:23:26
+  37 |  import PractitionerProfile from "./pages/customer/PractitionerProfile";
+  38 |  import ProductStore from "./pages/customer/ProductStore";
+  39 |  import ProductDetail from "./pages/customer/ProductDetail";
+     |                             ^
+  40 |  import StoreCheckout from "./pages/customer/StoreCheckout";
+  41 |  import StoreOrders from "./pages/customer/StoreOrders";
+      at TransformPluginContext._formatLog (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42528:41)
+      at TransformPluginContext.error (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42525:16)
+      at normalizeUrl (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40504:23)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40623:37
+      at async Promise.all (index 25)
+      at async TransformPluginContext.transform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40550:7)
+      at async EnvironmentPluginContainer.transform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42323:18)
+      at async loadAndTransform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:35739:27)
+
+[2m[3966.99ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[ 363.31ms][22m  [2m ↳ [22mScan for candidates
+[2m[  18.16ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[   0.41ms][22m  [2m ↳ [22mBuild CSS
+[2m[   0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+
+[2m[615.41ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[203.48ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 31.36ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 56.51ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+3:13:45 PM [vite] Internal server error: Failed to resolve import "./pages/customer/ProductDetail" from "src/App.jsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/mac/naturepath/frontend/src/App.jsx:23:26
+  37 |  import PractitionerProfile from "./pages/customer/PractitionerProfile";
+  38 |  import ProductStore from "./pages/customer/ProductStore";
+  39 |  import ProductDetail from "./pages/customer/ProductDetail";
+     |                             ^
+  40 |  import StoreCheckout from "./pages/customer/StoreCheckout";
+  41 |  import StoreOrders from "./pages/customer/StoreOrders";
+      at TransformPluginContext._formatLog (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42528:41)
+      at TransformPluginContext.error (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42525:16)
+      at normalizeUrl (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40504:23)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40623:37
+      at async Promise.all (index 25)
+      at async TransformPluginContext.transform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40550:7)
+      at async EnvironmentPluginContainer.transform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42323:18)
+      at async loadAndTransform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:35739:27)
+3:13:45 PM [vite] Internal server error: Failed to resolve import "./pages/customer/ProductDetail" from "src/App.jsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/mac/naturepath/frontend/src/App.jsx:23:26
+  37 |  import PractitionerProfile from "./pages/customer/PractitionerProfile";
+  38 |  import ProductStore from "./pages/customer/ProductStore";
+  39 |  import ProductDetail from "./pages/customer/ProductDetail";
+     |                             ^
+  40 |  import StoreCheckout from "./pages/customer/StoreCheckout";
+  41 |  import StoreOrders from "./pages/customer/StoreOrders";
+      at TransformPluginContext._formatLog (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42528:41)
+      at TransformPluginContext.error (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42525:16)
+      at normalizeUrl (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40504:23)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40623:37
+      at async Promise.all (index 25)
+      at async TransformPluginContext.transform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:40550:7)
+      at async EnvironmentPluginContainer.transform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:42323:18)
+      at async loadAndTransform (file:///Users/mac/naturepath/frontend/node_modules/vite/dist/node/chunks/dep-D4NMHUTW.js:35739:27)
+3:16:19 PM [vite] (client) page reload src/pages/customer/ProductDetail.jsx
+3:17:07 PM [vite] (client) hmr update /src/pages/customer/ProductStore.jsx, /src/index.css
+3:17:10 PM [vite] (client) hmr update /src/pages/customer/ProductStore.jsx, /src/index.css
+
+[2m[48790.13ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[ 5921.99ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 2754.23ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[19851.61ms][22m  [2m ↳ [22mBuild CSS
+[2m[    0.03ms][22m  [2m ↳ [22mBuild Source Map
+
+
+[2m[2336.33ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[ 222.07ms][22m  [2m ↳ [22mScan for candidates
+[2m[   0.53ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[  10.32ms][22m  [2m ↳ [22mBuild CSS
+[2m[   0.04ms][22m  [2m ↳ [22mBuild Source Map
+
+4:51:44 PM [vite] (client) hmr update /src/pages/practitioner/StoreOperations.jsx, /src/index.css
+
+[2m[95.44ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[89.86ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 1.24ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 0.64ms][22m  [2m ↳ [22mBuild CSS
+[2m[ 0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+4:52:08 PM [vite] (client) hmr update /src/pages/customer/ProductDetail.jsx, /src/index.css
+
+[2m[514.55ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[377.16ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 97.05ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 39.59ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+4:52:16 PM [vite] (client) hmr update /src/pages/customer/ProductDetail.jsx, /src/index.css
+
+[2m[18.82ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[16.68ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 0.30ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 0.26ms][22m  [2m ↳ [22mBuild CSS
+[2m[ 0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+4:52:24 PM [vite] (client) hmr update /src/pages/customer/ProductDetail.jsx, /src/index.css
+4:52:24 PM [vite] (client) hmr update /src/pages/customer/ProductDetail.jsx, /src/index.css
+
+[2m[12.50ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[ 7.68ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 0.28ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 0.17ms][22m  [2m ↳ [22mBuild CSS
+[2m[ 0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+4:52:48 PM [vite] (client) page reload /Users/mac/naturepath/backend/sdk/src/api/endpoints.ts
+6:15:44 PM [vite] (client) hmr update /src/pages/practitioner/AppointmentCalendar.jsx, /src/index.css
+
+[2m[88.48ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[47.89ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 1.47ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[32.40ms][22m  [2m ↳ [22mBuild CSS
+[2m[ 0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+6:16:00 PM [vite] (client) hmr update /src/pages/practitioner/AppointmentCalendar.jsx, /src/index.css
+
+[2m[37.81ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[28.95ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 0.30ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 8.18ms][22m  [2m ↳ [22mBuild CSS
+[2m[ 0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+6:16:02 PM [vite] (client) hmr update /src/pages/practitioner/AppointmentCalendar.jsx, /src/index.css
+6:16:02 PM [vite] (client) hmr update /src/pages/practitioner/AppointmentCalendar.jsx, /src/index.css
+
+[2m[65.42ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[54.58ms][22m  [2m ↳ [22mScan for candidates
+[2m[ 3.30ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[ 0.26ms][22m  [2m ↳ [22mBuild CSS
+[2m[ 0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+
+[2m[105.19ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[  5.36ms][22m  [2m ↳ [22mScan for candidates
+[2m[  0.65ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[  0.10ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+6:16:04 PM [vite] (client) hmr update /src/pages/practitioner/AppointmentCalendar.jsx, /src/index.css
+
+[2m[6.65ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[5.59ms][22m  [2m ↳ [22mScan for candidates
+[2m[0.47ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[0.16ms][22m  [2m ↳ [22mBuild CSS
+[2m[0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+6:16:10 PM [vite] (client) hmr update /src/pages/practitioner/AppointmentCalendar.jsx, /src/index.css
+
+[2m[774.79ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[118.85ms][22m  [2m ↳ [22mScan for candidates
+[2m[  2.68ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[  0.26ms][22m  [2m ↳ [22mBuild CSS
+[2m[  0.00ms][22m  [2m ↳ [22mBuild Source Map
+
+6:16:13 PM [vite] (client) hmr update /src/pages/practitioner/AppointmentCalendar.jsx, /src/index.css
+
+[2m[1183.44ms][22m [@tailwindcss/vite] Generate CSS (serve)
+[2m[ 325.06ms][22m  [2m ↳ [22mScan for candidates
+[2m[  93.07ms][22m  [2m ↳ [22mRegister dependency messages
+[2m[  45.67ms][22m  [2m ↳ [22mBuild CSS
+[2m[   0.00ms][22m  [2m ↳ [22mBuild Source Map
+

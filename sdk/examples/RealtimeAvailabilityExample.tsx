@@ -14,7 +14,7 @@ import {
   addDays,
   type Practitioner,
   type AvailabilitySlot,
-} from '@natural-path/sdk';
+} from 'natural-path-sdk';
 
 export function RealtimeAvailabilityExample() {
   const [selectedPractitioner, setSelectedPractitioner] = useState<Practitioner | null>(null);

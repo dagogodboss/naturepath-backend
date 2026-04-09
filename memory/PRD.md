@@ -155,7 +155,7 @@ When continuing frontend work:
 1. Prefer **small commits** in `frontend/` after each vertical slice; use author email `dagogodboss@gmail.com` if committing on behalf of the project owner.
 2. **TDD for new logic:** add `*.test.js` next to small pure modules (errors, redirects, formatters) before or alongside implementation; run `npm test` before commit.
 3. **Auth first** for any `/api/me/*` or booking mutation routes — unauthenticated users should hit `RequireAuth` or explicit login prompts.
-4. Reuse SDK hooks from `@natural-path/sdk`; avoid duplicating `fetch`/axios in UI code.
+4. Reuse SDK hooks from `natural-path-sdk`; avoid duplicating `fetch`/axios in UI code.
 5. After substantive integration milestones, **update this file** (`backend/memory/PRD.md`) so backlog, the integration table, and the test memory section stay truthful.
 
 ## Implementation roadmap (next phases)

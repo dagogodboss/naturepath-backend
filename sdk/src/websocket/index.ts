@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - WebSocket Module
+ * natural-path-sdk - WebSocket Module
  */
 
 export * from './manager';

@@ -1,5 +1,5 @@
 {
-  "name": "@natural-path/sdk",
+  "name": "natural-path-sdk",
   "version": "1.0.0",
   "description": "React TypeScript SDK for The Natural Path Spa Management System",
   "main": "dist/index.js",
@@ -7,9 +7,9 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js"
     }
   },
   "files": [
@@ -53,10 +53,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/natural-path/sdk"
+    "url": "git+https://github.com/dagogodboss/naturepath.git",
+    "directory": "backend/sdk"
   },
   "bugs": {
-    "url": "https://github.com/natural-path/sdk/issues"
+    "url": "https://github.com/dagogodboss/naturepath/issues"
   },
-  "homepage": "https://github.com/natural-path/sdk#readme"
+  "homepage": "https://github.com/dagogodboss/naturepath/tree/main/backend/sdk#readme"
 }

@@ -1,11 +1,11 @@
 /**
- * @natural-path/sdk
+ * natural-path-sdk
  * 
  * React TypeScript SDK for The Natural Path Spa Management System
  * 
  * @example
  * ```tsx
- * import { NaturalPathProvider, useServices, useBookingFlow } from '@natural-path/sdk';
+ * import { NaturalPathProvider, useServices, useBookingFlow } from 'natural-path-sdk';
  * 
  * function App() {
  *   return (

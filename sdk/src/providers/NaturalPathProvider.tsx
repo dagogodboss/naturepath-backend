@@ -1,5 +1,5 @@
 /**
- * @natural-path/sdk - React Provider
+ * natural-path-sdk - React Provider
  * 
  * Main provider component that initializes the SDK
  */
@@ -103,7 +103,7 @@ const createDefaultQueryClient = () =>
  * 
  * @example
  * ```tsx
- * import { NaturalPathProvider } from '@natural-path/sdk';
+ * import { NaturalPathProvider } from 'natural-path-sdk';
  * 
  * function App() {
  *   return (
