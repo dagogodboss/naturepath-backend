@@ -159,7 +159,7 @@ export function useLockSlot() {
  * @example
  * ```tsx
  * const { mutate: confirmBooking } = useConfirmBooking();
- * confirmBooking({ booking_id: 'booking-id', payment_method: 'card' });
+ * confirmBooking({ booking_id: 'booking-id', payment_method: 'pay_at_counter' });
  * ```
  */
 export function useConfirmBooking() {
@@ -300,7 +300,10 @@ export function useBookingFlow() {
     confirmBooking: (paymentMethod?: string, overrideBookingId?: string) => {
       const id = overrideBookingId ?? bookingId;
       if (!id) throw new Error('No booking initiated');
-      return confirmMutation.mutateAsync({ booking_id: id, payment_method: paymentMethod });
+      return confirmMutation.mutateAsync({
+        booking_id: id,
+        payment_method: paymentMethod ?? 'pay_at_counter',
+      });
     },
 
     // State

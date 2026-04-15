@@ -3,6 +3,7 @@ Email Service - Resend Integration
 """
 import os
 import asyncio
+import base64
 import logging
 import smtplib
 import resend
@@ -33,31 +34,30 @@ class EmailService:
         to_email: str,
         subject: str,
         html_content: str,
-        text_content: Optional[str] = None
+        text_content: Optional[str] = None,
+        attachments: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """
-        Send an email using Resend
-        
-        Args:
-            to_email: Recipient email
-            subject: Email subject
-            html_content: HTML content
-            text_content: Plain text content (optional)
-            
-        Returns:
-            Email send result
+        Send an email using Resend or SMTP.
+
+        attachments: optional list of {"filename": str, "content_base64": str} (Resend format).
         """
         if self.api_key and self.api_key != "re_placeholder":
-            params = {
+            params: Dict[str, Any] = {
                 "from": self.sender_email,
                 "to": [to_email],
                 "subject": subject,
-                "html": html_content
+                "html": html_content,
             }
-            
+
             if text_content:
                 params["text"] = text_content
-            
+            if attachments:
+                params["attachments"] = [
+                    {"filename": a["filename"], "content": a["content_base64"]}
+                    for a in attachments
+                ]
+
             try:
                 email = await asyncio.to_thread(resend.Emails.send, params)
                 logger.info(f"Email sent via Resend to {to_email}: {subject}")
@@ -65,12 +65,12 @@ class EmailService:
                     "success": True,
                     "provider": "resend",
                     "email_id": email.get("id"),
-                    "message": f"Email sent to {to_email}"
+                    "message": f"Email sent to {to_email}",
                 }
             except Exception as e:
                 logger.error(f"Failed to send email via Resend: {str(e)}")
                 return {"success": False, "provider": "resend", "message": str(e)}
-        
+
         if self.smtp_host:
             try:
                 await asyncio.to_thread(
@@ -79,12 +79,13 @@ class EmailService:
                     subject,
                     html_content,
                     text_content,
+                    attachments,
                 )
                 logger.info(f"Email sent via SMTP to {to_email}: {subject}")
                 return {
                     "success": True,
                     "provider": "smtp",
-                    "message": f"Email sent to {to_email}"
+                    "message": f"Email sent to {to_email}",
                 }
             except Exception as e:
                 logger.error(f"Failed to send email via SMTP: {str(e)}")
@@ -98,7 +99,8 @@ class EmailService:
         to_email: str,
         subject: str,
         html_content: str,
-        text_content: Optional[str] = None
+        text_content: Optional[str] = None,
+        attachments: Optional[List[Dict[str, str]]] = None,
     ) -> None:
         msg = EmailMessage()
         msg["Subject"] = subject
@@ -106,6 +108,15 @@ class EmailService:
         msg["To"] = to_email
         msg.set_content(text_content or "Please view this email in an HTML-compatible client.")
         msg.add_alternative(html_content, subtype="html")
+        if attachments:
+            for a in attachments:
+                raw = base64.standard_b64decode(a["content_base64"])
+                msg.add_attachment(
+                    raw,
+                    maintype="text",
+                    subtype="calendar",
+                    filename=a["filename"],
+                )
 
         with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=20) as server:
             if self.smtp_use_tls:
@@ -122,10 +133,46 @@ class EmailService:
         practitioner_name: str,
         date: str,
         time: str,
-        booking_id: str
+        booking_id: str,
+        *,
+        pay_at_counter: bool = True,
+        google_calendar_url: Optional[str] = None,
+        outlook_live_url: Optional[str] = None,
+        outlook_office_url: Optional[str] = None,
+        ics_base64: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Send booking confirmation email"""
-        subject = f"Booking Confirmed - The Natural Path Spa"
+        """Send booking confirmation email with optional calendar links and .ics attachment."""
+        subject = "Booking Confirmed - The Natural Path Spa"
+        payment_line = (
+            "<p><strong>Payment:</strong> Due at the front desk when you arrive (we do not charge your card online for appointments).</p>"
+            if pay_at_counter
+            else "<p><strong>Payment:</strong> Your payment was processed.</p>"
+        )
+        calendar_block = ""
+        if google_calendar_url or outlook_live_url or outlook_office_url:
+            links = []
+            if google_calendar_url:
+                links.append(
+                    f'<a class="btn" href="{google_calendar_url}" target="_blank" rel="noopener">Add to Google Calendar</a>'
+                )
+            if outlook_live_url:
+                links.append(
+                    f'<a class="btn secondary" href="{outlook_live_url}" target="_blank" rel="noopener">Add to Outlook (personal)</a>'
+                )
+            if outlook_office_url:
+                links.append(
+                    f'<a class="btn secondary" href="{outlook_office_url}" target="_blank" rel="noopener">Add to Outlook (Microsoft 365)</a>'
+                )
+            calendar_block = f"""
+                    <p style="margin-top:20px;"><strong>Add to your calendar</strong></p>
+                    <p style="font-size:13px;color:#555;">Open a link below or use the attached .ics file (Apple Calendar, Google, Outlook).</p>
+                    <div style="display:flex;flex-wrap:wrap;gap:10px;margin:12px 0;">{"".join(links)}</div>
+            """
+        attach_note = (
+            "<p style=\"font-size:12px;color:#777;\">A calendar invite is attached as <code>appointment.ics</code>.</p>"
+            if ics_base64
+            else ""
+        )
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -138,7 +185,8 @@ class EmailService:
                 .details {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }}
                 .detail-row {{ display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }}
                 .footer {{ text-align: center; padding: 20px; color: #666; font-size: 12px; }}
-                .btn {{ display: inline-block; background: #4a7c59; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin-top: 20px; }}
+                .btn {{ display: inline-block; background: #4a7c59; color: white !important; padding: 12px 18px; text-decoration: none; border-radius: 5px; font-size: 14px; }}
+                .btn.secondary {{ background: #5a6b8c; }}
             </style>
         </head>
         <body>
@@ -150,7 +198,7 @@ class EmailService:
                 <div class="content">
                     <h2>Hello {customer_name},</h2>
                     <p>Your booking has been confirmed! We look forward to seeing you.</p>
-                    
+                    {payment_line}
                     <div class="details">
                         <div class="detail-row">
                             <strong>Booking ID:</strong>
@@ -173,7 +221,8 @@ class EmailService:
                             <span>{time}</span>
                         </div>
                     </div>
-                    
+                    {calendar_block}
+                    {attach_note}
                     <p>Please arrive 10-15 minutes before your appointment.</p>
                 </div>
                 <div class="footer">
@@ -184,8 +233,88 @@ class EmailService:
         </body>
         </html>
         """
-        
-        return await self.send_email(to_email, subject, html_content)
+        attachments = None
+        if ics_base64:
+            attachments = [{"filename": "appointment.ics", "content_base64": ics_base64}]
+        return await self.send_email(to_email, subject, html_content, attachments=attachments)
+
+    async def send_practitioner_booking_notice(
+        self,
+        to_email: str,
+        practitioner_first_name: str,
+        customer_name: str,
+        service_name: str,
+        date: str,
+        time: str,
+        booking_id: str,
+        *,
+        google_calendar_url: Optional[str] = None,
+        outlook_live_url: Optional[str] = None,
+        outlook_office_url: Optional[str] = None,
+        ics_base64: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Notify practitioner of a new confirmed booking (same calendar helpers as customer)."""
+        subject = f"New appointment: {service_name} — {date} {time}"
+        calendar_block = ""
+        if google_calendar_url or outlook_live_url or outlook_office_url:
+            links = []
+            if google_calendar_url:
+                links.append(
+                    f'<a class="btn" href="{google_calendar_url}" target="_blank" rel="noopener">Google Calendar</a>'
+                )
+            if outlook_live_url:
+                links.append(
+                    f'<a class="btn secondary" href="{outlook_live_url}" target="_blank" rel="noopener">Outlook</a>'
+                )
+            if outlook_office_url:
+                links.append(
+                    f'<a class="btn secondary" href="{outlook_office_url}" target="_blank" rel="noopener">Outlook 365</a>'
+                )
+            calendar_block = f"""
+                    <p><strong>Calendar</strong></p>
+                    <div style="display:flex;flex-wrap:wrap;gap:10px;">{"".join(links)}</div>
+            """
+        attach_note = (
+            "<p style=\"font-size:12px;color:#777;\">Attached: <code>appointment.ics</code></p>"
+            if ics_base64
+            else ""
+        )
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background: #3d5a4a; color: white; padding: 24px; border-radius: 10px 10px 0 0; }}
+                .content {{ background: #f9f9f9; padding: 24px; border-radius: 0 0 10px 10px; }}
+                .btn {{ display: inline-block; background: #4a7c59; color: white !important; padding: 10px 16px; text-decoration: none; border-radius: 5px; font-size: 14px; }}
+                .btn.secondary {{ background: #5a6b8c; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h2 style="margin:0;">Hi {practitioner_first_name},</h2>
+                    <p style="margin:8px 0 0 0;">A new appointment was booked for you.</p>
+                </div>
+                <div class="content">
+                    <p><strong>Client:</strong> {customer_name}</p>
+                    <p><strong>Service:</strong> {service_name}</p>
+                    <p><strong>When:</strong> {date} at {time}</p>
+                    <p><strong>Booking ID:</strong> {booking_id[:8].upper()}</p>
+                    <p>Payment is expected at the front desk unless otherwise arranged.</p>
+                    {calendar_block}
+                    {attach_note}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        attachments = None
+        if ics_base64:
+            attachments = [{"filename": "appointment.ics", "content_base64": ics_base64}]
+        return await self.send_email(to_email, subject, html_content, attachments=attachments)
     
     async def send_booking_reminder(
         self,

@@ -30,9 +30,14 @@ def send_booking_confirmation_email(
     practitioner_name: str,
     date: str,
     time: str,
-    booking_id: str
+    booking_id: str,
+    pay_at_counter: bool = True,
+    google_calendar_url: str = "",
+    outlook_live_url: str = "",
+    outlook_office_url: str = "",
+    ics_base64: str = "",
 ):
-    """Send booking confirmation email task"""
+    """Send booking confirmation email (calendar links + optional .ics)."""
     try:
         email_service = get_email_service()
         result = run_async(
@@ -43,13 +48,58 @@ def send_booking_confirmation_email(
                 practitioner_name=practitioner_name,
                 date=date,
                 time=time,
-                booking_id=booking_id
+                booking_id=booking_id,
+                pay_at_counter=pay_at_counter,
+                google_calendar_url=google_calendar_url or None,
+                outlook_live_url=outlook_live_url or None,
+                outlook_office_url=outlook_office_url or None,
+                ics_base64=ics_base64 or None,
             )
         )
         logger.info(f"Booking confirmation email sent: {result}")
         return result
     except Exception as e:
         logger.error(f"Failed to send booking confirmation email: {e}")
+        self.retry(exc=e, countdown=60)
+
+
+@celery_app.task(bind=True, max_retries=3)
+def send_practitioner_booking_notice_email(
+    self,
+    to_email: str,
+    practitioner_first_name: str,
+    customer_name: str,
+    service_name: str,
+    date: str,
+    time: str,
+    booking_id: str,
+    google_calendar_url: str = "",
+    outlook_live_url: str = "",
+    outlook_office_url: str = "",
+    ics_base64: str = "",
+):
+    """Notify practitioner of a new booking with the same calendar affordances as the client email."""
+    try:
+        email_service = get_email_service()
+        result = run_async(
+            email_service.send_practitioner_booking_notice(
+                to_email=to_email,
+                practitioner_first_name=practitioner_first_name,
+                customer_name=customer_name,
+                service_name=service_name,
+                date=date,
+                time=time,
+                booking_id=booking_id,
+                google_calendar_url=google_calendar_url or None,
+                outlook_live_url=outlook_live_url or None,
+                outlook_office_url=outlook_office_url or None,
+                ics_base64=ics_base64 or None,
+            )
+        )
+        logger.info(f"Practitioner booking notice sent: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Failed to send practitioner booking notice: {e}")
         self.retry(exc=e, countdown=60)
 
 

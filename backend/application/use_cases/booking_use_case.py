@@ -24,12 +24,21 @@ from infrastructure.repositories import (
     MongoPaymentRepository,
     MongoEventRepository
 )
+from core.config import settings
+from core.calendar_utils import (
+    build_booking_ical,
+    google_calendar_template_url,
+    ical_to_base64,
+    microsoft_calendar_template_url,
+    outlook_office_calendar_template_url,
+)
 from infrastructure.external import get_revel_service
 from infrastructure.cache import CacheService
 from workers.notification_worker import (
     send_booking_confirmation_email,
     send_booking_confirmation_sms,
-    send_cancellation_notification
+    send_cancellation_notification,
+    send_practitioner_booking_notice_email,
 )
 from workers.booking_worker import create_revel_order, process_booking_payment
 
@@ -376,15 +385,90 @@ class BookingUseCase:
             "locked_until": (utc_now() + timedelta(seconds=lock_duration_seconds)).isoformat(),
             "status": "pending"
         }
+
+    def _queue_booking_confirmation_notifications(
+        self,
+        booking_id: str,
+        booking: Dict[str, Any],
+        service: Dict[str, Any],
+        customer: Dict[str, Any],
+        practitioner: Dict[str, Any],
+        practitioner_user: Dict[str, Any],
+        pay_at_counter: bool,
+    ) -> None:
+        """Email + SMS customer; email practitioner; includes calendar URLs + .ics payload."""
+        booking_view = {
+            "booking_id": booking_id,
+            "slot": booking["slot"],
+            "service": service,
+            "customer": customer,
+            "practitioner": {**practitioner, "user": practitioner_user},
+        }
+        ics_b64 = ical_to_base64(build_booking_ical(booking_view))
+        sk = booking["slot"]
+        details_txt = f"Booking {booking_id[:8].upper()} — The Natural Path Spa"
+        loc = "The Natural Path Spa"
+        sn = service.get("name", "Appointment")
+        g_url = google_calendar_template_url(
+            sn, sk["date"], sk["start_time"], sk["end_time"], details=details_txt, location=loc
+        )
+        ms_url = microsoft_calendar_template_url(
+            sn, sk["date"], sk["start_time"], sk["end_time"], body=details_txt, location=loc
+        )
+        mo_url = outlook_office_calendar_template_url(
+            sn, sk["date"], sk["start_time"], sk["end_time"], body=details_txt, location=loc
+        )
+        slot = booking["slot"]
+        pname = f"{practitioner_user['first_name']} {practitioner_user['last_name']}"
+        try:
+            send_booking_confirmation_email.delay(
+                to_email=customer["email"],
+                customer_name=f"{customer['first_name']} {customer['last_name']}",
+                service_name=sn,
+                practitioner_name=pname,
+                date=slot["date"],
+                time=slot["start_time"],
+                booking_id=booking_id,
+                pay_at_counter=pay_at_counter,
+                google_calendar_url=g_url,
+                outlook_live_url=ms_url,
+                outlook_office_url=mo_url,
+                ics_base64=ics_b64,
+            )
+            if practitioner_user.get("email"):
+                send_practitioner_booking_notice_email.delay(
+                    to_email=practitioner_user["email"],
+                    practitioner_first_name=practitioner_user.get("first_name") or "there",
+                    customer_name=f"{customer['first_name']} {customer['last_name']}",
+                    service_name=sn,
+                    date=slot["date"],
+                    time=slot["start_time"],
+                    booking_id=booking_id,
+                    google_calendar_url=g_url,
+                    outlook_live_url=ms_url,
+                    outlook_office_url=mo_url,
+                    ics_base64=ics_b64,
+                )
+            if customer.get("phone"):
+                send_booking_confirmation_sms.delay(
+                    to_phone=customer["phone"],
+                    customer_name=customer["first_name"],
+                    service_name=sn,
+                    date=slot["date"],
+                    time=slot["start_time"],
+                )
+        except Exception as e:
+            logger.warning(f"Failed to queue notifications: {e}")
     
     async def confirm_booking(
         self,
         booking_id: str,
         user_id: str,
-        payment_method: str = "card"
+        payment_method: str = "pay_at_counter",
     ) -> Dict[str, Any]:
         """
-        Confirm booking and process payment through REVEL POS (Step 3 of booking flow)
+        Confirm booking. Default: payment at the front desk (no online card).
+        Set BOOKING_CHECKOUT_MODE=revel_online to use REVEL POS card flow (optional).
         """
         booking = await self.booking_repo.get_by_id(booking_id)
         if not booking:
@@ -396,13 +480,57 @@ class BookingUseCase:
         if booking["status"] not in ["draft", "pending"]:
             raise ValueError(f"Cannot confirm booking in {booking['status']} status")
         
-        # Get related data
         service = await self.service_repo.get_by_id(booking["service_id"])
         customer = await self.user_repo.get_by_id(user_id)
         practitioner = await self.practitioner_repo.get_by_id(booking["practitioner_id"])
         practitioner_user = await self.user_repo.get_by_id(practitioner["user_id"])
-        
-        # Create REVEL order
+
+        use_revel_checkout = (settings.booking_checkout_mode or "").lower() == "revel_online"
+
+        if not use_revel_checkout:
+            now = utc_now().isoformat()
+            await self.booking_repo.update(
+                booking_id,
+                {
+                    "status": "confirmed",
+                    "confirmed_at": now,
+                    "checkout_payment_mode": "pay_at_counter",
+                },
+            )
+            if self._is_discovery_service(service):
+                await self.user_repo.update(user_id, {"is_discovery_completed": True})
+
+            slot = booking["slot"]
+            slots = await self.slot_repo.collection.find(
+                {
+                    "practitioner_id": booking["practitioner_id"],
+                    "date": slot["date"],
+                    "start_time": slot["start_time"],
+                },
+                {"_id": 0},
+            ).to_list(length=1)
+            if slots:
+                await self.slot_repo.update(
+                    slots[0]["slot_id"],
+                    {"status": "booked", "booking_id": booking_id},
+                )
+
+            confirm_event = BookingConfirmedEvent(
+                booking_id=booking_id,
+                customer_id=user_id,
+                practitioner_id=booking["practitioner_id"],
+                revel_order_id=None,
+            )
+            await self.event_repo.store_event(confirm_event.model_dump())
+
+            updated = await self.booking_repo.get_by_id(booking_id)
+            self._queue_booking_confirmation_notifications(
+                booking_id, updated, service, customer, practitioner, practitioner_user, pay_at_counter=True
+            )
+            logger.info(f"Booking confirmed (pay at counter): {booking_id}")
+            return {**updated, "payment": None, "revel_order": None}
+
+        # --- REVEL online checkout (optional) ---
         revel_order = await self.revel_service.create_order(
             customer_id=user_id,
             items=[{
@@ -413,15 +541,13 @@ class BookingUseCase:
             }]
         )
         
-        # Process payment through REVEL
         payment_result = await self.revel_service.process_payment(
             order_id=revel_order["order_id"],
             amount=revel_order["total"],
-            payment_method=payment_method
+            payment_method=payment_method or "card"
         )
         
         if not payment_result.get("success"):
-            # Release the slot if payment fails
             slot = booking["slot"]
             slots = await self.slot_repo.collection.find({
                 "practitioner_id": booking["practitioner_id"],
@@ -433,7 +559,6 @@ class BookingUseCase:
             
             raise ValueError(f"Payment failed: {payment_result.get('message')}")
         
-        # Create payment reference
         payment_ref = PaymentReference(
             payment_id=generate_id(),
             booking_id=booking_id,
@@ -442,7 +567,7 @@ class BookingUseCase:
             status=PaymentStatus.COMPLETED,
             revel_transaction_id=payment_result["transaction_id"],
             revel_order_id=revel_order["order_id"],
-            payment_method=payment_method,
+            payment_method=payment_method or "card",
             completed_at=utc_now()
         )
         
@@ -451,26 +576,22 @@ class BookingUseCase:
         payment_dict["updated_at"] = payment_dict["updated_at"].isoformat()
         payment_dict["completed_at"] = payment_dict["completed_at"].isoformat()
         
-        await self.payment_repo.create(payment_dict.copy())  # Use copy to avoid _id mutation
+        await self.payment_repo.create(payment_dict.copy())
         
-        # Fetch the payment from DB to get clean data
         created_payment = await self.payment_repo.get_by_id(payment_ref.payment_id)
         
-        # Update booking
         now = utc_now()
         await self.booking_repo.update(booking_id, {
             "status": "confirmed",
             "revel_order_id": revel_order["order_id"],
             "payment_reference_id": payment_ref.payment_id,
-            "confirmed_at": now.isoformat()
+            "confirmed_at": now.isoformat(),
+            "checkout_payment_mode": "revel_online",
         })
 
-        # Hybrid discovery rule: booking history is the source of truth, but cache a
-        # user-level flag as soon as a discovery booking is confirmed.
         if self._is_discovery_service(service):
             await self.user_repo.update(user_id, {"is_discovery_completed": True})
         
-        # Update slot status
         slot = booking["slot"]
         slots = await self.slot_repo.collection.find({
             "practitioner_id": booking["practitioner_id"],
@@ -483,7 +604,6 @@ class BookingUseCase:
                 "booking_id": booking_id
             })
         
-        # Store events
         confirm_event = BookingConfirmedEvent(
             booking_id=booking_id,
             customer_id=user_id,
@@ -499,35 +619,15 @@ class BookingUseCase:
         )
         await self.event_repo.store_event(payment_event.model_dump())
         
-        # Send notifications (async via Celery)
-        try:
-            send_booking_confirmation_email.delay(
-                to_email=customer["email"],
-                customer_name=f"{customer['first_name']} {customer['last_name']}",
-                service_name=service["name"],
-                practitioner_name=f"{practitioner_user['first_name']} {practitioner_user['last_name']}",
-                date=slot["date"],
-                time=slot["start_time"],
-                booking_id=booking_id
-            )
-            
-            if customer.get("phone"):
-                send_booking_confirmation_sms.delay(
-                    to_phone=customer["phone"],
-                    customer_name=customer["first_name"],
-                    service_name=service["name"],
-                    date=slot["date"],
-                    time=slot["start_time"]
-                )
-        except Exception as e:
-            logger.warning(f"Failed to queue notifications: {e}")
+        updated = await self.booking_repo.get_by_id(booking_id)
+        self._queue_booking_confirmation_notifications(
+            booking_id, updated, service, customer, practitioner, practitioner_user, pay_at_counter=False
+        )
         
-        logger.info(f"Booking confirmed: {booking_id}")
+        logger.info(f"Booking confirmed (REVEL): {booking_id}")
         
-        # Return updated booking
-        updated_booking = await self.booking_repo.get_by_id(booking_id)
         return {
-            **updated_booking,
+            **updated,
             "payment": created_payment,
             "revel_order": revel_order
         }

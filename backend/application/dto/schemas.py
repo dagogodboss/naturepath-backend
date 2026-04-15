@@ -202,7 +202,7 @@ class LockSlotRequest(BaseModel):
 
 class ConfirmBookingRequest(BaseModel):
     booking_id: str
-    payment_method: Optional[str] = "card"
+    payment_method: Optional[str] = "pay_at_counter"
 
 
 class BookingResponse(BaseModel):

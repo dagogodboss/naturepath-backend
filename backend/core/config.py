@@ -107,6 +107,11 @@ class Settings(BaseSettings):
     revel_webhook_tolerance_seconds: int = 300
     revel_webhook_replay_ttl_seconds: int = 86400
 
+    # Booking checkout: pay_at_counter (default, no online card) | revel_online (REVEL POS charge on confirm)
+    booking_checkout_mode: str = "pay_at_counter"
+    # Used in booking confirmation emails for absolute links (optional)
+    public_app_url: str = "http://localhost:5173"
+
     class Config:
         env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
         extra = "ignore"
