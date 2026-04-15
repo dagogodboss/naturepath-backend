@@ -150,6 +150,9 @@ Record new rows here after each successful verification:
 - *2026-03-24:* Vitest unit tests for `clientErrors` + `safeRedirect` passing; SDK `useBookingFlow` accepts optional booking id on lock/confirm; frontend lint + production build green.
 - *2026-03-24:* Practitioner E2E: pytest `tests/test_access_control.py` (5); Vitest + RTL `RequireAuth.test.jsx`, `practitionerSchedule.test.js`; practitioner UI wired to SDK; backend practitioner service create strips `is_featured` / `revel_product_id`.
 
+## Agent / continuity memory (cross-session)
+Long-form session notes, run commands, and file pointers for assistants: [`AGENT_SESSION_LOG.md`](./AGENT_SESSION_LOG.md).
+
 ## Agent / planner guidance
 When continuing frontend work:
 1. Prefer **small commits** in `frontend/` after each vertical slice; use author email `dagogodboss@gmail.com` if committing on behalf of the project owner.
