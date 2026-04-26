@@ -142,6 +142,11 @@ async def generate_availability_slots(
         )
     except PractitionerAccessDenied as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    if request.practitioner_id is not None and request.practitioner_id != practitioner_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="practitioner_id in body must match the URL path when provided",
+        )
     try:
         return await practitioner_use_case.generate_availability_slots(
             practitioner_id=practitioner_id,

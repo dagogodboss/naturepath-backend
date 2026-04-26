@@ -21,10 +21,55 @@ from infrastructure.repositories import (
     MongoPaymentRepository
 )
 from core.rbac import normalize_role
+from infrastructure.database import get_database
 from .admin_rbac_routes import router as admin_rbac_router
 
 router = APIRouter(prefix="/admin", tags=["Admin Dashboard"])
 router.include_router(admin_rbac_router, prefix="/rbac", tags=["Admin RBAC"])
+
+
+@router.get("/reconciliation/reports", response_model=dict)
+async def list_reconciliation_reports(
+    date: str | None = None,
+    resolved: bool | None = None,
+    current_admin: dict = Depends(get_current_admin),
+    db=Depends(get_database),
+):
+    """G3: list recent reconciliation drift reports (admin only)."""
+    query: dict = {}
+    if date:
+        query["date"] = date
+    if resolved is not None:
+        query["resolved"] = resolved
+    rows = (
+        await db.reconciliation_reports.find(query, {"_id": 0})
+        .sort("created_at", -1)
+        .limit(500)
+        .to_list(length=500)
+    )
+    return {"items": rows, "total": len(rows)}
+
+
+@router.post("/reconciliation/reports/{report_id}/resolve", response_model=dict)
+async def resolve_reconciliation_report(
+    report_id: str,
+    current_admin: dict = Depends(get_current_admin),
+    db=Depends(get_database),
+):
+    """Mark a reconciliation report as resolved."""
+    now = datetime.now(timezone.utc).isoformat()
+    res = await db.reconciliation_reports.update_one(
+        {"report_id": report_id},
+        {"$set": {
+            "resolved": True,
+            "resolved_at": now,
+            "resolved_by": current_admin.get("user_id"),
+        }},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Report not found")
+    doc = await db.reconciliation_reports.find_one({"report_id": report_id}, {"_id": 0})
+    return doc or {}
 
 
 @router.get("/stats", response_model=dict)

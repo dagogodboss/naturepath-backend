@@ -13,6 +13,7 @@ import type {
   ConfirmBookingRequest,
   CancelBookingRequest,
   BookingStatus,
+  MarkPaidAtCounterRequest,
 } from '../types';
 
 /**
@@ -95,6 +96,45 @@ export function useBooking(bookingId: string | undefined) {
     queryFn: () => bookingApi.getById(bookingId!),
     enabled: !!bookingId,
     staleTime: 30 * 1000,
+  });
+}
+
+export function useBookingPaymentStatus(bookingId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['bookings', 'paymentStatus', bookingId || ''],
+    queryFn: () => bookingApi.getPaymentStatus(bookingId!),
+    enabled: enabled && !!bookingId,
+    staleTime: 10 * 1000,
+  });
+}
+
+export function useResendBookingInvoice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (bookingId: string) => bookingApi.resendInvoice(bookingId),
+    onSuccess: (_res, bookingId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.detail(bookingId) });
+      queryClient.invalidateQueries({ queryKey: ['bookings', 'paymentStatus', bookingId] });
+    },
+  });
+}
+
+export function useMarkBookingPaidAtCounter() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ bookingId, data }: { bookingId: string; data: MarkPaidAtCounterRequest }) =>
+      bookingApi.markPaidAtCounter(bookingId, data),
+    onSuccess: (booking) => {
+      queryClient.setQueryData(queryKeys.bookings.detail(booking.booking_id), booking);
+      queryClient.invalidateQueries({ queryKey: ['bookings', 'paymentStatus', booking.booking_id] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.mine });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          Array.isArray(q.queryKey) &&
+          q.queryKey[0] === 'bookings' &&
+          q.queryKey[1] === 'practitionerCalendar',
+      });
+    },
   });
 }
 
@@ -300,9 +340,9 @@ export function useBookingFlow() {
     confirmBooking: (paymentMethod?: string, overrideBookingId?: string) => {
       const id = overrideBookingId ?? bookingId;
       if (!id) throw new Error('No booking initiated');
+      void paymentMethod; // legacy arg kept for backward compatibility
       return confirmMutation.mutateAsync({
         booking_id: id,
-        payment_method: paymentMethod ?? 'pay_at_counter',
       });
     },
 

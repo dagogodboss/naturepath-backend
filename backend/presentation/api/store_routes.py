@@ -3,22 +3,35 @@ Store / Commerce API routes for Natural Path products and orders.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Literal
 import uuid
+import logging
+import hashlib
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
+from core.config import settings
+from core.money import Money
+from core.money_fields import dual_money_fields, read_amount_cents_first
 from core.rbac import Permission, has_permission
+from core.time_utils import add_business_days
+from infrastructure.payment_events import record_payment_event
 from infrastructure.database import get_database
-from infrastructure.external import get_email_service, get_revel_service, get_sms_service
+from infrastructure.external import (
+    get_email_service,
+    get_payment_link_provider,
+    get_revel_service,
+)
+from infrastructure.external.revel_live_client import RevelLiveError
 from presentation.dependencies import (
     get_current_active_user,
     get_optional_user,
 )
 
 router = APIRouter(prefix="/store", tags=["Store"])
+logger = logging.getLogger(__name__)
 
 
 def _utc_now_iso() -> str:
@@ -27,6 +40,11 @@ def _utc_now_iso() -> str:
 
 def _id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:16]}"
+
+
+def _idempotency_key(ref_type: str, ref_id: str, action: str, attempt_no: int = 1) -> str:
+    raw = f"{ref_type}:{ref_id}:{action}:{attempt_no}".encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
 
 
 class StoreOrderItemIn(BaseModel):
@@ -50,6 +68,7 @@ class StoreAddressIn(BaseModel):
 class CreateStoreOrderIn(BaseModel):
     items: List[StoreOrderItemIn] = Field(min_length=1, max_length=50)
     address: StoreAddressIn
+    payment_mode: Literal["card_online", "walk_in"] = "card_online"
     payment_method: str = Field(default="prepaid_online")
     customer_note: Optional[str] = Field(default=None, max_length=300)
 
@@ -97,6 +116,75 @@ async def _resolve_store_products(db, q: Optional[str], category: Optional[str],
     )
     total = await db.store_products.count_documents(query)
     return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+def _store_order_allowed_actions(order: Dict[str, Any]) -> Dict[str, bool]:
+    """UI hints for practitioner store ops (refund gated on Revel capture metadata)."""
+    ps = order.get("payment_status") or ""
+    fs = order.get("fulfillment_status") or ""
+    has_tx = bool(order.get("revel_transaction_id"))
+    return {
+        "refund": ps == "captured" and has_tx and fs not in {"refunded", "rejected"},
+        "reject": fs in {"placed", "confirmed", "preparing"} and ps != "refunded",
+        "confirm": fs == "placed",
+        "fulfill": fs in {"confirmed", "preparing"},
+    }
+
+
+def _enrich_store_order(order: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not order:
+        return None
+    out = dict(order)
+    # Cents-first read during F2 cutover; keep legacy float fields in response.
+    out["subtotal"] = read_amount_cents_first(
+        out, cents_field="subtotal_cents", legacy_field="subtotal", default_currency="USD"
+    )
+    out["tax"] = read_amount_cents_first(
+        out, cents_field="tax_cents", legacy_field="tax", default_currency="USD"
+    )
+    out["total"] = read_amount_cents_first(
+        out, cents_field="total_cents", legacy_field="total", default_currency="USD"
+    )
+    if out.get("refund_amount_cents") is not None or out.get("refund_amount") is not None:
+        out["refund_amount"] = read_amount_cents_first(
+            out,
+            cents_field="refund_amount_cents",
+            legacy_field="refund_amount",
+            default_currency="USD",
+        )
+    out["allowed_actions"] = _store_order_allowed_actions(out)
+    return out
+
+
+async def _reprice_order_lines_from_catalog(
+    db, order_items: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Build Revel line items with explicit unit price from synced store_products (source of truth)."""
+    product_ids = [it["product_id"] for it in order_items]
+    products = await db.store_products.find(
+        {"product_id": {"$in": product_ids}, "is_active_web": True}, {"_id": 0}
+    ).to_list(length=500)
+    by_id = {p["product_id"]: p for p in products}
+    revel_items: List[Dict[str, Any]] = []
+    for it in order_items:
+        pid = it["product_id"]
+        p = by_id.get(pid)
+        if not p:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Product {pid} is no longer available for purchase",
+            )
+        unit = float(p.get("discount_price") or p["price"])
+        qty = int(it.get("quantity", 1))
+        revel_items.append(
+            {
+                "product_id": pid,
+                "name": p.get("name") or it.get("name") or "Product",
+                "quantity": qty,
+                "price": unit,
+            }
+        )
+    return revel_items
 
 
 async def _require_order_ops_user(user: dict):
@@ -262,22 +350,29 @@ async def create_store_order(
                 "line_total": line_total,
             }
         )
-    tax = round(subtotal * 0.0925, 2)
+    tax = round(subtotal * float(settings.store_tax_rate), 2)
     total = round(subtotal + tax, 2)
     now = _utc_now_iso()
     order_id = _id("np_ord")
 
+    subtotal_money = Money.from_float(subtotal, "USD")
+    tax_money = Money.from_float(tax, "USD")
+    total_money = Money.from_float(total, "USD")
     order_doc = {
         "order_id": order_id,
         "customer_id": optional_user.get("user_id") if optional_user else None,
         "items": priced_items,
         "address": body.address.model_dump(),
         "payment_method": body.payment_method,
+        "payment_mode": body.payment_mode,
         "payment_status": "pending",
         "fulfillment_status": "placed",
-        "subtotal": round(subtotal, 2),
-        "tax": tax,
-        "total": total,
+        "subtotal": subtotal_money.to_float(),
+        "subtotal_cents": subtotal_money.to_cents(),
+        "tax": tax_money.to_float(),
+        "tax_cents": tax_money.to_cents(),
+        "total": total_money.to_float(),
+        "total_cents": total_money.to_cents(),
         "currency": "USD",
         "customer_note": body.customer_note,
         "revel_order_id": None,
@@ -304,84 +399,252 @@ async def pay_store_order(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if optional_user:
-        if order.get("customer_id") and order["customer_id"] != optional_user["user_id"]:
-            raise HTTPException(status_code=403, detail="Not allowed")
+        if order.get("customer_id"):
+            if order["customer_id"] != optional_user["user_id"]:
+                raise HTTPException(status_code=403, detail="Not allowed")
+        elif not action_token or action_token != order.get("action_token"):
+            raise HTTPException(status_code=401, detail="Order action token required")
     elif not action_token or action_token != order.get("action_token"):
         raise HTTPException(status_code=401, detail="Order action token required")
-    if order["payment_status"] == "captured":
-        return order
-    if order["payment_status"] == "processing":
-        raise HTTPException(status_code=409, detail="Payment already processing")
+
+    payment_mode = str(order.get("payment_mode") or "card_online")
+    if payment_mode not in {"card_online", "walk_in"}:
+        raise HTTPException(status_code=400, detail="Invalid order payment mode")
+    if payment_mode == "card_online" and not settings.revel_enable_hosted_payments:
+        raise HTTPException(
+            status_code=503,
+            detail="Online hosted payments are not enabled for this environment",
+        )
+    if payment_mode == "walk_in" and not settings.revel_enable_hold_orders:
+        raise HTTPException(
+            status_code=503,
+            detail="Walk-in hold flow is not enabled for this environment",
+        )
+
+    # Idempotent terminal/active states.
+    if order.get("payment_status") == "captured":
+        out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+        return _enrich_store_order(out)
+    if payment_mode == "card_online" and order.get("payment_status") == "awaiting_payment":
+        out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+        return _enrich_store_order(out)
+    if payment_mode == "walk_in" and order.get("payment_status") == "awaiting_counter":
+        out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+        return _enrich_store_order(out)
+
+    if order.get("payment_status") == "processing":
+        raise HTTPException(status_code=409, detail="Payment already in progress")
+
     lock = await db.store_orders.update_one(
         {"order_id": order_id, "payment_status": "pending"},
         {"$set": {"payment_status": "processing", "updated_at": _utc_now_iso()}},
     )
     if lock.matched_count == 0:
         latest = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+        if latest and latest.get("payment_status") == "captured":
+            return _enrich_store_order(latest)
         if latest:
-            return latest
+            return _enrich_store_order(latest)
         raise HTTPException(status_code=404, detail="Order not found")
+
+    # Re-price lines from Revel-synced catalog (explicit price sent to Revel).
+    try:
+        revel_items = await _reprice_order_lines_from_catalog(db, order["items"])
+    except HTTPException as http_exc:
+        fail_at = _utc_now_iso()
+        await db.store_orders.update_one(
+            {"order_id": order_id},
+            {"$set": {"payment_status": "pending", "updated_at": fail_at}},
+        )
+        raise http_exc
 
     revel = get_revel_service()
     customer_id = order.get("customer_id") or "guest"
-    revel_order = await revel.create_order(customer_id=customer_id, items=order["items"])
-    payment = await revel.process_payment(
-        revel_order["order_id"], amount=order["total"], payment_method=payment_method
+    try:
+        revel_order = await revel.create_order(
+            customer_id=customer_id,
+            items=revel_items,
+            hold=(payment_mode == "walk_in"),
+            idempotency_key=_idempotency_key("store_order", order_id, "create_order"),
+        )
+    except RevelLiveError as exc:
+        fail_at = _utc_now_iso()
+        await db.store_orders.update_one(
+            {"order_id": order_id},
+            {
+                "$set": {"payment_status": "pending", "updated_at": fail_at},
+                "$push": {
+                    "timeline": {
+                        "status": "payment_error",
+                        "at": fail_at,
+                        "detail": str(exc)[:300],
+                    }
+                },
+            },
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to complete checkout with the payment provider",
+        ) from exc
+    except Exception as exc:
+        fail_at = _utc_now_iso()
+        await db.store_orders.update_one(
+            {"order_id": order_id},
+            {
+                "$set": {"payment_status": "pending", "updated_at": fail_at},
+                "$push": {
+                    "timeline": {
+                        "status": "payment_error",
+                        "at": fail_at,
+                        "detail": str(exc)[:300],
+                    }
+                },
+            },
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to complete checkout with the payment provider",
+        ) from exc
+
+    client_total = read_amount_cents_first(
+        order, cents_field="total_cents", legacy_field="total", default_currency="USD"
     )
-    payment_status = "captured" if payment.get("success") else "failed"
+    revel_total = float(revel_order.get("total") or 0)
+    revel_total_money = Money.from_float(revel_total, str(order.get("currency") or "USD"))
+    pricing_drift = abs(client_total - revel_total) > 0.02
+    # F4: validate Revel-returned tax against the catalog rate. Do NOT block
+    # checkout — Revel is source of truth — but record any drift so G2 can
+    # surface it for ops review.
+    revel_subtotal = float(revel_order.get("subtotal") or 0)
+    revel_tax = float(revel_order.get("tax") or 0)
+    expected_tax = round(revel_subtotal * float(settings.store_tax_rate), 2)
+    tax_drift_cents = int(round((revel_tax - expected_tax) * 100))
+    if abs(tax_drift_cents) > 1:
+        logger.warning(
+            "Tax drift for order_id=%s: revel=%.2f expected=%.2f drift_cents=%s",
+            order_id, revel_tax, expected_tax, tax_drift_cents,
+        )
     now = _utc_now_iso()
+    base_set = {
+        "revel_order_id": revel_order["order_id"],
+        "revel_channel": "live",
+        "items": [
+            {
+                **line,
+                "unit_price": line.get("price"),
+                "line_total": round(float(line.get("price", 0)) * int(line.get("quantity", 1)), 2),
+            }
+            for line in revel_items
+        ],
+        "subtotal": Money.from_float(revel_order.get("subtotal") or 0, "USD").to_float(),
+        "subtotal_cents": Money.from_float(revel_order.get("subtotal") or 0, "USD").to_cents(),
+        "tax": Money.from_float(revel_order.get("tax") or 0, "USD").to_float(),
+        "tax_cents": Money.from_float(revel_order.get("tax") or 0, "USD").to_cents(),
+        "total": revel_total_money.to_float(),
+        "total_cents": revel_total_money.to_cents(),
+        "pricing_drift": pricing_drift,
+        "pricing_drift_client_total": client_total if pricing_drift else None,
+        "expected_tax": expected_tax,
+        "tax_drift_cents": tax_drift_cents,
+        "updated_at": now,
+    }
     await db.store_orders.update_one(
         {"order_id": order_id},
-        {
-            "$set": {
-                "payment_status": payment_status,
-                "revel_order_id": revel_order["order_id"],
-                "updated_at": now,
+        {"$set": {"revel_order_id": revel_order["order_id"], "updated_at": now}},
+    )
+
+    if payment_mode == "card_online":
+        provider = get_payment_link_provider()
+        try:
+            link = await provider.create_link(
+                order_ref=str(revel_order["order_id"]),
+                amount=revel_total,
+                currency=str(order.get("currency") or "USD"),
+                metadata={"ref_type": "store_order", "ref_id": order_id},
+                idempotency_key=_idempotency_key("store_order", order_id, "create_link"),
+            )
+        except Exception as exc:
+            fail_at = _utc_now_iso()
+            # Revel order was already created; the link step is what failed.
+            # Return a pending_verification shape so the SDK can poll the
+            # status endpoint rather than hard-502 the caller.
+            await db.store_orders.update_one(
+                {"order_id": order_id},
+                {
+                    "$set": {"payment_status": "awaiting_payment", "updated_at": fail_at},
+                    "$push": {"timeline": {"status": "payment_link_error", "at": fail_at}},
+                },
+            )
+            logger.exception("Hosted payment link creation failed for order_id=%s", order_id)
+            return {
+                "status": "pending_verification",
+                "order_id": order_id,
+                "check_url": f"/api/store/orders/{order_id}/status",
+                "detail": "Payment link is still being provisioned; please poll the check_url.",
+            }
+
+        await db.payment_links.update_one(
+            {"link_id": link.link_id},
+            {
+                "$set": {
+                    "link_id": link.link_id,
+                    "provider": "revel",
+                    "ref_type": "store_order",
+                    "ref_id": order_id,
+                    "amount": revel_total_money.to_float(),
+                    "amount_cents": revel_total_money.to_cents(),
+                    "currency": str(order.get("currency") or "USD"),
+                    "status": link.status,
+                    "hosted_url": link.url,
+                    "expires_at": link.expires_at,
+                    "revel_order_id": revel_order["order_id"],
+                    "updated_at": now,
+                },
+                "$setOnInsert": {"created_at": now},
             },
-            "$push": {
-                "timeline": {
-                    "status": "payment_captured" if payment.get("success") else "payment_failed",
-                    "at": now,
-                }
+            upsert=True,
+        )
+        email = order.get("address", {}).get("email")
+        if email:
+            email_service = get_email_service()
+            try:
+                await email_service.send_store_payment_link(
+                    to_email=email,
+                    order_id=order_id,
+                    pay_link_url=link.url,
+                    expires_at=link.expires_at,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to send payment link email for order_id=%s: %s", order_id, exc
+                )
+        await db.store_orders.update_one(
+            {"order_id": order_id},
+            {
+                "$set": {
+                    **base_set,
+                    "payment_status": "awaiting_payment",
+                    "payment_link_url": link.url,
+                    "payment_link_id": link.link_id,
+                },
+                "$push": {"timeline": {"status": "payment_link_created", "at": now, "link_id": link.link_id}},
             },
-        },
-    )
-    return await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
-
-
-@router.post("/checkout/orders/{order_id}/sms-pay-link")
-async def send_order_sms_pay_link(
-    order_id: str,
-    action_token: Optional[str] = Query(default=None),
-    optional_user: Optional[dict] = Depends(get_optional_user),
-    db=Depends(get_database),
-):
-    order = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    if optional_user:
-        if order.get("customer_id") and order["customer_id"] != optional_user["user_id"]:
-            raise HTTPException(status_code=403, detail="Not allowed")
-    elif not action_token or action_token != order.get("action_token"):
-        raise HTTPException(status_code=401, detail="Order action token required")
-    if order["payment_status"] == "captured":
-        raise HTTPException(status_code=400, detail="Order already paid")
-
-    pay_link = f"https://pay.naturalpath.example/orders/{order_id}"
-    sms = get_sms_service()
-    recipient = order["address"]["phone"]
-    message = (
-        f"Natural Path: complete your payment for order {order_id[-8:].upper()} here: {pay_link}"
-    )
-    send_result = await sms.send_sms(recipient, message)
-    await db.store_orders.update_one(
-        {"order_id": order_id},
-        {
-            "$set": {"payment_link_url": pay_link, "updated_at": _utc_now_iso()},
-            "$push": {"timeline": {"status": "payment_link_sent", "at": _utc_now_iso()}},
-        },
-    )
-    return {"success": True, "order_id": order_id, "payment_link_url": pay_link, "sms": send_result}
+        )
+    else:
+        hold_expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+        await db.store_orders.update_one(
+            {"order_id": order_id},
+            {
+                "$set": {
+                    **base_set,
+                    "payment_status": "awaiting_counter",
+                    "hold_expires_at": hold_expires_at,
+                },
+                "$push": {"timeline": {"status": "hold_created", "at": now, "expires_at": hold_expires_at}},
+            },
+        )
+    out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    return _enrich_store_order(out)
 
 
 @router.get("/orders/mine")
@@ -394,7 +657,7 @@ async def list_my_store_orders(
         .sort("created_at", -1)
         .to_list(length=300)
     )
-    return rows
+    return [_enrich_store_order(r) for r in rows]
 
 
 @router.get("/orders/{order_id}")
@@ -414,7 +677,68 @@ async def get_store_order(
     )
     if not (is_owner or is_ops):
         raise HTTPException(status_code=403, detail="Not allowed")
-    return order
+    return _enrich_store_order(order)
+
+
+@router.get("/orders/{order_id}/status")
+async def get_store_order_status(
+    order_id: str,
+    action_token: Optional[str] = Query(default=None),
+    optional_user: Optional[dict] = Depends(get_optional_user),
+    db=Depends(get_database),
+):
+    """
+    H1: re-fetch Revel order state if we're still in a pre-captured status.
+    Returns the reconciled order view. Designed to be polled by the SDK
+    interceptor (H3) after a pending-verification response.
+    """
+    order = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if optional_user:
+        if order.get("customer_id"):
+            if order["customer_id"] != optional_user["user_id"]:
+                raise HTTPException(status_code=403, detail="Not allowed")
+        elif not action_token or action_token != order.get("action_token"):
+            raise HTTPException(status_code=401, detail="Order action token required")
+    elif not action_token or action_token != order.get("action_token"):
+        raise HTTPException(status_code=401, detail="Order action token required")
+
+    needs_check = order.get("payment_status") in {"pending", "processing", "awaiting_payment"}
+    revel_order_id = order.get("revel_order_id")
+    if needs_check and revel_order_id:
+        try:
+            revel = get_revel_service()
+            revel_order = await revel.get_order(str(revel_order_id))
+        except RevelLiveError:
+            revel_order = None
+        if revel_order:
+            revel_total = float(revel_order.get("total") or 0.0)
+            revel_total_money = Money.from_float(revel_total, str(order.get("currency") or "USD"))
+            # Very conservative: only update our state when Revel clearly
+            # reports a payment resolution.
+            revel_status = str(revel_order.get("status") or "").lower()
+            if revel_status in {"closed", "paid"}:
+                now_iso = _utc_now_iso()
+                await db.store_orders.update_one(
+                    {
+                        "order_id": order_id,
+                        "payment_status": {
+                            "$in": ["pending", "processing", "awaiting_payment"]
+                        },
+                    },
+                    {
+                        "$set": {
+                            "payment_status": "captured",
+                            "total": revel_total_money.to_float(),
+                            "total_cents": revel_total_money.to_cents(),
+                            "updated_at": now_iso,
+                        }
+                    },
+                )
+                order = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0}) or order
+
+    return _enrich_store_order(order)
 
 
 @router.get("/practitioner/orders")
@@ -431,7 +755,7 @@ async def list_practitioner_store_orders(
         await db.store_orders.find(query, {"_id": 0}).sort("created_at", -1).to_list(length=300)
     )
     if has_permission(current_user, Permission.USER_ROLE_MANAGE):
-        return rows
+        return [_enrich_store_order(r) for r in rows]
     # Minimize PII exposure for non-admin operations users.
     redacted: List[Dict[str, Any]] = []
     for row in rows:
@@ -446,7 +770,7 @@ async def list_practitioner_store_orders(
             if key in addr:
                 addr[key] = None
         masked["address"] = addr
-        redacted.append(masked)
+        redacted.append(_enrich_store_order(masked))
     return redacted
 
 
@@ -522,6 +846,7 @@ async def admin_reject_order(
 async def admin_refund_order(
     order_id: str,
     body: AdminOrderActionIn,
+    request: Request,
     current_user: dict = Depends(get_current_active_user),
     db=Depends(get_database),
 ):
@@ -529,25 +854,666 @@ async def admin_refund_order(
     order = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    if order.get("payment_status") not in {"captured"}:
+    if order.get("payment_status") in {"awaiting_counter", "awaiting_payment"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Nothing to refund yet. Use POST /admin/orders/{id}/void to cancel the hold.",
+        )
+    if order.get("payment_status") not in {"captured", "partial_refunded"}:
         raise HTTPException(status_code=409, detail="Only captured payments can be refunded")
-    amount = round(float(body.amount if body.amount is not None else order["total"]), 2)
-    if amount > float(order["total"]):
-        raise HTTPException(status_code=400, detail="Refund amount cannot exceed order total")
+    payment_mode = str(order.get("payment_mode") or "card_online")
+    tx_id = order.get("revel_transaction_id")
+    if payment_mode == "card_online" and not tx_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Order has no Revel transaction id; refund is only available after a successful live capture",
+        )
+    order_total_f = read_amount_cents_first(
+        order, cents_field="total_cents", legacy_field="total", default_currency="USD"
+    )
+    amount = round(float(body.amount if body.amount is not None else order_total_f), 2)
+    if amount <= 0 or amount > order_total_f:
+        raise HTTPException(status_code=400, detail="Refund amount is out of range")
+
+    # Require Idempotency-Key on BOTH modes so client retries collapse to a
+    # single provider call (walk-in: dedupes on manual_refund_id; card: passed
+    # through to Revel).
+    idem_header = (request.headers.get("Idempotency-Key") or "").strip()
+    if not idem_header:
+        raise HTTPException(
+            status_code=400,
+            detail="Refund requires an Idempotency-Key request header",
+        )
+
+    # Atomically reserve capacity AND append a per-attempt reservation entry
+    # in a single update so the counter and the array are always in lock-step.
+    reservation_attempt_id = _id("rres")
+    reservation_now = _utc_now_iso()
+    reserve_cents = Money.from_float(amount, str(order.get("currency") or "USD")).to_cents()
+    reservation_filter: Dict[str, Any] = {
+        "order_id": order_id,
+        "payment_status": {"$in": ["captured", "partial_refunded"]},
+        "$expr": {
+            "$lte": [
+                {
+                    "$add": [
+                        {
+                            "$ifNull": [
+                                "$refund_amount_reserved_cents",
+                                {
+                                    "$round": [
+                                        {
+                                            "$multiply": [
+                                                {"$ifNull": ["$refund_amount_reserved", 0]},
+                                                100,
+                                            ]
+                                        },
+                                        0,
+                                    ]
+                                },
+                            ]
+                        },
+                        reserve_cents,
+                    ]
+                },
+                {
+                    "$add": [
+                        {
+                            "$ifNull": [
+                                "$total_cents",
+                                {
+                                    "$round": [
+                                        {"$multiply": [{"$ifNull": ["$total", 0]}, 100]},
+                                        0,
+                                    ]
+                                },
+                            ]
+                        },
+                        1,
+                    ]
+                },
+            ]
+        },
+    }
+    if payment_mode == "card_online":
+        reservation_filter["revel_transaction_id"] = tx_id
+    reservation = await db.store_orders.find_one_and_update(
+        reservation_filter,
+        {
+            "$inc": {"refund_amount_reserved": amount, "refund_amount_reserved_cents": reserve_cents},
+            "$set": {"refund_amount_reserved_at": reservation_now},
+            "$push": {
+                "refund_reservations": {
+                    "attempt_id": reservation_attempt_id,
+                    "amount": amount,
+                    "reserved_at": reservation_now,
+                    "status": "live",
+                    "idempotency_key": idem_header,
+                }
+            },
+        },
+        return_document=True,
+        projection={"_id": 0, "refund_amount_reserved": 1, "refund_amount_reserved_cents": 1, "refund_amount": 1},
+    )
+    if not reservation:
+        raise HTTPException(
+            status_code=409,
+            detail="Refund exceeds remaining captured balance or order is not refundable",
+        )
+    reserved_after = read_amount_cents_first(
+        reservation,
+        cents_field="refund_amount_reserved_cents",
+        legacy_field="refund_amount_reserved",
+        default_currency=str(order.get("currency") or "USD"),
+    )
+    reserved_before = round(reserved_after - amount, 2)
+    refund_cents = int(round(amount * 100))
+
+    async def _release_reservation(reason: str) -> None:
+        """
+        Decrement the reservation counter only if the corresponding attempt is
+        still present in the array. This makes the release idempotent: a
+        double-release (e.g. retry of an error path) decrements the counter
+        exactly once, preventing it from going negative.
+        """
+        await db.store_orders.update_one(
+            {
+                "order_id": order_id,
+                "refund_reservations.attempt_id": reservation_attempt_id,
+            },
+            {
+                "$inc": {"refund_amount_reserved": -amount, "refund_amount_reserved_cents": -reserve_cents},
+                "$pull": {"refund_reservations": {"attempt_id": reservation_attempt_id}},
+            },
+        )
+
+    # Branch by payment mode (explicit allowlist so unknown modes fail loudly).
+    if payment_mode == "walk_in":
+        manual_refund_id = "mref:" + _idempotency_key(
+            "store_order", order_id, f"manual_refund:hdr:{idem_header}"
+        )[:24]
+        existing = await db.store_orders.find_one(
+            {"order_id": order_id, "manual_refund_ids": manual_refund_id},
+            {"_id": 0, "order_id": 1},
+        )
+        if existing:
+            await _release_reservation("duplicate_manual_refund")
+            raise HTTPException(
+                status_code=409,
+                detail="Duplicate manual refund request; this refund has already been recorded",
+            )
+        result = {
+            "success": True,
+            "refund_id": manual_refund_id,
+            "amount": amount,
+            "status": "manual_refund",
+            "mode": "manual",
+        }
+    elif payment_mode == "card_online":
+        # Always pass an explicit amount to Revel. The earlier `None` (full-refund
+        # sentinel) optimization was racy under concurrent requests: our
+        # reservation counter reflects pending attempts, not what Revel has
+        # actually captured as remaining balance.
+        refund_to_revel = amount
+        # Client-stable idempotency key so retries of the same logical refund
+        # hit the same Revel record and never double-charge the customer.
+        card_idempotency_dedupe_id = "rref:" + _idempotency_key(
+            "store_order", order_id, f"refund:hdr:{idem_header}"
+        )[:24]
+        # Atomic claim: only one caller wins the key add; concurrent duplicates
+        # 409 without ever reaching the provider.
+        claim = await db.store_orders.update_one(
+            {
+                "order_id": order_id,
+                "revel_refund_idempotency_keys": {"$ne": card_idempotency_dedupe_id},
+            },
+            {"$addToSet": {"revel_refund_idempotency_keys": card_idempotency_dedupe_id}},
+        )
+        if claim.modified_count == 0:
+            await _release_reservation("duplicate_card_refund")
+            raise HTTPException(
+                status_code=409,
+                detail="Duplicate card refund request; this refund has already been recorded",
+            )
+        revel = get_revel_service()
+        try:
+            result = await revel.refund_payment(
+                str(tx_id),
+                refund_to_revel,
+                idempotency_key=card_idempotency_dedupe_id,
+            )
+        except Exception as exc:
+            # Provider response is uncertain — we DO NOT release the
+            # reservation, because a release would let an operator retry with
+            # a different header/amount and double-charge the customer if
+            # Revel actually processed the original request. The reservation
+            # stays live under status=reconciliation_pending so the G2 sweeper
+            # can verify against Revel before releasing.
+            fail_at = _utc_now_iso()
+            await db.store_orders.update_one(
+                {
+                    "order_id": order_id,
+                    "refund_reservations.attempt_id": reservation_attempt_id,
+                },
+                {
+                    "$set": {
+                        "refund_reservations.$.status": "reconciliation_pending",
+                        "refund_reservations.$.reconciliation_reason": str(exc)[:200],
+                    },
+                    "$push": {
+                        "timeline": {
+                            "status": "refund_reconciliation_required",
+                            "at": fail_at,
+                            "amount": amount,
+                            "mode": "card",
+                            "attempt_id": reservation_attempt_id,
+                            "provider_status": str(exc)[:200],
+                        }
+                    },
+                },
+            )
+            logger.exception("Revel refund failed for order_id=%s", order_id)
+            raise HTTPException(
+                status_code=502,
+                detail="Refund could not be completed with payment provider",
+            ) from exc
+    else:
+        await _release_reservation("unsupported_payment_mode")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Unsupported payment mode for refund: {payment_mode}",
+        )
+    if not result.get("success"):
+        # Provider-reported failure is also an uncertain state (may or may not
+        # have moved money). Keep the reservation live as reconciliation_pending
+        # so operators can't retry with a different key and double-charge.
+        fail_at = _utc_now_iso()
+        fail_mode = "card" if payment_mode == "card_online" else "manual"
+        await db.store_orders.update_one(
+            {
+                "order_id": order_id,
+                "refund_reservations.attempt_id": reservation_attempt_id,
+            },
+            {
+                "$set": {
+                    "refund_reservations.$.status": "reconciliation_pending",
+                    "refund_reservations.$.reconciliation_reason": str(
+                        result.get("status") or ""
+                    )[:200],
+                },
+                "$push": {
+                    "timeline": {
+                        "status": "refund_reconciliation_required",
+                        "at": fail_at,
+                        "amount": amount,
+                        "mode": fail_mode,
+                        "attempt_id": reservation_attempt_id,
+                        "provider_status": str(result.get("status") or "")[:200],
+                    }
+                },
+            },
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=result.get("status", "Refund rejected by payment provider"),
+        )
+
+    refund_id = result.get("refund_id") or result.get("transaction_id")
+    refund_amount = round(float(result.get("amount", amount)), 2)
+    refund_mode = "manual" if payment_mode == "walk_in" else "card"
     now = _utc_now_iso()
+    # Defensive: if the provider reports an amount that exceeds what we asked
+    # for (or a non-positive amount), do not credit the ledger. Leave the
+    # reservation in reconciliation_pending for operator review.
+    if refund_amount <= 0 or refund_amount > amount + 0.01:
+        await db.store_orders.update_one(
+            {
+                "order_id": order_id,
+                "refund_reservations.attempt_id": reservation_attempt_id,
+            },
+            {
+                "$set": {
+                    "refund_reservations.$.status": "reconciliation_pending",
+                    "refund_reservations.$.reconciliation_reason":
+                        f"provider_amount_mismatch:{refund_amount}",
+                },
+                "$push": {
+                    "timeline": {
+                        "status": "refund_reconciliation_required",
+                        "at": now,
+                        "amount": amount,
+                        "provider_amount": refund_amount,
+                        "mode": refund_mode,
+                        "attempt_id": reservation_attempt_id,
+                        "provider_status": "amount_mismatch",
+                    }
+                },
+            },
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Payment provider returned an unexpected refund amount",
+        )
+    # For card refunds we must have a concrete refund id from the provider to
+    # dedupe; otherwise treat the response as reconcile-required.
+    if refund_mode == "card" and not refund_id:
+        await db.store_orders.update_one(
+            {
+                "order_id": order_id,
+                "refund_reservations.attempt_id": reservation_attempt_id,
+            },
+            {
+                "$set": {
+                    "refund_reservations.$.status": "reconciliation_pending",
+                    "refund_reservations.$.reconciliation_reason": "missing_refund_id",
+                },
+                "$push": {
+                    "timeline": {
+                        "status": "refund_reconciliation_required",
+                        "at": now,
+                        "amount": amount,
+                        "mode": "card",
+                        "attempt_id": reservation_attempt_id,
+                        "provider_status": "missing_refund_id",
+                    }
+                },
+            },
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Payment provider did not return a refund id",
+        )
+
+    accounting_applied = False
+    try:
+        # Atomically accumulate refund_amount so concurrent refunds both land
+        # correctly; derive status afterwards from the post-update total.
+        set_payload: Dict[str, Any] = {"updated_at": now}
+        push_payload: Dict[str, Any] = {
+            "timeline": {
+                "status": "refunded",
+                "at": now,
+                "amount": refund_amount,
+                "refund_id": refund_id,
+                "mode": refund_mode,
+                "initiated_by": current_user.get("user_id"),
+                "reason": body.reason,
+            },
+        }
+        # Keep provider-namespaced fields isolated from manual refunds.
+        if refund_mode == "card":
+            set_payload["revel_refund_id"] = refund_id
+            push_payload["revel_refund_ids"] = refund_id
+            push_payload["revel_refund_idempotency_keys"] = card_idempotency_dedupe_id
+        else:
+            set_payload["manual_refund_id"] = refund_id
+            push_payload["manual_refund_ids"] = refund_id
+        # E3/E4: append to an authoritative refunds[] ledger with SLA stamp.
+        expected_done = add_business_days(
+            datetime.now(timezone.utc), int(settings.refund_sla_business_days)
+        ).isoformat()
+        push_payload["refunds"] = {
+            "refund_id": refund_id,
+            "amount": refund_amount,
+            "mode": refund_mode,
+            "reason": body.reason,
+            "initiated_by": current_user.get("user_id"),
+            "initiated_at": now,
+            "expected_completion_at": expected_done,
+            "status": "pending" if refund_mode == "card" else "completed",
+        }
+        accounting_filter: Dict[str, Any] = {"order_id": order_id}
+        # Final safety net against concurrent application of the same refund id.
+        if refund_mode == "card":
+            accounting_filter["revel_refund_ids"] = {"$ne": refund_id}
+        else:
+            accounting_filter["manual_refund_ids"] = {"$ne": refund_id}
+        accounting_result = await db.store_orders.update_one(
+            accounting_filter,
+            {
+                "$inc": {
+                    "refund_amount": refund_amount,
+                    "refund_amount_cents": Money.from_float(
+                        refund_amount, str(order.get("currency") or "USD")
+                    ).to_cents(),
+                },
+                "$set": set_payload,
+                "$push": push_payload,
+            },
+        )
+        if accounting_result.matched_count == 0:
+            # Another concurrent request already applied this refund id.
+            # For walk-in the provider was never touched — safe to release.
+            # For card the provider has already moved money, so we must NOT
+            # release the reservation; leave it reconciliation_pending.
+            if refund_mode == "card":
+                await db.store_orders.update_one(
+                    {
+                        "order_id": order_id,
+                        "refund_reservations.attempt_id": reservation_attempt_id,
+                    },
+                    {
+                        "$set": {
+                            "refund_reservations.$.status": "reconciliation_pending",
+                            "refund_reservations.$.reconciliation_reason":
+                                "duplicate_refund_id_post_provider",
+                        },
+                        "$push": {
+                            "timeline": {
+                                "status": "refund_reconciliation_required",
+                                "at": _utc_now_iso(),
+                                "amount": refund_amount,
+                                "mode": "card",
+                                "attempt_id": reservation_attempt_id,
+                                "refund_id": refund_id,
+                                "provider_status": "duplicate_refund_id",
+                            }
+                        },
+                    },
+                )
+            else:
+                await _release_reservation("duplicate_refund_id")
+            raise HTTPException(
+                status_code=409,
+                detail="Duplicate refund dedupe-id; refund already recorded",
+            )
+        accounting_applied = True
+        await record_payment_event(
+            db,
+            ref_type="store_order",
+            ref_id=order_id,
+            action="refunded",
+            amount=refund_amount,
+            source="manual_at_counter" if refund_mode == "manual" else "api",
+            external_id=refund_id,
+            metadata={
+                "mode": refund_mode,
+                "initiated_by": current_user.get("user_id"),
+                "idempotency_key": idem_header,
+            },
+        )
+        # Mark the reservation entry committed so the sweeper can tell
+        # it apart from still-live reservations.
+        await db.store_orders.update_one(
+            {"order_id": order_id, "refund_reservations.attempt_id": reservation_attempt_id},
+            {
+                "$set": {
+                    "refund_reservations.$.status": "committed",
+                    "refund_reservations.$.refund_id": refund_id,
+                    "refund_reservations.$.committed_at": _utc_now_iso(),
+                }
+            },
+        )
+        # Guarded state derivation: only write "partial_refunded" when the
+        # current refund_amount is still below total, and only "refunded" when it
+        # has reached (or exceeded) total. Two racing writers therefore cannot
+        # regress each other's status.
+        now_iso = _utc_now_iso()
+        await db.store_orders.update_one(
+            {
+                "order_id": order_id,
+                "$expr": {"$lt": ["$refund_amount", {"$subtract": ["$total", 0.01]}]},
+            },
+            {"$set": {"payment_status": "partial_refunded", "updated_at": now_iso}},
+        )
+        # Cumulative-full transition: only promote fulfillment to refunded when
+        # it's still in a pre-delivery / pre-fulfillment state. Physically
+        # delivered/completed orders must keep their fulfillment ground truth.
+        await db.store_orders.update_one(
+            {
+                "order_id": order_id,
+                "$expr": {"$gte": ["$refund_amount", {"$subtract": ["$total", 0.01]}]},
+            },
+            {"$set": {"payment_status": "refunded", "updated_at": now_iso}},
+        )
+        await db.store_orders.update_one(
+            {
+                "order_id": order_id,
+                "$expr": {"$gte": ["$refund_amount", {"$subtract": ["$total", 0.01]}]},
+                "fulfillment_status": {
+                    "$in": ["placed", "confirmed", "preparing", "fulfilled"]
+                },
+            },
+            {"$set": {"fulfillment_status": "refunded", "updated_at": now_iso}},
+        )
+    except HTTPException:
+        # 409/4xx raised above already released the reservation; just propagate.
+        raise
+    except Exception:
+        # We reach here AFTER the provider reported success. Never release the
+        # reservation on this path — doing so would let a subsequent (different
+        # amount) attempt pass the reservation cap and double-refund the
+        # customer at the provider. Prefer a small reservation "leak" that an
+        # operator/G2 reconciliation job can clear over a real double charge.
+        fail_at = _utc_now_iso()
+        await db.store_orders.update_one(
+            {"order_id": order_id},
+            {
+                "$push": {
+                    "timeline": {
+                        "status": "refund_reconciliation_required",
+                        "at": fail_at,
+                        "amount": refund_amount,
+                        "mode": refund_mode,
+                        "refund_id": refund_id,
+                        "detail": (
+                            "state_derivation_failed_after_accounting"
+                            if accounting_applied
+                            else "bookkeeping_failed_after_provider_success"
+                        ),
+                    }
+                }
+            },
+        )
+        logger.exception("Refund bookkeeping failed for order_id=%s", order_id)
+        raise
+
+    out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    return _enrich_store_order(out)
+
+
+@router.post("/admin/orders/{order_id}/void")
+async def admin_void_order(
+    order_id: str,
+    current_user: dict = Depends(get_current_active_user),
+    db=Depends(get_database),
+):
+    """
+    Cancel an order that hasn't been captured yet (HOLD or awaiting_payment).
+    - Cancels any active hosted pay link.
+    - Cancels the Revel order if one exists.
+    - Does NOT call the refund API (there was no capture).
+    """
+    await _require_order_ops_user(current_user)
+    order = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    ps = order.get("payment_status")
+    if ps not in {"awaiting_counter", "awaiting_payment", "pending", "processing"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Order is not in a voidable state (use refund after capture)",
+        )
+
+    now = _utc_now_iso()
+    link_id = order.get("payment_link_id")
+    if link_id:
+        try:
+            provider = get_payment_link_provider()
+            await provider.cancel_link(link_id)
+            await db.payment_links.update_one(
+                {"link_id": link_id},
+                {"$set": {"status": "cancelled", "updated_at": now}},
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to cancel hosted pay link on void for order_id=%s: %s",
+                order_id, exc,
+            )
+            await db.payment_links.update_one(
+                {"link_id": link_id},
+                {
+                    "$set": {"status": "pending_cancel", "last_cancel_error_at": now},
+                    "$inc": {"cancel_attempts": 1},
+                },
+            )
+
+    revel_order_id = order.get("revel_order_id")
+    if revel_order_id:
+        try:
+            revel = get_revel_service()
+            await revel.update_order_status(str(revel_order_id), "cancelled")
+        except Exception as exc:
+            logger.warning(
+                "Failed to cancel Revel order on void for order_id=%s: %s",
+                order_id, exc,
+            )
+
     await db.store_orders.update_one(
-        {"order_id": order_id},
+        {
+            "order_id": order_id,
+            "payment_status": {"$in": [
+                "awaiting_counter", "awaiting_payment", "pending", "processing"
+            ]},
+        },
         {
             "$set": {
-                "payment_status": "refunded",
-                "refund_amount": amount,
-                "fulfillment_status": "refunded",
+                "payment_status": "voided",
+                "voided_at": now,
+                "voided_by": current_user.get("user_id"),
                 "updated_at": now,
             },
-            "$push": {"timeline": {"status": "refunded", "at": now, "amount": amount}},
+            "$unset": {"payment_link_id": "", "payment_link_url": ""},
+            "$push": {
+                "timeline": {"status": "voided", "at": now, "by": current_user.get("user_id")}
+            },
         },
     )
-    return await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    return _enrich_store_order(out)
+
+
+class BackfillRevelTxIn(BaseModel):
+    revel_transaction_id: str = Field(min_length=1, max_length=80)
+
+
+@router.post("/admin/orders/{order_id}/backfill-revel-tx")
+async def admin_backfill_revel_tx(
+    order_id: str,
+    body: BackfillRevelTxIn,
+    current_user: dict = Depends(get_current_active_user),
+    db=Depends(get_database),
+):
+    """
+    Dev/ops-only: stamp a missing revel_transaction_id onto a historical order
+    that was captured before we started persisting transaction ids. Requires
+    admin/owner role.
+    """
+    if not has_permission(current_user, Permission.USER_ROLE_MANAGE):
+        raise HTTPException(status_code=403, detail="Admin role required")
+    order = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("revel_transaction_id"):
+        raise HTTPException(
+            status_code=409,
+            detail="Order already has a revel_transaction_id; backfill refused",
+        )
+    revel = get_revel_service()
+    try:
+        # Best-effort verify the transaction exists in Revel before stamping.
+        verified = await revel.confirm_payment(body.revel_transaction_id)
+    except RevelLiveError as exc:
+        logger.exception("Revel tx verify failed for %s", body.revel_transaction_id)
+        raise HTTPException(status_code=502, detail="Could not verify transaction with Revel") from exc
+    if not verified:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Revel transaction {body.revel_transaction_id} not found",
+        )
+    now = _utc_now_iso()
+    await db.store_orders.update_one(
+        {"order_id": order_id, "revel_transaction_id": {"$exists": False}},
+        {
+            "$set": {
+                "revel_transaction_id": body.revel_transaction_id,
+                "revel_transaction_status": str(verified.get("status") or "captured"),
+                "backfilled_at": now,
+                "backfilled_by": current_user.get("user_id"),
+                "updated_at": now,
+            },
+            "$push": {
+                "timeline": {
+                    "status": "backfilled_revel_tx",
+                    "at": now,
+                    "by": current_user.get("user_id"),
+                    "revel_transaction_id": body.revel_transaction_id,
+                }
+            },
+        },
+    )
+    out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    return _enrich_store_order(out)
 
 
 @router.post("/admin/orders/{order_id}/invoice")

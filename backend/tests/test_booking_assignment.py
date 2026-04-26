@@ -74,6 +74,17 @@ class FakeSlotRepo:
     async def get_available_slots(self, practitioner_id, date):
         return deepcopy(self.available_by_pid_date.get((practitioner_id, date), []))
 
+    async def list_slot_windows_for_practitioner_date(self, practitioner_id, date):
+        out = []
+        for r in self.collection.slot_docs:
+            if r.get("practitioner_id") != practitioner_id or r.get("date") != date:
+                continue
+            st, et = r.get("start_time"), r.get("end_time")
+            if not st or not et:
+                continue
+            out.append({"start_time": st, "end_time": et})
+        return deepcopy(out)
+
 
 class FakeServiceRepo:
     def __init__(self, services):
@@ -223,7 +234,16 @@ def test_no_availability_error():
         users={"u1": {"user_id": "u1", "is_active": True}},
         services={service_id: {"service_id": service_id, "name": "Discovery Call", "price": 100, "is_active": True}},
         available_by_pid_date={("p1", date): []},
-        slot_docs=[{"slot_id": "s1", "practitioner_id": "p1", "date": date, "status": "booked"}],
+        slot_docs=[
+            {
+                "slot_id": "s1",
+                "practitioner_id": "p1",
+                "date": date,
+                "start_time": "09:00",
+                "end_time": "10:00",
+                "status": "booked",
+            }
+        ],
     )
 
     try:
@@ -231,3 +251,67 @@ def test_no_availability_error():
         assert False, "Expected ValueError"
     except ValueError as e:
         assert "No practitioner available" in str(e)
+
+
+def test_candidate_slots_merge_weekly_when_only_partial_concrete():
+    """Concrete rows for part of the day still allow weekly profile to fill other hours."""
+    service_id = "svc-1"
+    date = "2026-04-03"  # Friday -> weekday 4
+    slot_doc = {
+        "slot_id": "s1",
+        "practitioner_id": "p1",
+        "date": date,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "status": "available",
+    }
+    use_case, _ = _build_use_case(
+        practitioners={
+            "p1": {
+                "practitioner_id": "p1",
+                "user_id": "u1",
+                "services": [service_id],
+                "availability": [
+                    {"day_of_week": 4, "start_time": "09:00", "end_time": "11:00", "is_available": True}
+                ],
+            }
+        },
+        users={"u1": {"user_id": "u1", "is_active": True}},
+        services={service_id: {"service_id": service_id, "name": "Discovery Call", "price": 100, "is_active": True}},
+        available_by_pid_date={("p1", date): [slot_doc]},
+        slot_docs=[slot_doc],
+    )
+    slots = asyncio.run(use_case.get_service_available_slots(service_id, date))
+    assert [s["start_time"] for s in slots] == ["09:00", "10:00"]
+
+
+def test_candidate_slots_booked_concrete_blocks_weekly_same_window():
+    """A non-available concrete row for a window prevents synthesizing that hour from weekly."""
+    service_id = "svc-1"
+    date = "2026-04-03"
+    slot_doc = {
+        "slot_id": "s1",
+        "practitioner_id": "p1",
+        "date": date,
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "status": "booked",
+    }
+    use_case, _ = _build_use_case(
+        practitioners={
+            "p1": {
+                "practitioner_id": "p1",
+                "user_id": "u1",
+                "services": [service_id],
+                "availability": [
+                    {"day_of_week": 4, "start_time": "09:00", "end_time": "11:00", "is_available": True}
+                ],
+            }
+        },
+        users={"u1": {"user_id": "u1", "is_active": True}},
+        services={service_id: {"service_id": service_id, "name": "Discovery Call", "price": 100, "is_active": True}},
+        available_by_pid_date={("p1", date): []},
+        slot_docs=[slot_doc],
+    )
+    slots = asyncio.run(use_case.get_service_available_slots(service_id, date))
+    assert slots == [{"start_time": "10:00", "end_time": "11:00"}]

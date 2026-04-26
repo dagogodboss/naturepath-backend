@@ -233,7 +233,8 @@ export interface AvailabilitySlot {
 }
 
 export interface GenerateSlotsRequest {
-  practitioner_id: string;
+  /** Optional; URL path id is authoritative when omitted. */
+  practitioner_id?: string;
   start_date: string;
   end_date: string;
   start_hour?: number;
@@ -258,6 +259,14 @@ export interface Booking {
   notes?: string | null;
   cancellation_reason?: string | null;
   revel_order_id?: string | null;
+  revel_transaction_id?: string | null;
+  payment_mode?: 'card_online' | 'walk_in' | null;
+  payment_status?: string | null;
+  payment_link_id?: string | null;
+  payment_link_url?: string | null;
+  payment_amount?: number | null;
+  receipt_id?: string | null;
+  paid_at?: string | null;
   payment_reference_id?: string | null;
   created_at: string;
   updated_at: string;
@@ -267,6 +276,23 @@ export interface Booking {
   service?: Service;
   practitioner?: Practitioner;
   customer?: User;
+}
+
+export interface BookingPaymentStatusResponse {
+  booking_id: string;
+  payment_status?: string | null;
+  payment_mode?: 'card_online' | 'walk_in' | null;
+  payment_amount?: number | null;
+  payment_link_url?: string | null;
+  revel_transaction_id?: string | null;
+  receipt_id?: string | null;
+  paid_at?: string | null;
+}
+
+export interface MarkPaidAtCounterRequest {
+  amount: number;
+  revel_receipt_id: string;
+  notes?: string;
 }
 
 export interface InitiateBookingRequest {
@@ -290,7 +316,6 @@ export interface LockSlotResponse {
 
 export interface ConfirmBookingRequest {
   booking_id: string;
-  payment_method?: string;
 }
 
 export interface CancelBookingRequest {
@@ -301,6 +326,45 @@ export interface CancelBookingRequest {
 export interface RescheduleBookingRequest {
   booking_id: string;
   new_slot: BookingSlot;
+}
+
+/** Practitioner client directory */
+export interface ClientListItem {
+  client_id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  total_sessions: number;
+  last_visit_date?: string | null;
+}
+
+export interface ClientListResponse {
+  items: ClientListItem[];
+  total: number;
+}
+
+export interface ClientDetailAppointment {
+  booking_id: string;
+  status?: string;
+  service_name: string;
+  date?: string;
+  start_time?: string;
+  end_time?: string;
+}
+
+export interface ClientDetailResponse {
+  client_id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  join_date?: string;
+  appointments: ClientDetailAppointment[];
+  store_orders: Array<{
+    order_id: string;
+    total?: number;
+    payment_status?: string;
+    created_at?: string;
+  }>;
 }
 
 // ==================== Payment Types ====================
@@ -338,8 +402,8 @@ export interface RevelOrder {
 }
 
 export interface BookingConfirmationResponse extends Booking {
-  payment: Payment;
-  revel_order: RevelOrder;
+  payment?: Payment | null;
+  revel_order?: RevelOrder | null;
 }
 
 // ==================== Notification Types ====================
@@ -437,11 +501,18 @@ export interface HealthCheck {
 export type StorePaymentMethod = 'prepaid_online' | 'pay_on_delivery' | 'manual_backoffice';
 export type StorePaymentState =
   | 'pending'
+  | 'processing'
+  | 'awaiting_payment'
+  | 'awaiting_counter'
   | 'authorized'
   | 'captured'
   | 'failed'
   | 'manual_due'
-  | 'refunded';
+  | 'refunded'
+  | 'partial_refunded'
+  | 'voided'
+  | 'expired'
+  | 'none';
 export type StoreFulfillmentState =
   | 'placed'
   | 'confirmed'
@@ -487,9 +558,12 @@ export interface StoreOrderItem {
   line_total?: number;
 }
 
+export type StorePaymentMode = 'card_online' | 'walk_in';
+
 export interface CreateStoreOrderRequest {
   items: StoreOrderItem[];
   address: StoreAddress;
+  payment_mode?: StorePaymentMode;
   payment_method: StorePaymentMethod;
   customer_note?: string;
 }
@@ -499,6 +573,7 @@ export interface StoreOrder {
   customer_id?: string | null;
   items: StoreOrderItem[];
   address: StoreAddress;
+  payment_mode?: StorePaymentMode;
   payment_method: StorePaymentMethod;
   payment_status: StorePaymentState;
   fulfillment_status: StoreFulfillmentState;
@@ -511,6 +586,25 @@ export interface StoreOrder {
   invoice_id?: string | null;
   created_at: string;
   updated_at: string;
+  revel_transaction_id?: string | null;
+  revel_order_id?: string | null;
+  allowed_actions?: {
+    refund: boolean;
+    reject: boolean;
+    confirm: boolean;
+    fulfill: boolean;
+  };
+}
+
+export interface BackfillRevelTransactionRequest {
+  revel_transaction_id: string;
+}
+
+export interface BackfillRevelTransactionResponse {
+  order_id: string;
+  revel_transaction_id: string;
+  payment_status: string;
+  updated_at?: string;
 }
 
 export interface StoreProductsResponse {
@@ -541,6 +635,21 @@ export interface RbacOverrideCreateRequest {
   v0: string;
   v1: string;
   v2?: string | null;
+}
+
+export interface ReconciliationReport {
+  report_id: string;
+  date: string;
+  ref_type: string;
+  ref_id: string;
+  revel_order_id?: string | null;
+  drift_type: string;
+  our_value?: unknown;
+  revel_value?: unknown;
+  resolved: boolean;
+  resolved_by?: string;
+  resolved_at?: string;
+  created_at: string;
 }
 
 // ==================== WebSocket Types ====================

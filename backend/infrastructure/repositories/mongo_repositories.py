@@ -229,6 +229,22 @@ class MongoAvailabilitySlotRepository(IAvailabilitySlotRepository):
             "status": "available"
         }, {"_id": 0}).sort("start_time", 1)
         return await cursor.to_list(length=None)
+
+    async def list_slot_windows_for_practitioner_date(
+        self, practitioner_id: str, date: str
+    ) -> List[Dict[str, str]]:
+        cursor = self.collection.find(
+            {"practitioner_id": practitioner_id, "date": date},
+            {"_id": 0, "start_time": 1, "end_time": 1},
+        )
+        rows = await cursor.to_list(length=None)
+        out: List[Dict[str, str]] = []
+        for r in rows:
+            st, et = r.get("start_time"), r.get("end_time")
+            if not st or not et:
+                continue
+            out.append({"start_time": st, "end_time": et})
+        return out
     
     async def lock_slot(
         self, 

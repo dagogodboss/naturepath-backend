@@ -67,8 +67,37 @@ export function getMonthRange(date: Date = new Date()): { start: string; end: st
 
 /**
  * Format currency
+ *
+ * Deprecated in favor of `formatMoney({amount_cents, currency})` when a cents
+ * field is available. Kept for backward compatibility; new UI surfaces should
+ * prefer `formatMoney`.
  */
 export function formatCurrency(amount: number, currency = 'USD'): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+  }).format(amount);
+}
+
+/**
+ * Preferred money formatter: reads an integer cents value plus a currency
+ * code. Falls back to USD formatting if currency is missing.
+ */
+export function formatMoney(input: {
+  amount_cents?: number | null;
+  currency?: string | null;
+  /** Legacy: accept a float dollars value when cents are not available. */
+  amount?: number | null;
+}): string {
+  const currency = (input.currency || 'USD').toUpperCase();
+  let amount: number;
+  if (input.amount_cents != null) {
+    amount = Number(input.amount_cents) / 100;
+  } else if (input.amount != null) {
+    amount = Number(input.amount);
+  } else {
+    amount = 0;
+  }
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency,

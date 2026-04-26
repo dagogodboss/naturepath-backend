@@ -32,6 +32,7 @@ from presentation import (
     admin_router,
     webhook_router,
     store_router,
+    client_router,
     availability_websocket_handler,
     user_notification_websocket_handler
 )
@@ -131,6 +132,7 @@ app.include_router(booking_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(webhook_router, prefix="/api")
 app.include_router(store_router, prefix="/api")
+app.include_router(client_router, prefix="/api")
 
 
 # WebSocket endpoints

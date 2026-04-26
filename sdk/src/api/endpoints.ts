@@ -33,7 +33,12 @@ import type {
   LockSlotResponse,
   ConfirmBookingRequest,
   CancelBookingRequest,
+  RescheduleBookingRequest,
   BookingConfirmationResponse,
+  BookingPaymentStatusResponse,
+  MarkPaidAtCounterRequest,
+  ClientListResponse,
+  ClientDetailResponse,
   // Notification
   Notification,
   // Admin
@@ -50,6 +55,9 @@ import type {
   StoreProductsResponse,
   StoreOrder,
   CreateStoreOrderRequest,
+  BackfillRevelTransactionRequest,
+  BackfillRevelTransactionResponse,
+  ReconciliationReport,
 } from '../types';
 
 // ==================== Auth API ====================
@@ -283,7 +291,7 @@ export const practitionersApi = {
    */
   generateSlots: async (
     practitionerId: string,
-    data: Omit<GenerateSlotsRequest, 'practitioner_id'>
+    data: GenerateSlotsRequest
   ): Promise<{ generated_slots: number }> => {
     const response = await getApiClient().post(`/api/practitioners/${practitionerId}/generate-slots`, data);
     return response.data;
@@ -330,6 +338,31 @@ export const bookingApi = {
     return response.data;
   },
 
+  resendInvoice: async (bookingId: string): Promise<{ booking_id: string; status: string; reused_link: boolean; link_id?: string }> => {
+    const response = await getApiClient().post<{ booking_id: string; status: string; reused_link: boolean; link_id?: string }>(
+      `/api/booking/${bookingId}/invoice/resend`
+    );
+    return response.data;
+  },
+
+  getPaymentStatus: async (bookingId: string): Promise<BookingPaymentStatusResponse> => {
+    const response = await getApiClient().get<BookingPaymentStatusResponse>(
+      `/api/booking/${bookingId}/payment/status`
+    );
+    return response.data;
+  },
+
+  markPaidAtCounter: async (
+    bookingId: string,
+    data: MarkPaidAtCounterRequest
+  ): Promise<Booking> => {
+    const response = await getApiClient().post<Booking>(
+      `/api/booking/${bookingId}/mark-paid-at-counter`,
+      data
+    );
+    return response.data;
+  },
+
   /**
    * Get booking by ID
    */
@@ -343,6 +376,17 @@ export const bookingApi = {
    */
   cancel: async (data: CancelBookingRequest): Promise<Booking> => {
     const response = await getApiClient().post<Booking>('/api/booking/cancel', data);
+    return response.data;
+  },
+
+  /**
+   * Reschedule (customer)
+   */
+  reschedule: async (data: RescheduleBookingRequest): Promise<Booking> => {
+    const response = await getApiClient().post<Booking>(
+      `/api/booking/${data.booking_id}/reschedule`,
+      data
+    );
     return response.data;
   },
 
@@ -365,6 +409,17 @@ export const bookingApi = {
   completePractitionerSession: async (bookingId: string): Promise<Booking> => {
     const response = await getApiClient().post<Booking>(
       `/api/booking/practitioner/${bookingId}/complete`
+    );
+    return response.data;
+  },
+
+  /**
+   * Reschedule (practitioner acting for their client)
+   */
+  rescheduleAsPractitioner: async (data: RescheduleBookingRequest): Promise<Booking> => {
+    const response = await getApiClient().post<Booking>(
+      `/api/booking/practitioner/${data.booking_id}/reschedule`,
+      data
     );
     return response.data;
   },
@@ -496,6 +551,25 @@ export const adminApi = {
     const response = await getApiClient().post<{ reloaded: boolean }>('/api/admin/rbac/reload');
     return response.data;
   },
+
+  listReconciliationReports: async (date?: string): Promise<{ items: ReconciliationReport[]; total: number }> => {
+    const response = await getApiClient().get<{ items: ReconciliationReport[]; total: number }>(
+      '/api/admin/reconciliation/reports',
+      { params: date ? { date } : undefined }
+    );
+    return response.data;
+  },
+
+  resolveReconciliationReport: async (
+    reportId: string,
+    note?: string
+  ): Promise<{ report_id: string; resolved: boolean; resolved_at: string }> => {
+    const response = await getApiClient().post<{ report_id: string; resolved: boolean; resolved_at: string }>(
+      `/api/admin/reconciliation/reports/${reportId}/resolve`,
+      note ? { note } : {}
+    );
+    return response.data;
+  },
 };
 
 // ==================== Health API ====================
@@ -571,22 +645,15 @@ export const storeApi = {
     return response.data;
   },
 
-  sendSmsPayLink: async (
-    orderId: string,
-    actionToken?: string
-  ): Promise<{ success: boolean; order_id: string; payment_link_url: string }> => {
-    const response = await getApiClient().post<{
-      success: boolean;
-      order_id: string;
-      payment_link_url: string;
-    }>(`/api/store/checkout/orders/${orderId}/sms-pay-link`, null, {
-      params: actionToken ? { action_token: actionToken } : undefined,
-    });
+  getOrder: async (orderId: string): Promise<StoreOrder> => {
+    const response = await getApiClient().get<StoreOrder>(`/api/store/orders/${orderId}`);
     return response.data;
   },
 
-  getOrder: async (orderId: string): Promise<StoreOrder> => {
-    const response = await getApiClient().get<StoreOrder>(`/api/store/orders/${orderId}`);
+  getOrderStatus: async (orderId: string, actionToken?: string): Promise<StoreOrder> => {
+    const response = await getApiClient().get<StoreOrder>(`/api/store/orders/${orderId}/status`, {
+      params: actionToken ? { action_token: actionToken } : undefined,
+    });
     return response.data;
   },
 
@@ -623,15 +690,53 @@ export const storeApi = {
     return response.data;
   },
 
-  refundOrder: async (orderId: string, amount?: number): Promise<StoreOrder> => {
-    const response = await getApiClient().post<StoreOrder>(`/api/store/admin/orders/${orderId}/refund`, {
-      amount,
-    });
+  refundOrder: async (
+    orderId: string,
+    amount?: number,
+    idempotencyKey?: string
+  ): Promise<StoreOrder> => {
+    const key =
+      idempotencyKey ||
+      `refund-${orderId}-${amount ?? 'full'}-${Math.random().toString(36).slice(2, 10)}`;
+    const response = await getApiClient().post<StoreOrder>(
+      `/api/store/admin/orders/${orderId}/refund`,
+      { amount },
+      { headers: { 'Idempotency-Key': key } }
+    );
     return response.data;
   },
 
   sendInvoice: async (orderId: string): Promise<StoreOrder> => {
     const response = await getApiClient().post<StoreOrder>(`/api/store/admin/orders/${orderId}/invoice`);
+    return response.data;
+  },
+
+  voidOrder: async (orderId: string): Promise<StoreOrder> => {
+    const response = await getApiClient().post<StoreOrder>(`/api/store/admin/orders/${orderId}/void`);
+    return response.data;
+  },
+
+  backfillRevelTransaction: async (
+    orderId: string,
+    data: BackfillRevelTransactionRequest
+  ): Promise<BackfillRevelTransactionResponse> => {
+    const response = await getApiClient().post<BackfillRevelTransactionResponse>(
+      `/api/store/admin/orders/${orderId}/backfill-revel-tx`,
+      data
+    );
+    return response.data;
+  },
+};
+
+export const clientsApi = {
+  list: async (q?: string): Promise<ClientListResponse> => {
+    const response = await getApiClient().get<ClientListResponse>('/api/clients', {
+      params: q ? { q } : undefined,
+    });
+    return response.data;
+  },
+  getById: async (clientId: string): Promise<ClientDetailResponse> => {
+    const response = await getApiClient().get<ClientDetailResponse>(`/api/clients/${clientId}`);
     return response.data;
   },
 };

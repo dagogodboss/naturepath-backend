@@ -4,8 +4,11 @@ Email Service - Resend Integration
 import os
 import asyncio
 import base64
+import html
 import logging
 import smtplib
+from urllib.parse import urlparse
+
 import resend
 from typing import Optional, Dict, Any, List
 from email.message import EmailMessage
@@ -466,6 +469,179 @@ class EmailService:
         """
         text_content = f"Your The Natural Path verification code is {otp_code}. It expires in {expires_minutes} minutes."
         return await self.send_email(to_email, subject, html_content, text_content)
+
+    async def send_booking_invoice(
+        self,
+        to_email: str,
+        customer_name: str,
+        service_name: str,
+        date: str,
+        time: str,
+        booking_id: str,
+        amount: float,
+        pay_link_url: str,
+        expires_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Invoice with hosted pay link for a confirmed booking (card_online path)."""
+        parsed = urlparse(pay_link_url or "")
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise ValueError("pay_link_url must be https://")
+        e = lambda v: html.escape(str(v or ""), quote=True)  # noqa: E731
+        safe_url = e(pay_link_url)
+        subject = f"Invoice for your appointment on {e(date)}"
+        expires_line = (
+            f"<p style='font-size:12px;color:#6b7280;'>Link expires {e(expires_at)}.</p>"
+            if expires_at
+            else ""
+        )
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #1f2937;">
+            <h2>Hello {e(customer_name)},</h2>
+            <p>Your booking is confirmed. You can pay online now or at the counter when you arrive.</p>
+            <div style="border:1px solid #e5e7eb; border-radius:8px; padding:12px; max-width:420px;">
+                <p><strong>Service:</strong> {e(service_name)}</p>
+                <p><strong>When:</strong> {e(date)} at {e(time)}</p>
+                <p><strong>Booking:</strong> {e(booking_id[:8].upper())}</p>
+                <p><strong>Amount:</strong> ${amount:.2f}</p>
+            </div>
+            <p style="margin-top:16px;">
+                <a href="{safe_url}" style="display:inline-block; background:#4a7c59; color:#fff; padding:12px 18px; text-decoration:none; border-radius:6px;">
+                    Pay securely now
+                </a>
+            </p>
+            <p style="font-size:13px;color:#4a5568;">Prefer to pay at the front desk? That's still OK — just bring your booking id.</p>
+            {expires_line}
+        </body>
+        </html>
+        """
+        return await self.send_email(to_email, subject, html_content)
+
+    async def send_booking_receipt(
+        self,
+        to_email: str,
+        customer_name: str,
+        service_name: str,
+        date: str,
+        time: str,
+        booking_id: str,
+        amount: float,
+        receipt_id: Optional[str] = None,
+        payment_mode: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Branded receipt email for a booking payment (either card_online or walk_in)."""
+        e = lambda v: html.escape(str(v or ""), quote=True)  # noqa: E731
+        subject = f"Payment receipt for your appointment on {e(date)}"
+        mode_line = ""
+        if payment_mode == "card_online":
+            mode_line = "<p>Paid online — thank you!</p>"
+        elif payment_mode == "walk_in":
+            mode_line = "<p>Payment received at the front desk — thank you!</p>"
+        receipt_line = (
+            f"<p><strong>Receipt ID:</strong> {e(receipt_id)}</p>"
+            if receipt_id
+            else ""
+        )
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #1f2937;">
+            <h2>Hello {e(customer_name)},</h2>
+            {mode_line}
+            <div style="border:1px solid #e5e7eb; border-radius:8px; padding:12px; max-width:420px;">
+                <p><strong>Service:</strong> {e(service_name)}</p>
+                <p><strong>When:</strong> {e(date)} at {e(time)}</p>
+                <p><strong>Booking:</strong> {e(booking_id[:8].upper())}</p>
+                <p><strong>Amount:</strong> ${amount:.2f}</p>
+                {receipt_line}
+            </div>
+            <p style="margin-top:14px; font-size: 13px; color:#6b7280;">
+                If you need a refund, it will settle back to the original payment method within
+                3 business days.
+            </p>
+        </body>
+        </html>
+        """
+        return await self.send_email(to_email, subject, html_content)
+
+    async def send_store_payment_link(
+        self,
+        to_email: str,
+        order_id: str,
+        pay_link_url: str,
+        expires_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Hardened email with an HTTPS-only hosted pay link for a store order."""
+        parsed = urlparse(pay_link_url or "")
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise ValueError("pay_link_url must be https://")
+        e = lambda v: html.escape(str(v or ""), quote=True)  # noqa: E731
+        safe_url = e(pay_link_url)
+        short_id = e((order_id or "")[-8:].upper())
+        expires_line = (
+            f"<p style='font-size:12px;color:#6b7280;'>Link expires {e(expires_at)}.</p>"
+            if expires_at
+            else ""
+        )
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #1f2937;">
+            <h2>Complete your payment</h2>
+            <p>Your order <strong>{short_id}</strong> is ready for payment.</p>
+            <p style="margin-top:16px;">
+                <a href="{safe_url}" style="display:inline-block; background:#4a7c59; color:#fff; padding:12px 18px; text-decoration:none; border-radius:6px;">
+                    Pay securely now
+                </a>
+            </p>
+            {expires_line}
+        </body>
+        </html>
+        """
+        return await self.send_email(
+            to_email,
+            subject="Complete your Natural Path order payment",
+            html_content=html_content,
+        )
+
+    async def send_store_receipt(
+        self,
+        to_email: str,
+        order_id: str,
+        total: float,
+        tax: float,
+        subtotal: float,
+        transaction_id: str | None = None,
+    ) -> Dict[str, Any]:
+        """Send a branded store receipt after payment capture."""
+        e = lambda v: html.escape(str(v or ""), quote=True)  # noqa: E731
+        subject = f"Payment receipt for order {e(order_id[-8:].upper())}"
+        tx_line = (
+            f"<p><strong>Transaction ID:</strong> {e(transaction_id)}</p>"
+            if transaction_id
+            else ""
+        )
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #1f2937;">
+            <h2>Thanks for your purchase</h2>
+            <p>Your payment was captured successfully.</p>
+            <div style="border:1px solid #e5e7eb; border-radius:8px; padding:12px; max-width:420px;">
+                <p><strong>Order:</strong> {e(order_id)}</p>
+                <p><strong>Subtotal:</strong> ${subtotal:.2f}</p>
+                <p><strong>Tax:</strong> ${tax:.2f}</p>
+                <p><strong>Total:</strong> ${total:.2f}</p>
+                {tx_line}
+            </div>
+            <p style="margin-top:14px; font-size: 13px; color:#6b7280;">
+                Refunds typically settle back to your payment method in 3 business days.
+            </p>
+        </body>
+        </html>
+        """
+        return await self.send_email(to_email, subject, html_content)
 
 
 # Singleton instance

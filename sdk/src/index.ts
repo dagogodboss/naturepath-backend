@@ -66,6 +66,8 @@ export type {
   // Booking
   Booking,
   BookingSlot,
+  BookingPaymentStatusResponse,
+  MarkPaidAtCounterRequest,
   InitiateBookingRequest,
   ServiceSlotWindow,
   LockSlotResponse,
@@ -73,8 +75,13 @@ export type {
   CancelBookingRequest,
   RescheduleBookingRequest,
   BookingConfirmationResponse,
+  ClientListItem,
+  ClientListResponse,
+  ClientDetailAppointment,
+  ClientDetailResponse,
   // Store
   StorePaymentMethod,
+  StorePaymentMode,
   StorePaymentState,
   StoreFulfillmentState,
   StoreProduct,
@@ -83,6 +90,8 @@ export type {
   CreateStoreOrderRequest,
   StoreOrder,
   StoreProductsResponse,
+  BackfillRevelTransactionRequest,
+  BackfillRevelTransactionResponse,
   // Payment
   Payment,
   RevelOrder,
@@ -96,6 +105,7 @@ export type {
   RbacBaselineResponse,
   RbacPolicyOverride,
   RbacOverrideCreateRequest,
+  ReconciliationReport,
   // API
   ApiError,
   HealthCheck,
@@ -139,6 +149,9 @@ export {
   useConfirmBooking,
   useCancelBooking,
   useBookingFlow,
+  useBookingPaymentStatus,
+  useResendBookingInvoice,
+  useMarkBookingPaidAtCounter,
   useAllBookings,
   useBookingsByDateRange,
   useAdminCancelBooking,
@@ -166,6 +179,8 @@ export {
   useCreateRbacOverride,
   useDeleteRbacOverride,
   useReloadRbacPolicies,
+  useReconciliationReports,
+  useResolveReconciliationReport,
   // WebSocket
   useRealtimeAvailability,
   useRealtimeNotifications,
@@ -175,13 +190,13 @@ export {
   // Store
   useStoreProducts,
   useStoreOrder,
+  useStoreOrderStatus,
   useMyStoreOrders,
   usePractitionerStoreOrders,
   useSyncStoreProducts,
   useUpdateStoreProduct,
   useCreateStoreOrder,
   usePayStoreOrder,
-  useSendSmsPayLink,
   useStoreOrderOps,
 } from './hooks';
 
@@ -195,6 +210,7 @@ export {
   adminApi,
   healthApi,
   storeApi,
+  clientsApi,
 } from './api/endpoints';
 
 export {
@@ -224,6 +240,7 @@ export {
   getWeekRange,
   getMonthRange,
   formatCurrency,
+  formatMoney,
   formatDuration,
   isToday,
   isPastDate,

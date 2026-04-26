@@ -82,9 +82,43 @@ export function createApiClient(): AxiosInstance {
     (error) => Promise.reject(error)
   );
 
-  // Response interceptor - handle errors and token refresh
-  client.interceptors.response.use(
-    (response) => response,
+  /**
+   * H3: when the backend returns a 2xx body of shape
+   * `{status: "pending_verification", check_url}`, poll the check_url for up
+   * to POLL_MAX_MS (default 30s) before surfacing the response to the caller.
+   */
+  client.interceptors.response.use(async (response) => {
+    const body: any = response?.data;
+    if (
+      body &&
+      typeof body === 'object' &&
+      body.status === 'pending_verification' &&
+      typeof body.check_url === 'string'
+    ) {
+      const POLL_INTERVAL_MS = 2000;
+      const POLL_MAX_MS = 30_000;
+      const started = Date.now();
+      while (Date.now() - started < POLL_MAX_MS) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        try {
+          const statusResp = await client.get(body.check_url);
+          const statusBody: any = statusResp?.data;
+          if (
+            statusBody &&
+            statusBody.status !== 'pending_verification' &&
+            statusBody.payment_status !== 'pending' &&
+            statusBody.payment_status !== 'processing'
+          ) {
+            return statusResp;
+          }
+        } catch {
+          // swallow transient errors and keep polling
+        }
+      }
+      // Timed out — return the original pending-verification response.
+    }
+    return response;
+  },
     async (error: AxiosError<ApiError>) => {
       const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 

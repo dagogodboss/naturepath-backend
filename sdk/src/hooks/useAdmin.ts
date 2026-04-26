@@ -176,3 +176,23 @@ export function useReloadRbacPolicies() {
     },
   });
 }
+
+export function useReconciliationReports(date?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['admin', 'reconciliationReports', date || ''],
+    queryFn: () => adminApi.listReconciliationReports(date),
+    enabled,
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useResolveReconciliationReport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ reportId, note }: { reportId: string; note?: string }) =>
+      adminApi.resolveReconciliationReport(reportId, note),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'reconciliationReports'] });
+    },
+  });
+}

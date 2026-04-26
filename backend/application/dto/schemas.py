@@ -202,7 +202,6 @@ class LockSlotRequest(BaseModel):
 
 class ConfirmBookingRequest(BaseModel):
     booking_id: str
-    payment_method: Optional[str] = "pay_at_counter"
 
 
 class BookingResponse(BaseModel):
@@ -216,6 +215,14 @@ class BookingResponse(BaseModel):
     notes: Optional[str]
     cancellation_reason: Optional[str]
     revel_order_id: Optional[str]
+    revel_transaction_id: Optional[str]
+    payment_mode: Optional[str]
+    payment_status: Optional[str]
+    payment_link_id: Optional[str]
+    payment_link_url: Optional[str]
+    payment_amount: Optional[float]
+    receipt_id: Optional[str]
+    paid_at: Optional[str]
     payment_reference_id: Optional[str]
     created_at: str
     confirmed_at: Optional[str]
@@ -252,7 +259,12 @@ class GetAvailabilityRequest(BaseModel):
 
 
 class GenerateSlotsRequest(BaseModel):
-    practitioner_id: str
+    """Body for POST /practitioners/{practitioner_id}/generate-slots.
+
+    practitioner_id is optional; the path parameter is authoritative. If both
+    are present they must match (for older clients that duplicated the id).
+    """
+    practitioner_id: Optional[str] = None
     start_date: str
     end_date: str
     start_hour: int = 9

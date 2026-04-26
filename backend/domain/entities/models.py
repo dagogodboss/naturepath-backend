@@ -182,6 +182,14 @@ class Booking(BaseModel):
     notes: Optional[str] = None
     cancellation_reason: Optional[str] = None
     revel_order_id: Optional[str] = None  # REVEL POS integration
+    revel_transaction_id: Optional[str] = None
+    payment_mode: Optional[str] = None  # card_online | walk_in
+    payment_status: str = "none"  # none | awaiting_payment | awaiting_counter | captured | refunded
+    payment_link_id: Optional[str] = None
+    payment_link_url: Optional[str] = None
+    payment_amount: Optional[float] = None
+    receipt_id: Optional[str] = None
+    paid_at: Optional[datetime] = None
     payment_reference_id: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

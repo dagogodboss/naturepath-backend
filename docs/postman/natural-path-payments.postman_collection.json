@@ -1,0 +1,304 @@
+{
+  "info": {
+    "_postman_id": "np-phase2-payments-collection",
+    "name": "Natural Path — Phase 2 Payments E2E",
+    "description": "End-to-end flows for booking, store, refund, reconciliation, and webhook resilience. Import and set {{baseUrl}} + {{accessToken}} (and {{adminToken}} for admin calls).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000" },
+    { "key": "accessToken", "value": "" },
+    { "key": "adminToken", "value": "" },
+    { "key": "customerActionToken", "value": "" },
+    { "key": "storeOrderId", "value": "" },
+    { "key": "bookingId", "value": "" },
+    { "key": "serviceId", "value": "" },
+    { "key": "practitionerId", "value": "" },
+    { "key": "slotDate", "value": "2026-05-01" },
+    { "key": "slotStart", "value": "10:00" },
+    { "key": "slotEnd", "value": "11:00" },
+    { "key": "productId", "value": "" },
+    { "key": "revelOrderId", "value": "" },
+    { "key": "revelTransactionId", "value": "tx_test_12345" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "1. Booking flow",
+      "item": [
+        {
+          "name": "Initiate booking",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/booking/initiate", "host": ["{{baseUrl}}"], "path": ["api", "booking", "initiate"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"service_id\": \"{{serviceId}}\",\n  \"practitioner_id\": \"{{practitionerId}}\",\n  \"slot\": { \"date\": \"{{slotDate}}\", \"start_time\": \"{{slotStart}}\", \"end_time\": \"{{slotEnd}}\" }\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('201 + booking_id', () => {",
+                "  pm.expect(pm.response.code).to.equal(201);",
+                "  const body = pm.response.json();",
+                "  pm.collectionVariables.set('bookingId', body.booking_id);",
+                "});"
+              ],
+              "type": "text/javascript"
+            }
+          }]
+        },
+        {
+          "name": "Lock slot",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/booking/lock-slot?booking_id={{bookingId}}",
+              "host": ["{{baseUrl}}"], "path": ["api", "booking", "lock-slot"],
+              "query": [{ "key": "booking_id", "value": "{{bookingId}}" }]
+            }
+          }
+        },
+        {
+          "name": "Confirm booking (auto-issues invoice)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/booking/confirm", "host": ["{{baseUrl}}"], "path": ["api", "booking", "confirm"] },
+            "body": { "mode": "raw", "raw": "{\n  \"booking_id\": \"{{bookingId}}\"\n}" }
+          }
+        },
+        {
+          "name": "Resend invoice (practitioner)",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/booking/{{bookingId}}/invoice/resend",
+              "host": ["{{baseUrl}}"], "path": ["api", "booking", "{{bookingId}}", "invoice", "resend"]
+            }
+          }
+        },
+        {
+          "name": "Mark paid at counter",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/booking/{{bookingId}}/mark-paid-at-counter",
+              "host": ["{{baseUrl}}"], "path": ["api", "booking", "{{bookingId}}", "mark-paid-at-counter"]
+            },
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": 100.00,\n  \"revel_receipt_id\": \"rcpt_test_001\"\n}" }
+          }
+        },
+        {
+          "name": "Payment status (read-view)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/booking/{{bookingId}}/payment/status",
+              "host": ["{{baseUrl}}"], "path": ["api", "booking", "{{bookingId}}", "payment", "status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Store flow",
+      "item": [
+        {
+          "name": "Create store order — card_online",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/store/checkout/orders", "host": ["{{baseUrl}}"], "path": ["api", "store", "checkout", "orders"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [{\"product_id\": \"{{productId}}\", \"quantity\": 1}],\n  \"address\": {\n    \"full_name\": \"Test User\", \"phone\": \"5551234567\", \"email\": \"test@example.com\",\n    \"line1\": \"1 Test St\", \"city\": \"Los Angeles\", \"state\": \"CA\", \"postal_code\": \"90001\", \"country\": \"US\"\n  },\n  \"payment_mode\": \"card_online\",\n  \"payment_method\": \"prepaid_online\"\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "const body = pm.response.json();",
+                "pm.collectionVariables.set('storeOrderId', body.order_id);",
+                "if (body.action_token) pm.collectionVariables.set('customerActionToken', body.action_token);"
+              ],
+              "type": "text/javascript"
+            }
+          }]
+        },
+        {
+          "name": "Pay store order (card_online)",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/store/checkout/orders/{{storeOrderId}}/pay?payment_method=card&action_token={{customerActionToken}}",
+              "host": ["{{baseUrl}}"], "path": ["api", "store", "checkout", "orders", "{{storeOrderId}}", "pay"],
+              "query": [
+                { "key": "payment_method", "value": "card" },
+                { "key": "action_token", "value": "{{customerActionToken}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Status check (poll until captured)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/store/orders/{{storeOrderId}}/status?action_token={{customerActionToken}}",
+              "host": ["{{baseUrl}}"], "path": ["api", "store", "orders", "{{storeOrderId}}", "status"],
+              "query": [{ "key": "action_token", "value": "{{customerActionToken}}" }]
+            }
+          }
+        },
+        {
+          "name": "Create store order — walk_in (HOLD)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/store/checkout/orders", "host": ["{{baseUrl}}"], "path": ["api", "store", "checkout", "orders"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [{\"product_id\": \"{{productId}}\", \"quantity\": 1}],\n  \"address\": {\n    \"full_name\": \"Walk In\", \"phone\": \"5559999999\", \"email\": \"walkin@example.com\",\n    \"line1\": \"1 Pickup St\", \"city\": \"LA\", \"state\": \"CA\", \"postal_code\": \"90001\", \"country\": \"US\"\n  },\n  \"payment_mode\": \"walk_in\",\n  \"payment_method\": \"pay_on_delivery\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Refund flow",
+      "item": [
+        {
+          "name": "Full refund (card_online)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$randomUUID}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/store/admin/orders/{{storeOrderId}}/refund",
+              "host": ["{{baseUrl}}"], "path": ["api", "store", "admin", "orders", "{{storeOrderId}}", "refund"]
+            },
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"customer_request\"\n}" }
+          }
+        },
+        {
+          "name": "Partial refund ($5)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$randomUUID}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/store/admin/orders/{{storeOrderId}}/refund",
+              "host": ["{{baseUrl}}"], "path": ["api", "store", "admin", "orders", "{{storeOrderId}}", "refund"]
+            },
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": 5.00,\n  \"reason\": \"partial_return\"\n}" }
+          }
+        },
+        {
+          "name": "Void (HOLD)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "url": {
+              "raw": "{{baseUrl}}/api/store/admin/orders/{{storeOrderId}}/void",
+              "host": ["{{baseUrl}}"], "path": ["api", "store", "admin", "orders", "{{storeOrderId}}", "void"]
+            }
+          }
+        },
+        {
+          "name": "Backfill Revel tx (admin)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/store/admin/orders/{{storeOrderId}}/backfill-revel-tx",
+              "host": ["{{baseUrl}}"], "path": ["api", "store", "admin", "orders", "{{storeOrderId}}", "backfill-revel-tx"]
+            },
+            "body": { "mode": "raw", "raw": "{\n  \"revel_transaction_id\": \"{{revelTransactionId}}\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Reconciliation + webhook resilience",
+      "item": [
+        {
+          "name": "List reconciliation reports (today)",
+          "request": {
+            "method": "GET",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "url": { "raw": "{{baseUrl}}/api/admin/reconciliation/reports?resolved=false", "host": ["{{baseUrl}}"], "path": ["api", "admin", "reconciliation", "reports"], "query": [{ "key": "resolved", "value": "false" }] }
+          }
+        },
+        {
+          "name": "Webhook: order.paid (synthetic)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Revel-Signature", "value": "REPLACE_WITH_VALID_HMAC" }
+            ],
+            "url": { "raw": "{{baseUrl}}/webhooks/revel", "host": ["{{baseUrl}}"], "path": ["webhooks", "revel"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt-postman-001\",\n  \"event_type\": \"order.paid\",\n  \"data\": {\n    \"order_id\": \"{{revelOrderId}}\",\n    \"transaction_id\": \"{{revelTransactionId}}\"\n  },\n  \"timestamp\": \"2026-04-20T00:00:00Z\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Webhook replay (same event_id = duplicate_ignored)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Revel-Signature", "value": "REPLACE_WITH_VALID_HMAC" }
+            ],
+            "url": { "raw": "{{baseUrl}}/webhooks/revel", "host": ["{{baseUrl}}"], "path": ["webhooks", "revel"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt-postman-001\",\n  \"event_type\": \"order.paid\",\n  \"data\": {\n    \"order_id\": \"{{revelOrderId}}\",\n    \"transaction_id\": \"{{revelTransactionId}}\"\n  },\n  \"timestamp\": \"2026-04-20T00:00:00Z\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Webhook: bad HMAC → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Revel-Signature", "value": "deadbeef" }
+            ],
+            "url": { "raw": "{{baseUrl}}/webhooks/revel", "host": ["{{baseUrl}}"], "path": ["webhooks", "revel"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt-badhmac\",\n  \"event_type\": \"order.paid\",\n  \"data\": {\"order_id\": \"1\"}\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

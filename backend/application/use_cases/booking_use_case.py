@@ -1,19 +1,17 @@
 """
 Booking Use Cases - Application Layer
-Handles the complete booking flow with REVEL POS integration
+Handles the complete booking flow (OTC payment at counter; Revel is store/e-commerce only).
 """
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from domain.entities import (
     Booking, BookingSlot, BookingStatus,
-    PaymentReference, PaymentStatus,
     generate_id, utc_now
 )
 from domain.events import (
     BookingCreatedEvent, BookingConfirmedEvent,
     BookingCancelledEvent, BookingRescheduledEvent,
-    PaymentInitiatedEvent, PaymentConfirmedEvent
 )
 from infrastructure.repositories import (
     MongoBookingRepository,
@@ -24,7 +22,6 @@ from infrastructure.repositories import (
     MongoPaymentRepository,
     MongoEventRepository
 )
-from core.config import settings
 from core.calendar_utils import (
     build_booking_ical,
     google_calendar_template_url,
@@ -32,21 +29,22 @@ from core.calendar_utils import (
     microsoft_calendar_template_url,
     outlook_office_calendar_template_url,
 )
-from infrastructure.external import get_revel_service
+from core.money import Money
 from infrastructure.cache import CacheService
+from core.config import settings
 from workers.notification_worker import (
     send_booking_confirmation_email,
     send_booking_confirmation_sms,
     send_cancellation_notification,
     send_practitioner_booking_notice_email,
 )
-from workers.booking_worker import create_revel_order, process_booking_payment
+from workers.booking_invoice_worker import issue_booking_invoice
 
 logger = logging.getLogger(__name__)
 
 
 class BookingUseCase:
-    """Booking use cases with REVEL POS integration"""
+    """Booking use cases (no Revel; e-commerce uses Revel separately)."""
     
     def __init__(
         self,
@@ -67,7 +65,6 @@ class BookingUseCase:
         self.payment_repo = payment_repo
         self.event_repo = event_repo
         self.cache = cache
-        self.revel_service = get_revel_service()
 
     @staticmethod
     def _is_discovery_service(service: Optional[Dict[str, Any]]) -> bool:
@@ -82,32 +79,9 @@ class BookingUseCase:
     def _slot_key(start_time: str, end_time: str) -> str:
         return f"{start_time}-{end_time}"
 
-    async def _candidate_slots_for_practitioner(
-        self,
-        practitioner: Dict[str, Any],
-        date: str,
-    ) -> List[Dict[str, str]]:
-        """
-        Return slot windows that this practitioner can take on a given date.
-        - Prefer concrete availability_slots documents with status=available.
-        - If no slots exist at all for that date, derive windows from weekly availability.
-        """
-        practitioner_id = practitioner["practitioner_id"]
-        available = await self.slot_repo.get_available_slots(practitioner_id, date)
-        if available:
-            return [
-                {"start_time": s["start_time"], "end_time": s["end_time"]}
-                for s in available
-            ]
-
-        # If slots exist but none are available, do not synthesize windows.
-        existing = await self.slot_repo.collection.find(
-            {"practitioner_id": practitioner_id, "date": date}, {"_id": 0, "slot_id": 1}
-        ).to_list(length=1)
-        if existing:
-            return []
-
-        # Fall back to static weekly availability profile.
+    @staticmethod
+    def _weekly_hourly_windows(practitioner: Dict[str, Any], date: str) -> List[Dict[str, str]]:
+        """Derive hourly slot windows from the practitioner's weekly availability profile."""
         date_obj = datetime.strptime(date, "%Y-%m-%d")
         day_of_week = date_obj.weekday()
         windows: List[Dict[str, str]] = []
@@ -124,6 +98,42 @@ class BookingUseCase:
                     }
                 )
         return windows
+
+    async def _candidate_slots_for_practitioner(
+        self,
+        practitioner: Dict[str, Any],
+        date: str,
+    ) -> List[Dict[str, str]]:
+        """
+        Return bookable slot windows for this practitioner on a given date.
+
+        Merges (1) concrete Mongo rows with status=available and (2) hourly
+        windows implied by weekly availability for any hour that does not yet
+        have a concrete availability_slots row (any status). This avoids the
+        trap where a single generated row for a day hid the rest of the weekly
+        schedule from booking/discovery flows.
+        """
+        practitioner_id = practitioner["practitioner_id"]
+        available = await self.slot_repo.get_available_slots(practitioner_id, date)
+        concrete_for_date = await self.slot_repo.list_slot_windows_for_practitioner_date(
+            practitioner_id, date
+        )
+        occupied_keys = {
+            self._slot_key(s["start_time"], s["end_time"]) for s in concrete_for_date
+        }
+
+        merged: Dict[str, Dict[str, str]] = {}
+        for s in available:
+            k = self._slot_key(s["start_time"], s["end_time"])
+            merged[k] = {"start_time": s["start_time"], "end_time": s["end_time"]}
+
+        for w in self._weekly_hourly_windows(practitioner, date):
+            k = self._slot_key(w["start_time"], w["end_time"])
+            if k in merged or k in occupied_keys:
+                continue
+            merged[k] = w
+
+        return sorted(merged.values(), key=lambda w: w["start_time"])
 
     async def _eligible_practitioners(self, service_id: str) -> List[Dict[str, Any]]:
         practitioners = await self.practitioner_repo.get_by_service(service_id)
@@ -248,13 +258,8 @@ class BookingUseCase:
             )
             practitioner_id = practitioner["practitioner_id"]
         
-        # Validate with REVEL POS if service has revel_product_id
-        if service.get("revel_product_id"):
-            revel_product = await self.revel_service.validate_service(service["revel_product_id"])
-            if not revel_product:
-                logger.warning(f"Service {service_id} not found in REVEL POS")
-        
         # Create booking in draft status
+        price_money = Money.from_float(service.get("discount_price") or service["price"], "USD")
         booking = Booking(
             booking_id=generate_id(),
             customer_id=customer_id,
@@ -262,11 +267,15 @@ class BookingUseCase:
             service_id=service_id,
             slot=BookingSlot(date=date, start_time=start_time, end_time=end_time),
             status=BookingStatus.DRAFT,
-            total_price=service.get("discount_price") or service["price"],
+            total_price=price_money.to_float(),
+            payment_mode=None,
+            payment_status="none",
             notes=notes
         )
         
         booking_dict = booking.model_dump()
+        booking_dict["total_price_cents"] = price_money.to_cents()
+        booking_dict["currency"] = "USD"
         booking_dict["created_at"] = booking_dict["created_at"].isoformat()
         booking_dict["updated_at"] = booking_dict["updated_at"].isoformat()
         booking_dict["slot"] = {
@@ -321,43 +330,38 @@ class BookingUseCase:
         if booking["status"] != "draft":
             raise ValueError("Booking is not in draft status")
         
-        # Find or create availability slot
         slot = booking["slot"]
-        slots = await self.slot_repo.get_available_slots(
-            booking["practitioner_id"],
-            slot["date"]
+        pid = booking["practitioner_id"]
+        date = slot["date"]
+        st = slot["start_time"]
+        et = slot["end_time"]
+
+        # Single upsert so concurrent lockers cannot create duplicate rows for the same window.
+        new_slot_id = generate_id()
+        await self.slot_repo.collection.update_one(
+            {"practitioner_id": pid, "date": date, "start_time": st},
+            {
+                "$setOnInsert": {
+                    "slot_id": new_slot_id,
+                    "practitioner_id": pid,
+                    "date": date,
+                    "start_time": st,
+                    "end_time": et,
+                    "status": "available",
+                    "created_at": utc_now().isoformat(),
+                }
+            },
+            upsert=True,
         )
-        
-        # Find matching slot
-        target_slot = None
-        for s in slots:
-            if s["start_time"] == slot["start_time"]:
-                target_slot = s
-                break
-        
+        target_slot = await self.slot_repo.collection.find_one(
+            {"practitioner_id": pid, "date": date, "start_time": st},
+            {"_id": 0},
+        )
         if not target_slot:
-            # Check if slot exists but is not available
-            all_slots = await self.slot_repo.collection.find({
-                "practitioner_id": booking["practitioner_id"],
-                "date": slot["date"],
-                "start_time": slot["start_time"]
-            }, {"_id": 0}).to_list(length=1)
-            
-            if all_slots:
-                raise ValueError("Time slot is no longer available")
-            
-            # Create the slot if it doesn't exist
-            target_slot = {
-                "slot_id": generate_id(),
-                "practitioner_id": booking["practitioner_id"],
-                "date": slot["date"],
-                "start_time": slot["start_time"],
-                "end_time": slot["end_time"],
-                "status": "available",
-                "created_at": utc_now().isoformat()
-            }
-            await self.slot_repo.create(target_slot)
-        
+            raise ValueError("Time slot not found")
+        if target_slot.get("status") == "booked":
+            raise ValueError("Time slot is no longer available")
+
         # Lock the slot
         locked = await self.slot_repo.lock_slot(
             target_slot["slot_id"],
@@ -464,11 +468,9 @@ class BookingUseCase:
         self,
         booking_id: str,
         user_id: str,
-        payment_method: str = "pay_at_counter",
     ) -> Dict[str, Any]:
         """
-        Confirm booking. Default: payment at the front desk (no online card).
-        Set BOOKING_CHECKOUT_MODE=revel_online to use REVEL POS card flow (optional).
+        Confirm booking. Payment is always at the front desk (OTC); no online card or Revel charge here.
         """
         booking = await self.booking_repo.get_by_id(booking_id)
         if not booking:
@@ -477,160 +479,74 @@ class BookingUseCase:
         if booking["customer_id"] != user_id:
             raise ValueError("Unauthorized")
         
-        if booking["status"] not in ["draft", "pending"]:
-            raise ValueError(f"Cannot confirm booking in {booking['status']} status")
+        if booking["status"] != "pending":
+            raise ValueError(
+                "Lock the slot before confirming — booking must be pending (use POST /booking/lock-slot first)"
+            )
         
         service = await self.service_repo.get_by_id(booking["service_id"])
         customer = await self.user_repo.get_by_id(user_id)
         practitioner = await self.practitioner_repo.get_by_id(booking["practitioner_id"])
         practitioner_user = await self.user_repo.get_by_id(practitioner["user_id"])
 
-        use_revel_checkout = (settings.booking_checkout_mode or "").lower() == "revel_online"
-
-        if not use_revel_checkout:
-            now = utc_now().isoformat()
-            await self.booking_repo.update(
-                booking_id,
-                {
-                    "status": "confirmed",
-                    "confirmed_at": now,
-                    "checkout_payment_mode": "pay_at_counter",
-                },
-            )
-            if self._is_discovery_service(service):
-                await self.user_repo.update(user_id, {"is_discovery_completed": True})
-
-            slot = booking["slot"]
-            slots = await self.slot_repo.collection.find(
-                {
-                    "practitioner_id": booking["practitioner_id"],
-                    "date": slot["date"],
-                    "start_time": slot["start_time"],
-                },
-                {"_id": 0},
-            ).to_list(length=1)
-            if slots:
-                await self.slot_repo.update(
-                    slots[0]["slot_id"],
-                    {"status": "booked", "booking_id": booking_id},
-                )
-
-            confirm_event = BookingConfirmedEvent(
-                booking_id=booking_id,
-                customer_id=user_id,
-                practitioner_id=booking["practitioner_id"],
-                revel_order_id=None,
-            )
-            await self.event_repo.store_event(confirm_event.model_dump())
-
-            updated = await self.booking_repo.get_by_id(booking_id)
-            self._queue_booking_confirmation_notifications(
-                booking_id, updated, service, customer, practitioner, practitioner_user, pay_at_counter=True
-            )
-            logger.info(f"Booking confirmed (pay at counter): {booking_id}")
-            return {**updated, "payment": None, "revel_order": None}
-
-        # --- REVEL online checkout (optional) ---
-        revel_order = await self.revel_service.create_order(
-            customer_id=user_id,
-            items=[{
-                "product_id": service.get("revel_product_id", service["service_id"]),
-                "name": service["name"],
-                "quantity": 1,
-                "price": booking["total_price"]
-            }]
+        now = utc_now().isoformat()
+        await self.booking_repo.update(
+            booking_id,
+            {
+                "status": "confirmed",
+                "confirmed_at": now,
+                "payment_mode": "walk_in",
+                "payment_status": "awaiting_counter",
+            },
         )
-        
-        payment_result = await self.revel_service.process_payment(
-            order_id=revel_order["order_id"],
-            amount=revel_order["total"],
-            payment_method=payment_method or "card"
-        )
-        
-        if not payment_result.get("success"):
-            slot = booking["slot"]
-            slots = await self.slot_repo.collection.find({
-                "practitioner_id": booking["practitioner_id"],
-                "date": slot["date"],
-                "start_time": slot["start_time"]
-            }, {"_id": 0}).to_list(length=1)
-            if slots:
-                await self.slot_repo.release_slot(slots[0]["slot_id"])
-            
-            raise ValueError(f"Payment failed: {payment_result.get('message')}")
-        
-        payment_ref = PaymentReference(
-            payment_id=generate_id(),
-            booking_id=booking_id,
-            customer_id=user_id,
-            amount=revel_order["total"],
-            status=PaymentStatus.COMPLETED,
-            revel_transaction_id=payment_result["transaction_id"],
-            revel_order_id=revel_order["order_id"],
-            payment_method=payment_method or "card",
-            completed_at=utc_now()
-        )
-        
-        payment_dict = payment_ref.model_dump()
-        payment_dict["created_at"] = payment_dict["created_at"].isoformat()
-        payment_dict["updated_at"] = payment_dict["updated_at"].isoformat()
-        payment_dict["completed_at"] = payment_dict["completed_at"].isoformat()
-        
-        await self.payment_repo.create(payment_dict.copy())
-        
-        created_payment = await self.payment_repo.get_by_id(payment_ref.payment_id)
-        
-        now = utc_now()
-        await self.booking_repo.update(booking_id, {
-            "status": "confirmed",
-            "revel_order_id": revel_order["order_id"],
-            "payment_reference_id": payment_ref.payment_id,
-            "confirmed_at": now.isoformat(),
-            "checkout_payment_mode": "revel_online",
-        })
-
         if self._is_discovery_service(service):
             await self.user_repo.update(user_id, {"is_discovery_completed": True})
-        
+
         slot = booking["slot"]
-        slots = await self.slot_repo.collection.find({
-            "practitioner_id": booking["practitioner_id"],
-            "date": slot["date"],
-            "start_time": slot["start_time"]
-        }, {"_id": 0}).to_list(length=1)
+        slots = await self.slot_repo.collection.find(
+            {
+                "practitioner_id": booking["practitioner_id"],
+                "date": slot["date"],
+                "start_time": slot["start_time"],
+            },
+            {"_id": 0},
+        ).to_list(length=1)
         if slots:
-            await self.slot_repo.update(slots[0]["slot_id"], {
-                "status": "booked",
-                "booking_id": booking_id
-            })
-        
+            await self.slot_repo.update(
+                slots[0]["slot_id"],
+                {"status": "booked", "booking_id": booking_id},
+            )
+
         confirm_event = BookingConfirmedEvent(
             booking_id=booking_id,
             customer_id=user_id,
             practitioner_id=booking["practitioner_id"],
-            revel_order_id=revel_order["order_id"]
+            revel_order_id=None,
         )
         await self.event_repo.store_event(confirm_event.model_dump())
-        
-        payment_event = PaymentConfirmedEvent(
-            payment_id=payment_ref.payment_id,
-            booking_id=booking_id,
-            revel_transaction_id=payment_result["transaction_id"]
-        )
-        await self.event_repo.store_event(payment_event.model_dump())
-        
+
         updated = await self.booking_repo.get_by_id(booking_id)
         self._queue_booking_confirmation_notifications(
-            booking_id, updated, service, customer, practitioner, practitioner_user, pay_at_counter=False
+            booking_id, updated, service, customer, practitioner, practitioner_user, pay_at_counter=True
         )
-        
-        logger.info(f"Booking confirmed (REVEL): {booking_id}")
-        
-        return {
-            **updated,
-            "payment": created_payment,
-            "revel_order": revel_order
-        }
+        if settings.revel_enable_hosted_payments:
+            # Durable marker so a reconciliation job can re-enqueue lost tasks.
+            try:
+                await self.booking_repo.update(
+                    booking_id,
+                    {
+                        "payment_link_pending": True,
+                        "payment_link_queued_at": utc_now().isoformat(),
+                    },
+                )
+            except Exception as exc:
+                logger.warning("Failed to mark invoice pending on %s: %s", booking_id, exc)
+            try:
+                issue_booking_invoice.delay(booking_id)
+            except Exception as exc:
+                logger.warning("Failed to queue booking invoice for %s: %s", booking_id, exc)
+        logger.info("Booking confirmed (pay at counter): %s", booking_id)
+        return {**updated, "payment": None, "revel_order": None}
 
     async def get_discovery_eligibility(self, customer_id: str) -> Dict[str, Any]:
         """
@@ -665,7 +581,119 @@ class BookingUseCase:
             "has_discovery_flag": has_flag,
             "discovery_booking_id": discovery_booking_id,
         }
-    
+
+    async def reschedule_booking(
+        self,
+        booking_id: str,
+        user_id: str,
+        new_date: str,
+        new_start_time: str,
+        new_end_time: str,
+        *,
+        as_practitioner: bool = False,
+    ) -> Dict[str, Any]:
+        """Move booking to a new slot (OTC only — no Revel)."""
+        booking = await self.booking_repo.get_by_id(booking_id)
+        if not booking:
+            raise ValueError("Booking not found")
+        if as_practitioner:
+            practitioner = await self.practitioner_repo.get_by_id(booking["practitioner_id"])
+            if not practitioner or practitioner.get("user_id") != user_id:
+                raise ValueError("Unauthorized")
+            lock_user_id = user_id
+        else:
+            if booking["customer_id"] != user_id:
+                raise ValueError("Unauthorized")
+            lock_user_id = user_id
+        if booking["status"] not in ("pending", "confirmed"):
+            raise ValueError("Only pending or confirmed bookings can be rescheduled")
+
+        old = booking["slot"]
+        old_date = old["date"]
+        old_start = old["start_time"]
+        if old_date == new_date and old_start == new_start_time:
+            return await self.booking_repo.get_by_id(booking_id)
+
+        pid = booking["practitioner_id"]
+        new_slot_id = generate_id()
+        await self.slot_repo.collection.update_one(
+            {"practitioner_id": pid, "date": new_date, "start_time": new_start_time},
+            {
+                "$setOnInsert": {
+                    "slot_id": new_slot_id,
+                    "practitioner_id": pid,
+                    "date": new_date,
+                    "start_time": new_start_time,
+                    "end_time": new_end_time,
+                    "status": "available",
+                    "created_at": utc_now().isoformat(),
+                }
+            },
+            upsert=True,
+        )
+        tgt = await self.slot_repo.collection.find_one(
+            {"practitioner_id": pid, "date": new_date, "start_time": new_start_time},
+            {"_id": 0},
+        )
+        if not tgt:
+            raise ValueError("New slot not found")
+        if tgt.get("status") == "booked" and tgt.get("booking_id") not in (None, booking_id):
+            raise ValueError("New time slot is already booked")
+
+        locked = await self.slot_repo.lock_slot(tgt["slot_id"], lock_user_id)
+        if not locked:
+            raise ValueError("New time slot is no longer available")
+
+        old_docs = await self.slot_repo.collection.find(
+            {
+                "practitioner_id": pid,
+                "date": old_date,
+                "start_time": old_start,
+            },
+            {"_id": 0},
+        ).to_list(length=1)
+        if old_docs:
+            await self.slot_repo.release_slot(old_docs[0]["slot_id"])
+
+        if booking["status"] == "confirmed":
+            await self.slot_repo.update(
+                tgt["slot_id"],
+                {
+                    "status": "booked",
+                    "booking_id": booking_id,
+                    "locked_by": None,
+                    "locked_until": None,
+                },
+            )
+
+        await self.booking_repo.update(
+            booking_id,
+            {
+                "slot": {
+                    "date": new_date,
+                    "start_time": new_start_time,
+                    "end_time": new_end_time,
+                },
+                "updated_at": utc_now().isoformat(),
+            },
+        )
+
+        ev = BookingRescheduledEvent(
+            booking_id=booking_id,
+            old_date=old_date,
+            old_start_time=old_start,
+            new_date=new_date,
+            new_start_time=new_start_time,
+        )
+        await self.event_repo.store_event(ev.model_dump())
+
+        if self.cache:
+            await self.cache.delete(CacheService.availability_key(pid, old_date))
+            await self.cache.delete(CacheService.availability_key(pid, new_date))
+
+        logger.info("Booking rescheduled: %s -> %s %s", booking_id, new_date, new_start_time)
+        return await self.booking_repo.get_by_id(booking_id)
+
     async def cancel_booking(
         self,
         booking_id: str,
@@ -688,18 +716,6 @@ class BookingUseCase:
         # Get customer and service info for notifications
         customer = await self.user_repo.get_by_id(booking["customer_id"])
         service = await self.service_repo.get_by_id(booking["service_id"])
-        
-        # Process refund if payment was made
-        if booking.get("payment_reference_id"):
-            payment = await self.payment_repo.get_by_id(booking["payment_reference_id"])
-            if payment and payment.get("revel_transaction_id"):
-                refund_result = await self.revel_service.refund_payment(
-                    payment["revel_transaction_id"]
-                )
-                await self.payment_repo.update(payment["payment_id"], {
-                    "status": "refunded"
-                })
-                logger.info(f"Refund processed: {refund_result}")
         
         # Release the slot
         slot = booking["slot"]

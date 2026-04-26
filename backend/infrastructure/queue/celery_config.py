@@ -11,8 +11,11 @@ celery_app = Celery(
     backend=settings.redis_url,
     include=[
         "workers.notification_worker",
-        "workers.booking_worker",
-        "workers.slot_worker"
+        "workers.slot_worker",
+        "workers.store_worker",
+        "workers.booking_invoice_worker",
+        "workers.reconciliation_worker",
+        "workers.refund_reconciliation_worker",
     ]
 )
 
@@ -45,6 +48,18 @@ celery_app.conf.update(
         "send-booking-reminders": {
             "task": "workers.notification_worker.send_daily_reminders",
             "schedule": 3600.0,  # Every hour
+        },
+        "expire-walk-in-holds": {
+            "task": "workers.store_worker.expire_walk_in_holds",
+            "schedule": 900.0,  # Every 15 minutes
+        },
+        "reconcile-revel-orders": {
+            "task": "workers.reconciliation_worker.reconcile_revel_orders",
+            "schedule": 86400.0,  # Once a day (02:00 handled by Celery's beat_max_loop_interval)
+        },
+        "sweep-store-refund-reconciliation": {
+            "task": "workers.refund_reconciliation_worker.sweep_store_refund_reconciliation",
+            "schedule": 1800.0,  # Every 30 minutes
         },
     }
 )

@@ -69,10 +69,33 @@ class Database:
         await cls.db.bookings.create_index("practitioner_id")
         await cls.db.bookings.create_index("status")
         await cls.db.bookings.create_index([("slot.date", 1), ("slot.start_time", 1)])
-        
+        try:
+            await cls.db.bookings.create_index(
+                "receipt_id",
+                unique=True,
+                partialFilterExpression={"payment_status": "captured"},
+                name="uniq_booking_receipt_when_captured",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Could not create partial unique index on bookings.receipt_id: %s", exc
+            )
+
+
         # Availability slots collection indexes
         await cls.db.availability_slots.create_index("slot_id", unique=True)
         await cls.db.availability_slots.create_index([("practitioner_id", 1), ("date", 1)])
+        try:
+            await cls.db.availability_slots.create_index(
+                [("practitioner_id", 1), ("date", 1), ("start_time", 1)],
+                unique=True,
+                name="uniq_practitioner_date_start_time",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Could not create unique compound index on availability_slots (duplicate legacy rows?): %s",
+                exc,
+            )
         await cls.db.availability_slots.create_index("status")
         await cls.db.availability_slots.create_index("locked_until")
         
@@ -108,6 +131,19 @@ class Database:
         await cls.db.store_orders.create_index("order_id", unique=True)
         await cls.db.store_orders.create_index([("customer_id", 1), ("created_at", -1)])
         await cls.db.store_orders.create_index([("fulfillment_status", 1), ("payment_status", 1)])
+        await cls.db.payment_links.create_index("link_id", unique=True)
+        await cls.db.payment_links.create_index([("ref_type", 1), ("ref_id", 1)])
+        await cls.db.payment_links.create_index([("provider", 1), ("status", 1)])
+        await cls.db.payment_links.create_index("expires_at")
+        # G1: immutable payment events ledger
+        await cls.db.payment_events.create_index("event_id", unique=True)
+        await cls.db.payment_events.create_index([("ref_type", 1), ("ref_id", 1), ("at", -1)])
+        await cls.db.payment_events.create_index("action")
+        await cls.db.payment_events.create_index("at")
+        # G2: reconciliation reports
+        await cls.db.reconciliation_reports.create_index("report_id", unique=True)
+        await cls.db.reconciliation_reports.create_index([("date", -1), ("resolved", 1)])
+        await cls.db.reconciliation_reports.create_index("ref_id")
         await cls.db.store_admin_audit.create_index([("created_at", -1), ("actor_user_id", 1)])
         await cls.db.webhook_events.create_index([("provider", 1), ("event_id", 1)], unique=True)
         await cls.db.webhook_events.create_index(

@@ -26,6 +26,15 @@ export function useStoreOrder(orderId: string | undefined) {
   });
 }
 
+export function useStoreOrderStatus(orderId: string | undefined, actionToken?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['store', 'orderStatus', orderId || '', actionToken || ''],
+    queryFn: () => storeApi.getOrderStatus(orderId!, actionToken),
+    enabled: enabled && !!orderId,
+    staleTime: 10 * 1000,
+  });
+}
+
 export function useMyStoreOrders() {
   return useQuery({
     queryKey: queryKeys.store.myOrders,
@@ -94,13 +103,6 @@ export function usePayStoreOrder() {
   });
 }
 
-export function useSendSmsPayLink() {
-  return useMutation({
-    mutationFn: ({ orderId, actionToken }: { orderId: string; actionToken?: string }) =>
-      storeApi.sendSmsPayLink(orderId, actionToken),
-  });
-}
-
 export function useStoreOrderOps() {
   const queryClient = useQueryClient();
   const refresh = (orderId: string) => {
@@ -125,14 +127,30 @@ export function useStoreOrderOps() {
     onSuccess: (order) => refresh(order.order_id),
   });
   const refund = useMutation({
-    mutationFn: ({ orderId, amount }: { orderId: string; amount?: number }) =>
-      storeApi.refundOrder(orderId, amount),
+    mutationFn: ({
+      orderId,
+      amount,
+      idempotencyKey,
+    }: {
+      orderId: string;
+      amount?: number;
+      idempotencyKey?: string;
+    }) => storeApi.refundOrder(orderId, amount, idempotencyKey),
     onSuccess: (order) => refresh(order.order_id),
   });
   const invoice = useMutation({
     mutationFn: (orderId: string) => storeApi.sendInvoice(orderId),
     onSuccess: (order) => refresh(order.order_id),
   });
+  const voidOrder = useMutation({
+    mutationFn: (orderId: string) => storeApi.voidOrder(orderId),
+    onSuccess: (order) => refresh(order.order_id),
+  });
+  const backfillRevelTransaction = useMutation({
+    mutationFn: ({ orderId, transactionId }: { orderId: string; transactionId: string }) =>
+      storeApi.backfillRevelTransaction(orderId, { revel_transaction_id: transactionId }),
+    onSuccess: (_resp, vars) => refresh(vars.orderId),
+  });
 
-  return { confirm, fulfill, reject, refund, invoice };
+  return { confirm, fulfill, reject, refund, invoice, voidOrder, backfillRevelTransaction };
 }

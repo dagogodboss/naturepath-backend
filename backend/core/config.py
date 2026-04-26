@@ -99,16 +99,35 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     s3_endpoint_url: Optional[str] = None
     
-    # REVEL POS (Mock)
+    # REVEL POS — live HTTP only (see infrastructure/external/revel_service.py)
     revel_api_url: str = "https://api.revelup.com"
     revel_api_key: str = "mock_revel_key"
     revel_api_secret: str = "mock_revel_secret"
     revel_establishment_id: int = 1
+    # e.g. thenaturalpathla -> https://thenaturalpathla.revelup.com/resources/
+    revel_subdomain: Optional[str] = None
+    # Optional override for sandbox, e.g. https://api-sandbox-revel.revelup.com
+    revel_rest_base_url: Optional[str] = None
+    revel_http_timeout_seconds: float = 20.0
+    revel_enable_hosted_payments: bool = False
+    revel_enable_hold_orders: bool = False
+    allow_unsigned_webhooks: bool = False
+    refund_sla_business_days: int = 3
+    # G2 — automatic retry of uncertain card refunds (reconciliation_pending).
+    refund_reconciliation_sweep_min_age_minutes: int = 15
+    refund_reconciliation_sweep_max_batch: int = 50
+    refund_reconciliation_sweep_max_attempts: int = 48
+    default_currency: str = "USD"
+    # Store tax rate used to validate Revel-returned tax. Single rate for
+    # Phase 2 (single establishment). Moved out of hardcoded literal in
+    # store_routes; per-establishment rates arrive in Phase 3.
+    store_tax_rate: float = 0.0925
+    ops_email: Optional[str] = None
+    # Relative Revel resource name for hosted payment links (validated in A1 spike).
+    revel_hosted_payment_endpoint: str = "HostedPaymentLink"
     revel_webhook_tolerance_seconds: int = 300
     revel_webhook_replay_ttl_seconds: int = 86400
 
-    # Booking checkout: pay_at_counter (default, no online card) | revel_online (REVEL POS charge on confirm)
-    booking_checkout_mode: str = "pay_at_counter"
     # Used in booking confirmation emails for absolute links (optional)
     public_app_url: str = "http://localhost:5173"
 

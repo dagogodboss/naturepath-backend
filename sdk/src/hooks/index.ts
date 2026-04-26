@@ -40,6 +40,9 @@ export {
   useConfirmBooking,
   useCancelBooking,
   useBookingFlow,
+  useBookingPaymentStatus,
+  useResendBookingInvoice,
+  useMarkBookingPaidAtCounter,
   useAllBookings,
   useBookingsByDateRange,
   useAdminCancelBooking,
@@ -73,6 +76,8 @@ export {
   useCreateRbacOverride,
   useDeleteRbacOverride,
   useReloadRbacPolicies,
+  useReconciliationReports,
+  useResolveReconciliationReport,
 } from './useAdmin';
 
 // WebSocket Hooks
@@ -89,12 +94,12 @@ export { useHealthCheck } from './useHealth';
 export {
   useStoreProducts,
   useStoreOrder,
+  useStoreOrderStatus,
   useMyStoreOrders,
   usePractitionerStoreOrders,
   useSyncStoreProducts,
   useUpdateStoreProduct,
   useCreateStoreOrder,
   usePayStoreOrder,
-  useSendSmsPayLink,
   useStoreOrderOps,
 } from './useStore';

@@ -109,6 +109,13 @@ class IAvailabilitySlotRepository(BaseRepository):
         date: str
     ) -> List[Dict[str, Any]]:
         pass
+
+    @abstractmethod
+    async def list_slot_windows_for_practitioner_date(
+        self, practitioner_id: str, date: str
+    ) -> List[Dict[str, str]]:
+        """All concrete slot rows for that calendar day (start/end only), for merge/occupancy logic."""
+        pass
     
     @abstractmethod
     async def lock_slot(
