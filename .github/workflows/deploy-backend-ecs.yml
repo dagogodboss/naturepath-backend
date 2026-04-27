@@ -4,6 +4,10 @@
 # Required repository secrets (Settings → Secrets and variables → Actions):
 #   AWS_ACCESS_KEY_ID
 #   AWS_SECRET_ACCESS_KEY
+# If either secret is missing/empty, configure-aws-credentials fails with
+# "Could not load credentials from any providers". Fix: add secrets, or switch
+# this workflow to OIDC (aws-actions/configure-aws-credentials with role-to-assume).
+# Local alternative (aws login + Colima): scripts/deploy-ecs-local.sh
 
 name: Deploy API to ECS
 
