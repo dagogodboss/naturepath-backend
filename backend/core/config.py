@@ -111,6 +111,11 @@ class Settings(BaseSettings):
     revel_http_timeout_seconds: float = 20.0
     revel_enable_hosted_payments: bool = False
     revel_enable_hold_orders: bool = False
+    # When enabled, no-card (pay_offline) web orders are best-effort mirrored
+    # into Revel as a pay-at-store order. Keep False until Revel grants
+    # cart/order API access for the live key (currently 401/403). The app-side
+    # offline flow works regardless of this flag.
+    revel_enable_order_push: bool = False
     allow_unsigned_webhooks: bool = False
     refund_sla_business_days: int = 3
     # G2 — automatic retry of uncertain card refunds (reconciliation_pending).

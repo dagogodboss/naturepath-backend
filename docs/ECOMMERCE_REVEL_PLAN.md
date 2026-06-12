@@ -2,7 +2,7 @@
 
 **Goal:** Practitioners see **Revel POS products**; **guests and signed-in clients** browse those products and submit **orders** with a **delivery address**. **Payment is not collected in the web app** — staff record payment in **Revel / back office**. The system behaves as an **order + inventory coordination** layer, not a card-present storefront.
 
-**Current state:** `RevelService` in `backend/backend/infrastructure/external/revel_service.py` is a **mock** (in-memory products/orders). Webhooks exist under `presentation/api/webhook_routes.py` for future real Revel events. **No product catalog UI** exists yet for guest or practitioner (previously deferred).
+**Current state:** Storefront and store-ops UI exist, and `RevelService` is live-only. Product sync for The Natural Path uses `https://thenaturalpathla.revelup.com/weborders/products/?establishment=1` and has been verified against the live account. Order/payment/HOLD flows still need separate Revel contract verification before enabling feature flags.
 
 ---
 
@@ -60,7 +60,7 @@
 
 ### Phase E2 — Real Revel integration
 
-- Replace mock `RevelService` with HTTP client to Revel’s API (per your Revel contract: establishment, OAuth/API key).
+- Continue hardening the live `RevelService` HTTP client (per your Revel contract: establishment, OAuth/API key).
 - Map Revel product → `revel_product_cache`; handle webhooks for inventory and payment events to update `web_orders`.
 - **Idempotency** on webhooks (store `event_id`).
 

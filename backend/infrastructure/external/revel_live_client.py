@@ -37,7 +37,42 @@ def _resources_base(settings: Settings) -> Optional[str]:
 
     sub = (settings.revel_subdomain or "").strip().strip("/")
     if sub:
+        if sub.startswith("http://") or sub.startswith("https://"):
+            u = sub.rstrip("/")
+            if u.endswith("/resources"):
+                return u + "/"
+            return u + "/resources/"
+        if sub.endswith(".revelup.com"):
+            return f"https://{sub}/resources/"
         return f"https://{sub}.revelup.com/resources/"
+    return None
+
+
+def _merchant_base(settings: Settings) -> Optional[str]:
+    """
+    Return the merchant origin ending in `/`.
+
+    Revel's legacy resource API lives under `/resources/`, while the
+    weborders product catalog endpoint lives directly under the merchant
+    origin (`/weborders/products/`).
+    """
+    sub = (settings.revel_subdomain or "").strip().strip("/")
+    if sub:
+        if sub.startswith("http://") or sub.startswith("https://"):
+            u = sub.rstrip("/")
+            if u.endswith("/resources"):
+                u = u[: -len("/resources")]
+            return u + "/"
+        if sub.endswith(".revelup.com"):
+            return f"https://{sub}/"
+        return f"https://{sub}.revelup.com/"
+
+    raw = (settings.revel_rest_base_url or "").strip()
+    if raw:
+        u = raw.rstrip("/")
+        if u.endswith("/resources"):
+            u = u[: -len("/resources")]
+        return u + "/"
     return None
 
 
@@ -63,7 +98,7 @@ def _unwrap_list(payload: Any) -> List[Dict[str, Any]]:
 
 def _normalize_product(raw: Dict[str, Any]) -> Dict[str, Any]:
     pid = raw.get("id")
-    product_id = str(pid) if pid is not None else str(raw.get("product_id") or "")
+    product_id = str(pid) if pid is not None else str(raw.get("id_product") or raw.get("product_id") or "")
     price = raw.get("price") or raw.get("cost_price") or raw.get("active_price") or 0
     try:
         price_f = float(price)
@@ -72,12 +107,27 @@ def _normalize_product(raw: Dict[str, Any]) -> Dict[str, Any]:
     active = raw.get("active", raw.get("is_active", True))
     if isinstance(active, str):
         active = active.lower() in ("1", "true", "yes")
+    stock_raw = raw.get("stock_amount", raw.get("stock_qty"))
+    try:
+        stock_qty = int(float(stock_raw)) if stock_raw is not None else None
+    except (TypeError, ValueError):
+        stock_qty = None
+    category = raw.get("category") or raw.get("product_group") or raw.get("id_category") or ""
+    image = raw.get("image")
+    if not image and isinstance(raw.get("images"), list) and raw["images"]:
+        first = raw["images"][0]
+        image = first.get("url") if isinstance(first, dict) else first
     return {
         "product_id": product_id,
         "name": str(raw.get("name") or raw.get("product_name") or "Product"),
         "price": price_f,
-        "category": str(raw.get("category") or raw.get("product_group") or ""),
+        "category": str(category),
         "is_active": bool(active),
+        "stock_qty": stock_qty,
+        "image_url": image,
+        "description": raw.get("description"),
+        "sku": raw.get("sku") or raw.get("barcode"),
+        "raw": raw,
     }
 
 
@@ -240,6 +290,7 @@ class RevelLiveClient:
     def __init__(self, settings: Settings):
         self._settings = settings
         self._base = _resources_base(settings)
+        self._merchant_base = _merchant_base(settings)
 
     def _log_http_warning(self, message: str, resp: httpx.Response) -> None:
         if self._settings.debug:
@@ -248,7 +299,7 @@ class RevelLiveClient:
             logger.warning("%s status=%s", message, resp.status_code)
 
     def is_configured(self) -> bool:
-        if not self._base:
+        if not (self._base or self._merchant_base):
             return False
         if self._settings.revel_api_key in (None, "", "mock_revel_key"):
             return False
@@ -274,15 +325,21 @@ class RevelLiveClient:
         return _normalize_product(data)
 
     async def get_all_products(self) -> List[Dict[str, Any]]:
-        if not self._base:
-            raise RevelLiveError("Revel REST base URL is not configured")
-        url = f"{self._base}Product/?limit=500"
+        if not self._merchant_base:
+            raise RevelLiveError("Revel merchant base URL is not configured")
+        url = (
+            f"{self._merchant_base}weborders/products/"
+            f"?establishment={int(self._settings.revel_establishment_id)}&limit=500"
+        )
         async with httpx.AsyncClient(timeout=self.client_timeout()) as client:
             resp = await client.get(url, headers=_auth_headers(self._settings))
+        if resp.status_code >= 400:
+            self._log_http_warning("Revel weborders products GET failed", resp)
         resp.raise_for_status()
-        rows = _unwrap_list(resp.json())
+        payload = resp.json()
+        rows = _unwrap_list(payload)
         out = [_normalize_product(r) for r in rows]
-        return [p for p in out if p.get("is_active", True)]
+        return [p for p in out if p.get("is_active", True) and p.get("product_id")]
 
     async def create_order(
         self,

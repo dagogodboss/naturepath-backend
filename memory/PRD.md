@@ -112,18 +112,29 @@ Build a production-grade backend for "The Natural Path Spa Management System" wi
 - [ ] Practitioner + admin **data** on existing screens → SDK admin/practitioner hooks (UI shells exist; not store/Revel)
 - [x] Production-like CORS/env controls in backend config
 
-## AWS deployment
+## GCP deployment (current target — LIVE)
+
+Migrated from AWS to **GCP Cloud Run** (runbook: [`docs/DEPLOYMENT_GCP.md`](../docs/DEPLOYMENT_GCP.md); scripts in `deploy/gcp/`).
+
+- **Project/region:** `project-d4a7bee1-5f15-43d2-8bb` / `us-central1`
+- **Backend API:** `https://natural-path-api-844976016709.us-central1.run.app` (`/api/health` → 200)
+- **Frontend SPA:** `https://natural-path-web-844976016709.us-central1.run.app`
+- **Data:** MongoDB **Atlas** (`natural_path` DB) + **Upstash Redis** (native `rediss://` TLS endpoint; REST token doubles as the native password). Secrets in **Secret Manager** (`mongo-url`, `redis-url`, `jwt-secret`, `revel-*`, `resend-api-key`).
+- **Verified:** health 200, CORS preflight allows the web origin, `GET /api/services` 200 (empty — Atlas DB not seeded), SPA serves with API URL baked in at build.
+- **Follow-ups:** (1) seed Atlas (`scripts/seed_owner.py` with `OWNER_PASSWORD`, `scripts/seed_services.py`, Revel product sync); (2) deploy Celery worker/beat (Cloud Run worker pool or Job+Scheduler — see runbook §6); (3) Atlas Network Access must allow Cloud Run egress (`0.0.0.0/0` or static egress via VPC connector).
+
+## AWS deployment (legacy)
 
 **Runbook (manual + ECS/EC2 options):** see [`docs/DEPLOYMENT_AWS.md`](../docs/DEPLOYMENT_AWS.md).  
 **CLI note:** if `aws sts get-caller-identity` fails with session expired, run `aws login` (SSO) or refresh keys before pushing to ECR or updating ECS.
 
 **After deploy:** align frontend `VITE_NATURAL_PATH_API_URL` with the public API URL; API listens on **port 8001** in Docker (`backend/Dockerfile` / `docker-compose.yml`). Keep `CORS_ALLOWED_ORIGINS` strict to CloudFront / app origin(s).
 
-**Review — still left after AWS goes live:** sign-up/forgot-password UX; customer header + logout; practitioner **Clients** / reporting shells wired to admin hooks; **admin dashboard UI**; real **Resend/Twilio** keys; CI/CD to ECR/ECS; WebSocket stickiness if multiple API tasks; **Ecommerce/Revel** build-out per `docs/ECOMMERCE_REVEL_PLAN.md` (mock Revel today).
+**Review — still left after AWS goes live:** sign-up/forgot-password UX; customer header + logout; practitioner **Clients** / reporting shells wired to admin hooks; **admin dashboard UI**; real **Resend/Twilio** keys; CI/CD to ECR/ECS; WebSocket stickiness if multiple API tasks; **Ecommerce/Revel** payment/HOLD contract verification.
 
-## Ecommerce (Revel) — planned
+## Ecommerce (Revel)
 
-**Product spec:** [`docs/ECOMMERCE_REVEL_PLAN.md`](../docs/ECOMMERCE_REVEL_PLAN.md) — order–inventory flow, delivery address, **no online payment** (back office / Revel), practitioner + guest UIs, backend phases, SDK hooks outline.
+Store UI and backend store routes are present. Product sync now uses Revel merchant `weborders/products/?establishment=...` (`resources/Product/` returned 401 for The Natural Path account). Online hosted payment and HOLD flows remain feature-flagged pending Revel contract verification.
 
 ## Integration plan — remaining work (planner snapshot)
 Use this checklist to see **done vs left** without re-scanning the repo.
@@ -139,8 +150,8 @@ Use this checklist to see **done vs left** without re-scanning the repo.
 | Profile / session chrome | Not integrated | `useProfile`, logout in header |
 | Practitioner features (calendar, clients, services, availability) | **Done (core)** | `/appointments` calendar (`usePractitionerCalendar`), `/services-management` (`useCreateService` + `useMyPractitioner`), `/availability` (PATCH availability + `useGenerateSlots`). Backend: `GET /api/me/practitioner`, `GET /api/booking/practitioner/calendar`, practitioner `POST /services` (no featured/REVEL), self-only `generate-slots`. |
 | Admin dashboard UI | Not started | SDK hooks exist |
-| Revel UI | Planned | See [`docs/ECOMMERCE_REVEL_PLAN.md`](../docs/ECOMMERCE_REVEL_PLAN.md) (practitioner catalog + guest storefront + orders, no web payment) |
-| Store / product UI (any role) | Planned | Same doc; backend today uses **mock** `RevelService` until real API wired |
+| Revel UI | In progress | Practitioner/storefront routes exist; payment/HOLD contract still needs verification |
+| Store / product UI (any role) | In progress | Live Revel product sync works via `weborders/products`; local cache synced 2,157 products from `thenaturalpathla` |
 
 ## Tests & integration memory (append as you verify)
 **Automated (Vitest):** `formatClientError`, `safePostLoginPath` — run `cd frontend && npm test`.  
@@ -149,6 +160,7 @@ Use this checklist to see **done vs left** without re-scanning the repo.
 Record new rows here after each successful verification:
 - *2026-03-24:* Vitest unit tests for `clientErrors` + `safeRedirect` passing; SDK `useBookingFlow` accepts optional booking id on lock/confirm; frontend lint + production build green.
 - *2026-03-24:* Practitioner E2E: pytest `tests/test_access_control.py` (5); Vitest + RTL `RequireAuth.test.jsx`, `practitionerSchedule.test.js`; practitioner UI wired to SDK; backend practitioner service create strips `is_featured` / `revel_product_id`.
+- *2026-05-31:* Revel product sync verified against `thenaturalpathla`: `weborders/products/?establishment=1` returned 2,157 products and local `store_products` cache was upserted to 2,157 active web products. Added `tests/test_revel_live_client.py`.
 
 ## Agent / continuity memory (cross-session)
 Long-form session notes, run commands, and file pointers for assistants: [`AGENT_SESSION_LOG.md`](./AGENT_SESSION_LOG.md).

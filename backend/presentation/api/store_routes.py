@@ -23,6 +23,7 @@ from infrastructure.external import (
     get_email_service,
     get_payment_link_provider,
     get_revel_service,
+    get_sms_service,
 )
 from infrastructure.external.revel_live_client import RevelLiveError
 from presentation.dependencies import (
@@ -47,6 +48,35 @@ def _idempotency_key(ref_type: str, ref_id: str, action: str, attempt_no: int = 
     return hashlib.sha256(raw).hexdigest()
 
 
+def _twilio_configured() -> bool:
+    """True when Twilio creds are present (required to text a pay link)."""
+    sid = settings.twilio_account_sid
+    return bool(
+        sid
+        and sid != "placeholder"
+        and settings.twilio_auth_token
+        and settings.twilio_phone_number
+    )
+
+
+def _sms_pay_link_available() -> bool:
+    """
+    SMS pay-link is offered only when BOTH are true:
+      - Revel hosted payments are enabled (REVEL_ENABLE_HOSTED_PAYMENTS) — this
+        is the single flag to flip once Revel grants REST/SmartPay access, and
+      - Twilio is configured to send the SMS.
+    """
+    return bool(settings.revel_enable_hosted_payments and _twilio_configured())
+
+
+def _build_sms_pay_link_message(order_id: str, pay_url: str) -> str:
+    short = order_id[-8:].upper()
+    return (
+        f"The Natural Path: complete payment for order #{short} here: {pay_url}\n"
+        "This is a secure link. Reply STOP to opt out."
+    )
+
+
 class StoreOrderItemIn(BaseModel):
     product_id: str
     quantity: int = Field(ge=1, le=99)
@@ -68,8 +98,8 @@ class StoreAddressIn(BaseModel):
 class CreateStoreOrderIn(BaseModel):
     items: List[StoreOrderItemIn] = Field(min_length=1, max_length=50)
     address: StoreAddressIn
-    payment_mode: Literal["card_online", "walk_in"] = "card_online"
-    payment_method: str = Field(default="prepaid_online")
+    payment_mode: Literal["card_online", "walk_in", "pay_offline", "sms_pay_link"] = "pay_offline"
+    payment_method: str = Field(default="pay_on_delivery")
     customer_note: Optional[str] = Field(default=None, max_length=300)
 
 
@@ -107,13 +137,38 @@ async def _resolve_store_products(db, q: Optional[str], category: Optional[str],
     if category:
         query["category"] = category
     skip = (page - 1) * page_size
-    items = (
-        await db.store_products.find(query, {"_id": 0})
-        .sort("name", 1)
-        .skip(skip)
-        .limit(page_size)
-        .to_list(length=page_size)
-    )
+    # Products with images first, then newest Revel sync (created_at / updated_at).
+    pipeline: List[Dict[str, Any]] = [
+        {"$match": query},
+        {
+            "$addFields": {
+                "has_image": {
+                    "$cond": [
+                        {
+                            "$and": [
+                                {"$ne": [{"$ifNull": ["$image_url", ""]}, ""]},
+                            ]
+                        },
+                        1,
+                        0,
+                    ]
+                },
+                "sort_date": {"$ifNull": ["$created_at", "$updated_at"]},
+            }
+        },
+        {"$sort": {"has_image": -1, "sort_date": -1, "name": 1}},
+        {"$skip": skip},
+        {"$limit": page_size},
+        {
+            "$project": {
+                "_id": 0,
+                "raw_revel_payload": 0,
+                "has_image": 0,
+                "sort_date": 0,
+            }
+        },
+    ]
+    items = await db.store_products.aggregate(pipeline).to_list(length=page_size)
     total = await db.store_products.count_documents(query)
     return {"items": items, "page": page, "page_size": page_size, "total": total}
 
@@ -122,12 +177,20 @@ def _store_order_allowed_actions(order: Dict[str, Any]) -> Dict[str, bool]:
     """UI hints for practitioner store ops (refund gated on Revel capture metadata)."""
     ps = order.get("payment_status") or ""
     fs = order.get("fulfillment_status") or ""
+    mode = order.get("payment_mode") or ""
     has_tx = bool(order.get("revel_transaction_id"))
     return {
         "refund": ps == "captured" and has_tx and fs not in {"refunded", "rejected"},
         "reject": fs in {"placed", "confirmed", "preparing"} and ps != "refunded",
         "confirm": fs == "placed",
         "fulfill": fs in {"confirmed", "preparing"},
+        # No-card orders are paid in person / via back office; ops records it.
+        "record_payment": mode == "pay_offline"
+        and ps in {"awaiting_offline_payment", "pending"},
+        # SMS pay-link orders can re-send the text while still awaiting payment.
+        "resend_sms": mode == "sms_pay_link"
+        and ps == "awaiting_payment"
+        and bool(order.get("payment_link_url")),
     }
 
 
@@ -135,6 +198,7 @@ def _enrich_store_order(order: Optional[Dict[str, Any]]) -> Optional[Dict[str, A
     if not order:
         return None
     out = dict(order)
+    out.pop("_id", None)
     # Cents-first read during F2 cutover; keep legacy float fields in response.
     out["subtotal"] = read_amount_cents_first(
         out, cents_field="subtotal_cents", legacy_field="subtotal", default_currency="USD"
@@ -208,13 +272,33 @@ async def get_store_products(
     return await _resolve_store_products(db, q, category, page, page_size)
 
 
+@router.get("/payment-config")
+async def get_store_payment_config():
+    """
+    Public, unauthenticated. Lets the storefront decide which payment options
+    to render without shipping feature-flag logic to the client.
+
+    `sms_pay_link` flips to True automatically once REVEL_ENABLE_HOSTED_PAYMENTS
+    is on AND Twilio is configured — no frontend redeploy needed.
+    """
+    sms = _sms_pay_link_available()
+    return {
+        "offline": True,  # always available (pay at pickup / back office)
+        "card_online": bool(settings.revel_enable_hosted_payments),
+        "walk_in": bool(settings.revel_enable_hold_orders),
+        "sms_pay_link": sms,
+        "currency": settings.default_currency,
+    }
+
+
 @router.post("/products/by-ids")
 async def get_store_products_by_ids(
     body: ProductIdsIn,
     db=Depends(get_database),
 ):
     rows = await db.store_products.find(
-        {"product_id": {"$in": body.product_ids}, "is_active_web": True}, {"_id": 0}
+        {"product_id": {"$in": body.product_ids}, "is_active_web": True},
+        {"_id": 0, "raw_revel_payload": 0},
     ).to_list(length=500)
     return {"items": rows}
 
@@ -261,10 +345,13 @@ async def sync_revel_products(
             "category": rp.get("category") or "uncategorized",
             "price": float(rp.get("price", 0)),
             "discount_price": None,
-            "stock_qty": 50,
+            "stock_qty": rp.get("stock_qty"),
             "is_active": bool(rp.get("is_active", True)),
             "is_active_web": True,
-            "image_url": None,
+            "image_url": rp.get("image_url"),
+            "description": rp.get("description"),
+            "sku": rp.get("sku"),
+            "raw_revel_payload": rp.get("raw"),
             "updated_at": now,
         }
         await db.store_products.update_one(
@@ -384,7 +471,10 @@ async def create_store_order(
         "updated_at": now,
     }
     await db.store_orders.insert_one(order_doc)
-    return order_doc
+    # insert_one mutates order_doc with a non-serializable ObjectId _id; drop it
+    # and return the enriched view (with allowed_actions) like the other endpoints.
+    order_doc.pop("_id", None)
+    return _enrich_store_order(order_doc)
 
 
 @router.post("/checkout/orders/{order_id}/pay")
@@ -407,13 +497,90 @@ async def pay_store_order(
     elif not action_token or action_token != order.get("action_token"):
         raise HTTPException(status_code=401, detail="Order action token required")
 
-    payment_mode = str(order.get("payment_mode") or "card_online")
-    if payment_mode not in {"card_online", "walk_in"}:
+    payment_mode = str(order.get("payment_mode") or "pay_offline")
+    if payment_mode not in {"card_online", "walk_in", "pay_offline", "sms_pay_link"}:
         raise HTTPException(status_code=400, detail="Invalid order payment mode")
+
+    # ── No-card WebStore flow ──────────────────────────────────────────────
+    # Customer pays in person (pickup/delivery) or via back office. We record
+    # the order in our app only; no online card capture and no Revel write is
+    # required. A flag-gated, best-effort Revel mirror is attempted once cart
+    # API access is granted (settings.revel_enable_order_push) but never blocks
+    # order placement. Card capture (Stripe) lands in the next release.
+    if payment_mode == "pay_offline":
+        ps = order.get("payment_status")
+        if ps in {"awaiting_offline_payment", "paid_offline", "captured"}:
+            out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+            return _enrich_store_order(out)
+        now = _utc_now_iso()
+        await db.store_orders.update_one(
+            {
+                "order_id": order_id,
+                "payment_status": {"$in": ["pending", "processing"]},
+            },
+            {
+                "$set": {"payment_status": "awaiting_offline_payment", "updated_at": now},
+                "$push": {
+                    "timeline": {
+                        "status": "order_submitted",
+                        "at": now,
+                        "mode": "pay_offline",
+                        "method": order.get("payment_method"),
+                    }
+                },
+            },
+        )
+        if settings.revel_enable_order_push and not order.get("revel_order_id"):
+            try:
+                revel_items = await _reprice_order_lines_from_catalog(db, order["items"])
+                revel = get_revel_service()
+                revel_order = await revel.create_order(
+                    customer_id=order.get("customer_id") or "guest",
+                    items=revel_items,
+                    hold=True,
+                    idempotency_key=_idempotency_key(
+                        "store_order", order_id, "create_order"
+                    ),
+                )
+                await db.store_orders.update_one(
+                    {"order_id": order_id},
+                    {
+                        "$set": {
+                            "revel_order_id": revel_order["order_id"],
+                            "revel_channel": "live",
+                            "updated_at": _utc_now_iso(),
+                        }
+                    },
+                )
+            except Exception as exc:
+                # Never block the order on the Revel mirror; ops can key it in
+                # manually until cart access is enabled.
+                logger.warning(
+                    "Offline order Revel mirror skipped for order_id=%s: %s",
+                    order_id,
+                    exc,
+                )
+        out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+        return _enrich_store_order(out)
+    # ───────────────────────────────────────────────────────────────────────
+
     if payment_mode == "card_online" and not settings.revel_enable_hosted_payments:
         raise HTTPException(
             status_code=503,
             detail="Online hosted payments are not enabled for this environment",
+        )
+    if payment_mode == "sms_pay_link" and not _sms_pay_link_available():
+        # Distinguish the two blockers so ops can act on the right one.
+        if not settings.revel_enable_hosted_payments:
+            raise HTTPException(
+                status_code=503,
+                detail="SMS pay link is unavailable: Revel hosted payments are not enabled "
+                "(REVEL_ENABLE_HOSTED_PAYMENTS). This unlocks once Revel grants REST access.",
+            )
+        raise HTTPException(
+            status_code=503,
+            detail="SMS pay link is unavailable: Twilio is not configured (set "
+            "TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER).",
         )
     if payment_mode == "walk_in" and not settings.revel_enable_hold_orders:
         raise HTTPException(
@@ -425,7 +592,10 @@ async def pay_store_order(
     if order.get("payment_status") == "captured":
         out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
         return _enrich_store_order(out)
-    if payment_mode == "card_online" and order.get("payment_status") == "awaiting_payment":
+    if (
+        payment_mode in {"card_online", "sms_pay_link"}
+        and order.get("payment_status") == "awaiting_payment"
+    ):
         out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
         return _enrich_store_order(out)
     if payment_mode == "walk_in" and order.get("payment_status") == "awaiting_counter":
@@ -553,7 +723,7 @@ async def pay_store_order(
         {"$set": {"revel_order_id": revel_order["order_id"], "updated_at": now}},
     )
 
-    if payment_mode == "card_online":
+    if payment_mode in {"card_online", "sms_pay_link"}:
         provider = get_payment_link_provider()
         try:
             link = await provider.create_link(
@@ -618,17 +788,44 @@ async def pay_store_order(
                 logger.warning(
                     "Failed to send payment link email for order_id=%s: %s", order_id, exc
                 )
+        # SMS pay-link delivery: text the SmartPay/hosted link to the customer.
+        sms_result: Optional[Dict[str, Any]] = None
+        if payment_mode == "sms_pay_link":
+            phone = (order.get("address") or {}).get("phone")
+            if phone:
+                try:
+                    sms_result = await get_sms_service().send_sms(
+                        to_phone=phone,
+                        message=_build_sms_pay_link_message(order_id, link.url),
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to send pay-link SMS for order_id=%s: %s", order_id, exc
+                    )
+                    sms_result = {"success": False, "message": str(exc)[:200]}
+        set_payload: Dict[str, Any] = {
+            **base_set,
+            "payment_status": "awaiting_payment",
+            "payment_link_url": link.url,
+            "payment_link_id": link.link_id,
+        }
+        timeline_entry: Dict[str, Any] = {
+            "status": "payment_link_created",
+            "at": now,
+            "link_id": link.link_id,
+        }
+        if payment_mode == "sms_pay_link":
+            set_payload["sms_pay_link_to"] = (order.get("address") or {}).get("phone")
+            set_payload["sms_pay_link_last_status"] = (
+                "sent" if (sms_result or {}).get("success") else "failed"
+            )
+            set_payload["sms_pay_link_last_sid"] = (sms_result or {}).get("message_sid")
+            set_payload["sms_pay_link_sent_at"] = now
+            timeline_entry["channel"] = "sms"
+            timeline_entry["sms_status"] = set_payload["sms_pay_link_last_status"]
         await db.store_orders.update_one(
             {"order_id": order_id},
-            {
-                "$set": {
-                    **base_set,
-                    "payment_status": "awaiting_payment",
-                    "payment_link_url": link.url,
-                    "payment_link_id": link.link_id,
-                },
-                "$push": {"timeline": {"status": "payment_link_created", "at": now, "link_id": link.link_id}},
-            },
+            {"$set": set_payload, "$push": {"timeline": timeline_entry}},
         )
     else:
         hold_expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
@@ -642,6 +839,76 @@ async def pay_store_order(
                 },
                 "$push": {"timeline": {"status": "hold_created", "at": now, "expires_at": hold_expires_at}},
             },
+        )
+    out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    return _enrich_store_order(out)
+
+
+@router.post("/checkout/orders/{order_id}/resend-sms")
+async def resend_store_order_sms(
+    order_id: str,
+    action_token: Optional[str] = Query(default=None),
+    optional_user: Optional[dict] = Depends(get_optional_user),
+    db=Depends(get_database),
+):
+    """
+    Re-send the SMS pay link for an order that is still awaiting payment.
+    Reuses the already-provisioned hosted link (no new Revel call).
+    """
+    order = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    # Same auth contract as pay_store_order.
+    if optional_user:
+        if order.get("customer_id"):
+            if order["customer_id"] != optional_user["user_id"]:
+                raise HTTPException(status_code=403, detail="Not allowed")
+        elif not action_token or action_token != order.get("action_token"):
+            raise HTTPException(status_code=401, detail="Order action token required")
+    elif not action_token or action_token != order.get("action_token"):
+        raise HTTPException(status_code=401, detail="Order action token required")
+
+    if str(order.get("payment_mode") or "") != "sms_pay_link":
+        raise HTTPException(status_code=409, detail="Order is not an SMS pay-link order")
+    if order.get("payment_status") != "awaiting_payment":
+        raise HTTPException(status_code=409, detail="Order is not awaiting payment")
+    pay_url = order.get("payment_link_url")
+    if not pay_url:
+        raise HTTPException(status_code=409, detail="No payment link is available to send yet")
+    phone = (order.get("address") or {}).get("phone")
+    if not phone:
+        raise HTTPException(status_code=400, detail="Order has no phone number on file")
+    if not _twilio_configured():
+        raise HTTPException(status_code=503, detail="SMS sending is not configured")
+
+    result = await get_sms_service().send_sms(
+        to_phone=phone,
+        message=_build_sms_pay_link_message(order_id, pay_url),
+    )
+    now = _utc_now_iso()
+    await db.store_orders.update_one(
+        {"order_id": order_id},
+        {
+            "$set": {
+                "sms_pay_link_last_status": "sent" if result.get("success") else "failed",
+                "sms_pay_link_last_sid": result.get("message_sid"),
+                "sms_pay_link_sent_at": now,
+                "updated_at": now,
+            },
+            "$push": {
+                "timeline": {
+                    "status": "payment_link_resent",
+                    "at": now,
+                    "channel": "sms",
+                    "sms_status": "sent" if result.get("success") else "failed",
+                }
+            },
+        },
+    )
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=502,
+            detail=result.get("message") or "Failed to send SMS",
         )
     out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
     return _enrich_store_order(out)
@@ -793,6 +1060,85 @@ async def admin_confirm_order(
         {"$set": {"fulfillment_status": "confirmed", "updated_at": now}, "$push": {"timeline": {"status": "confirmed", "at": now}}},
     )
     return await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+
+
+@router.post("/admin/orders/{order_id}/record-payment")
+async def admin_record_offline_payment(
+    order_id: str,
+    body: AdminOrderActionIn,
+    current_user: dict = Depends(get_current_active_user),
+    db=Depends(get_database),
+):
+    """
+    Record an in-person / back-office payment for a no-card (pay_offline) order.
+    Used until online card capture (Stripe) ships. Card-online and walk-in
+    orders settle through Revel and are not eligible here.
+    """
+    await _require_order_ops_user(current_user)
+    order = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if str(order.get("payment_mode") or "") != "pay_offline":
+        raise HTTPException(
+            status_code=409,
+            detail="Only no-card (pay_offline) orders can be settled here",
+        )
+    if order.get("payment_status") not in {"awaiting_offline_payment", "pending"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Order is not awaiting an offline payment",
+        )
+    order_total = read_amount_cents_first(
+        order, cents_field="total_cents", legacy_field="total", default_currency="USD"
+    )
+    amount = round(float(body.amount if body.amount is not None else order_total), 2)
+    if amount <= 0 or amount > order_total + 0.01:
+        raise HTTPException(status_code=400, detail="Payment amount is out of range")
+    now = _utc_now_iso()
+    updated = await db.store_orders.update_one(
+        {
+            "order_id": order_id,
+            "payment_status": {"$in": ["awaiting_offline_payment", "pending"]},
+        },
+        {
+            "$set": {
+                "payment_status": "paid_offline",
+                "paid_offline_amount": amount,
+                "paid_offline_by": current_user.get("user_id"),
+                "paid_offline_at": now,
+                "updated_at": now,
+            },
+            "$push": {
+                "timeline": {
+                    "status": "payment_recorded",
+                    "at": now,
+                    "amount": amount,
+                    "method": order.get("payment_method"),
+                    "by": current_user.get("user_id"),
+                }
+            },
+        },
+    )
+    if updated.modified_count == 0:
+        out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+        return _enrich_store_order(out)
+    await record_payment_event(
+        db,
+        ref_type="store_order",
+        ref_id=order_id,
+        action="captured",
+        amount=amount,
+        source="manual_at_counter",
+        provider="manual",
+        external_id=None,
+        metadata={
+            "mode": "pay_offline",
+            "method": order.get("payment_method"),
+            "recorded_by": current_user.get("user_id"),
+        },
+    )
+    out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    return _enrich_store_order(out)
 
 
 @router.post("/admin/orders/{order_id}/fulfill")
@@ -1389,7 +1735,13 @@ async def admin_void_order(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     ps = order.get("payment_status")
-    if ps not in {"awaiting_counter", "awaiting_payment", "pending", "processing"}:
+    if ps not in {
+        "awaiting_counter",
+        "awaiting_payment",
+        "awaiting_offline_payment",
+        "pending",
+        "processing",
+    }:
         raise HTTPException(
             status_code=409,
             detail="Order is not in a voidable state (use refund after capture)",
@@ -1433,7 +1785,8 @@ async def admin_void_order(
         {
             "order_id": order_id,
             "payment_status": {"$in": [
-                "awaiting_counter", "awaiting_payment", "pending", "processing"
+                "awaiting_counter", "awaiting_payment", "awaiting_offline_payment",
+                "pending", "processing"
             ]},
         },
         {

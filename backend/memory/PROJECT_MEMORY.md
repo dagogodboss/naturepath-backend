@@ -29,6 +29,7 @@ Paths below are from the **frontend** repo unless noted.
 
 - **`GET /api/store/products`**: query param **`page_size`** must be **`≤ 48`** (backend `le=48`). The SDK **`storeApi.getProducts`** clamps `page_size` to **1–48** in `endpoints.ts`.
 - **Address `country`**: backend expects a **2-character** code (e.g. `US`, `NG`), not full country names.
+- **Revel product sync**: use merchant `weborders/products/?establishment=...`, not `resources/Product/`. The Natural Path live credentials returned **2,157 products** from `https://thenaturalpathla.revelup.com/weborders/products/?establishment=1`; `resources/Product/` returned 401 for this account.
 
 ## Session work logged (consolidated)
 
@@ -50,6 +51,7 @@ Paths below are from the **frontend** repo unless noted.
 ### Bugs fixed
 
 - **`page_size: 50`** caused **422**; use **48** max, SDK clamp, ProductDetail no longer relies on oversized list fetch for a single product.
+- **Revel product pull 401**: fixed by routing `RevelLiveClient.get_all_products()` to the merchant weborders product endpoint and normalizing `id`, `id_category`, `stock_amount`, image, description, and barcode/SKU from that response.
 
 ### Git
 

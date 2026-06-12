@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Local secrets / env (inject via Secret Manager / --set-env-vars instead)
+.env
+.env.*
+!.env.example
+
+# Logs & local artifacts
+*.log
+.backend-dev.log
+test_reports/
+
+# VCS / editor
+.git/
+.gitignore
+.idea/
+.vscode/
+
+# Tests (not needed in the runtime image)
+tests/
