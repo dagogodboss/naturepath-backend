@@ -7,6 +7,7 @@ SERVICE_CATALOG = [
     {
         "name": "Discovery Call",
         "is_discovery_entry": True,
+        "requires_discovery": False,
         "description": "A Discovery Call is a supportive conversation designed for both prospective and existing clients who would like guidance before taking their next step. This 15-30 minute phone call offers dedicated time to talk through goals, ask questions, and gain clarity on available options.",
         "category": "wellness",
         "duration_minutes": 30,
@@ -37,6 +38,7 @@ SERVICE_CATALOG = [
     },
     {
         "name": "Salt Session (Halotherapy)",
+        "requires_discovery": False,
         "description": "Our 45-minute Salt Session is a calming, restorative experience designed to help you slow down, breathe deeply, and relax. Guests sit comfortably in a softly lit salt room, surrounded by the warm glow of Himalayan salt lamps while fine, dry salt particles are gently dispersed into the air.",
         "category": "wellness",
         "duration_minutes": 45,
@@ -73,7 +75,7 @@ SERVICE_CATALOG = [
         "duration_minutes": 60,
         "price": 200.00,
         "discount_price": 175.00,
-        "image_url": "https://images.unsplash.com/photo-1573497019236-61f323342eb0?w=800",
+        "image_url": "https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=800",
         "is_featured": True,
         "is_active": True,
         "max_capacity": 1,

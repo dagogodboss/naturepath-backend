@@ -28,6 +28,8 @@ from core.calendar_utils import (
     booking_calendar_links,
     ical_to_base64,
 )
+from application.service_policy import service_requires_discovery
+from application.outlook_calendar import subtract_busy_intervals
 from core.money import Money
 from infrastructure.cache import CacheService
 from core.config import settings
@@ -132,7 +134,22 @@ class BookingUseCase:
                 continue
             merged[k] = w
 
-        return sorted(merged.values(), key=lambda w: w["start_time"])
+        windows = sorted(merged.values(), key=lambda w: w["start_time"])
+        collection = getattr(self.booking_repo, "collection", None)
+        db = getattr(collection, "database", None)
+        outlook_collection = getattr(db, "outlook_calendar_events", None)
+        if outlook_collection is not None:
+            outlook_events = await outlook_collection.find(
+                {
+                    "practitioner_id": practitioner_id,
+                    "date": date,
+                    "is_cancelled": {"$ne": True},
+                    "show_as": {"$ne": "free"},
+                },
+                {"_id": 0, "start_time": 1, "end_time": 1, "show_as": 1, "is_cancelled": 1},
+            ).to_list(length=500)
+            windows = subtract_busy_intervals(windows, outlook_events)
+        return windows
 
     async def _eligible_practitioners(self, service_id: str) -> List[Dict[str, Any]]:
         practitioners = await self.practitioner_repo.get_by_service(service_id)
@@ -232,7 +249,7 @@ class BookingUseCase:
 
         # Enforce discovery-first booking on the backend for non-discovery services.
         discovery_unlocked = False
-        if not self._is_discovery_service(service):
+        if service_requires_discovery(service):
             eligibility = await self.get_discovery_eligibility(customer_id)
             if eligibility.get("state") != "completed":
                 raise ValueError(

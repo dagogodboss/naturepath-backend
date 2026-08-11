@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     # Leave empty to disable OAuth endpoints (frontend shows Coming soon).
     google_oauth_client_id: Optional[str] = None
     google_oauth_client_secret: Optional[str] = None
+
+    # Microsoft Graph / Outlook calendar sync (delegated practitioner consent).
+    microsoft_client_id: Optional[str] = None
+    microsoft_client_secret: Optional[str] = None
+    microsoft_tenant_id: str = "common"
+    microsoft_redirect_uri: Optional[str] = None
+    microsoft_graph_webhook_url: Optional[str] = None
     
     # Celery — when True, tasks run in-process (no Redis/worker needed; use for local dev)
     celery_task_always_eager: bool = False

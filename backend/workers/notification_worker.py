@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from infrastructure.queue.celery_config import celery_app
 from infrastructure.external.email_service import get_email_service
 from infrastructure.external.sms_service import get_sms_service
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +260,48 @@ def send_generic_email(
     except Exception as e:
         logger.error("Failed to send generic email: %s", e)
         self.retry(exc=e, countdown=60)
+
+
+async def _deliver_store_invoice(order_id: str, to_email: str, subject: str, html_content: str):
+    from motor.motor_asyncio import AsyncIOMotorClient
+
+    result = await get_email_service().send_email(
+        to_email=to_email,
+        subject=subject,
+        html_content=html_content,
+    )
+    client = AsyncIOMotorClient(settings.mongo_url)
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        status_value = "sent" if result.get("success") else "failed"
+        await client[settings.db_name].store_orders.update_one(
+            {"order_id": order_id},
+            {
+                "$set": {"invoice_email_status": {"status": status_value, **result}, "updated_at": now},
+                "$push": {"timeline": {"status": f"invoice_{status_value}", "at": now}},
+            },
+        )
+        if status_value != "sent":
+            raise RuntimeError(result.get("message") or "Invoice email failed")
+        return result
+    finally:
+        client.close()
+
+
+@celery_app.task(bind=True, max_retries=3)
+def send_store_invoice_email(
+    self,
+    order_id: str,
+    to_email: str,
+    subject: str,
+    html_content: str,
+):
+    """Deliver a store invoice without blocking the admin request."""
+    try:
+        return run_async(_deliver_store_invoice(order_id, to_email, subject, html_content))
+    except Exception as exc:
+        logger.error("Failed to send store invoice %s: %s", order_id, exc)
+        self.retry(exc=exc, countdown=60)
 
 
 @celery_app.task(bind=True, max_retries=3)

@@ -18,6 +18,8 @@ from presentation.dependencies import get_auth_use_case, get_user_repo
 from infrastructure.cache import get_cache_service
 from infrastructure.repositories import MongoUserRepository
 from infrastructure.external.email_service import get_email_service
+from infrastructure.database import get_database
+from application.email_verification import EmailVerificationStore, normalize_email
 from core.config import settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -167,6 +169,7 @@ async def send_verification_otp(
     request: SendVerificationOtpRequest,
     http_request: Request,
     user_repo: MongoUserRepository = Depends(get_user_repo),
+    db=Depends(get_database),
 ):
     """Send an email verification OTP code.
 
@@ -189,12 +192,23 @@ async def send_verification_otp(
         return generic
 
     otp_code = f"{secrets.randbelow(1000000):06d}"
-    otp_key = f"auth:verify_email_otp:{request.email.lower()}"
-    await cache.set(otp_key, {"code": otp_code}, ttl=600)
+    normalized_email = normalize_email(request.email)
+    challenge_store = EmailVerificationStore(
+        db.email_verification_challenges,
+        secret=settings.jwt_secret_key,
+    )
+    try:
+        await challenge_store.issue(normalized_email, otp_code)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Verification is temporarily unavailable. Please try again.",
+        )
 
     email_service = get_email_service()
-    result = await email_service.send_verification_otp(request.email, otp_code, expires_minutes=10)
+    result = await email_service.send_verification_otp(normalized_email, otp_code, expires_minutes=10)
     if not result.get("success"):
+        await challenge_store.revoke(normalized_email)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=result.get("message", "Email delivery failed"))
 
     return generic
@@ -204,16 +218,18 @@ async def send_verification_otp(
 async def verify_email_otp(
     request: VerifyEmailOtpRequest,
     user_repo: MongoUserRepository = Depends(get_user_repo),
+    db=Depends(get_database),
 ):
     """Verify email with OTP and mark user as verified."""
-    cache = await get_cache_service()
-    otp_key = f"auth:verify_email_otp:{request.email.lower()}"
-    cached = await cache.get(otp_key)
-
-    if not cached or str(cached.get("code")) != str(request.code):
+    normalized_email = normalize_email(request.email)
+    challenge_store = EmailVerificationStore(
+        db.email_verification_challenges,
+        secret=settings.jwt_secret_key,
+    )
+    if not await challenge_store.consume(normalized_email, str(request.code)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
 
-    user = await user_repo.get_by_email(request.email)
+    user = await user_repo.get_by_email(normalized_email)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
@@ -221,16 +237,15 @@ async def verify_email_otp(
         user["user_id"],
         {"is_verified": True, "updated_at": datetime.now(timezone.utc).isoformat()},
     )
-    await cache.delete(otp_key)
-
     # Allow password claim of unclaimed guest accounts within the claim window.
     from application.use_cases.auth_use_case import (
         EMAIL_CLAIM_OK_TTL_SEC,
         email_claim_ok_key,
     )
 
+    cache = await get_cache_service()
     await cache.set(
-        email_claim_ok_key(request.email),
+        email_claim_ok_key(normalized_email),
         {"verified": True},
         ttl=EMAIL_CLAIM_OK_TTL_SEC,
     )

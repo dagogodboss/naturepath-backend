@@ -237,6 +237,7 @@ export interface Service {
   benefits?: string[];
   warning_copy?: string | null;
   is_discovery_entry?: boolean;
+  requires_discovery?: boolean;
   /** True when caller may view but not book (pre-discovery / guest gate). */
   booking_locked?: boolean;
   rating_average?: number;
@@ -260,6 +261,7 @@ export interface CreateServiceRequest {
   benefits?: string[];
   warning_copy?: string | null;
   is_discovery_entry?: boolean;
+  requires_discovery?: boolean;
 }
 
 export interface UpdateServiceRequest {
@@ -276,6 +278,7 @@ export interface UpdateServiceRequest {
   benefits?: string[];
   warning_copy?: string | null;
   is_discovery_entry?: boolean;
+  requires_discovery?: boolean;
 }
 
 // ==================== Availability Types ====================

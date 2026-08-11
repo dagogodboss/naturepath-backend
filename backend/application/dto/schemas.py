@@ -155,6 +155,7 @@ class CreateServiceRequest(BaseModel):
     benefits: List[str] = Field(default_factory=list)
     warning_copy: Optional[str] = None
     is_discovery_entry: bool = False
+    requires_discovery: bool = True
 
 
 class ServiceReviewResponse(BaseModel):
@@ -201,6 +202,7 @@ class UpdateServiceRequest(BaseModel):
     benefits: Optional[List[str]] = None
     warning_copy: Optional[str] = None
     is_discovery_entry: Optional[bool] = None
+    requires_discovery: Optional[bool] = None
 
 
 # ==================== Booking DTOs ====================

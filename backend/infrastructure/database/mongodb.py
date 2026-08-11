@@ -108,6 +108,10 @@ class Database:
         await cls.db.notifications.create_index("notification_id", unique=True)
         await cls.db.notifications.create_index([("user_id", 1), ("is_read", 1)])
         await cls.db.notifications.create_index("created_at")
+
+        # Email verification codes are hashed and automatically expire.
+        await cls.db.email_verification_challenges.create_index("email", unique=True)
+        await cls.db.email_verification_challenges.create_index("expires_at", expireAfterSeconds=0)
         
         # Events collection for event sourcing
         await cls.db.events.create_index("event_id", unique=True)
@@ -123,6 +127,17 @@ class Database:
 
         # Booking auto-assignment cursor state (round-robin)
         await cls.db.booking_assignment_state.create_index("state_key", unique=True)
+
+        # Practitioner Outlook connections and normalized busy events.
+        await cls.db.outlook_calendar_connections.create_index("connection_id", unique=True)
+        await cls.db.outlook_calendar_connections.create_index("practitioner_id", unique=True)
+        await cls.db.outlook_calendar_connections.create_index("subscription_id", sparse=True)
+        await cls.db.outlook_calendar_events.create_index(
+            [("practitioner_id", 1), ("date", 1), ("start_time", 1)]
+        )
+        await cls.db.outlook_calendar_events.create_index(
+            [("connection_id", 1), ("event_id", 1), ("date", 1)], unique=True
+        )
 
         # Store products / ecommerce orders
         await cls.db.store_products.create_index("product_id", unique=True)

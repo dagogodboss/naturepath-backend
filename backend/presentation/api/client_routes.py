@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from infrastructure.database import get_database
 from presentation.dependencies import get_current_practitioner
+from application.client_directory import client_booking_filter
 
 router = APIRouter(prefix="/clients", tags=["Clients"])
 
@@ -30,19 +31,19 @@ async def list_clients(
     ctx: dict = Depends(get_current_practitioner),
     db=Depends(get_database),
 ):
-    """Customers who have at least one booking with the authenticated practitioner."""
-    practitioner = ctx.get("practitioner")
-    if not practitioner:
+    """Booked customers: clinic-wide for owners/admins, assigned-only for practitioners."""
+    try:
+        booking_query = client_booking_filter(ctx)
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Practitioner profile required",
-        )
-    pid = practitioner["practitioner_id"]
+            detail=str(exc),
+        ) from exc
 
     stats: Dict[str, Dict[str, Any]] = {}
     booking_rows = (
         await db.bookings.find(
-            {"practitioner_id": pid, "customer_id": {"$ne": None}},
+            booking_query,
             {"_id": 0, "customer_id": 1, "slot": 1},
         )
         .to_list(length=10000)
@@ -95,16 +96,16 @@ async def get_client_detail(
     db=Depends(get_database),
 ):
     """Profile plus recent bookings for a client tied to this practitioner."""
-    practitioner = ctx.get("practitioner")
-    if not practitioner:
+    try:
+        booking_query = client_booking_filter(ctx)
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Practitioner profile required",
-        )
-    pid = practitioner["practitioner_id"]
+            detail=str(exc),
+        ) from exc
 
     has_booking = await db.bookings.count_documents(
-        {"practitioner_id": pid, "customer_id": client_id},
+        {**booking_query, "customer_id": client_id},
         limit=1,
     )
     if not has_booking:
@@ -118,7 +119,7 @@ async def get_client_detail(
     name = f"{user.get('first_name') or ''} {user.get('last_name') or ''}".strip()
     bookings = (
         await db.bookings.find(
-            {"practitioner_id": pid, "customer_id": client_id},
+            {**booking_query, "customer_id": client_id},
             {"_id": 0},
         )
         .sort("created_at", -1)

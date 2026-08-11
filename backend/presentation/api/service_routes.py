@@ -16,6 +16,7 @@ from presentation.dependencies import (
     get_service_use_case,
 )
 from core.rbac import Permission, has_permission
+from application.service_policy import service_requires_discovery
 
 router = APIRouter(prefix="/services", tags=["Services"])
 
@@ -41,10 +42,9 @@ def _annotate_booking_lock(
     gate_active: bool,
 ) -> Dict[str, Any]:
     """Marketing list shows all services; booking_locked gates non-discovery CTAs."""
-    is_discovery = BookingUseCase._is_discovery_service(service)
     return {
         **service,
-        "booking_locked": bool(gate_active and not is_discovery),
+        "booking_locked": bool(gate_active and service_requires_discovery(service)),
     }
 
 
@@ -144,6 +144,7 @@ async def create_service(
         benefits=effective.benefits,
         warning_copy=effective.warning_copy,
         is_discovery_entry=is_discovery_entry,
+        requires_discovery=effective.requires_discovery,
     )
     if not has_permission(ctx["user"], Permission.USER_ROLE_MANAGE) and ctx.get("practitioner"):
         p = ctx["practitioner"]
@@ -177,7 +178,7 @@ async def update_service(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not allowed to update this service",
             )
-        for k in ("is_featured", "revel_product_id", "is_discovery_entry"):
+        for k in ("is_featured", "revel_product_id", "is_discovery_entry", "requires_discovery"):
             updates.pop(k, None)
     if not updates:
         try:

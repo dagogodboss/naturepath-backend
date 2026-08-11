@@ -75,6 +75,7 @@ async def main() -> None:
             "benefits": entry.get("benefits") or [],
             "warning_copy": entry.get("warning_copy"),
             "is_discovery_entry": bool(entry.get("is_discovery_entry", False)),
+            "requires_discovery": bool(entry.get("requires_discovery", True)),
             "rating_average": rating_average,
             "rating_count": rating_count,
             "updated_at": now,

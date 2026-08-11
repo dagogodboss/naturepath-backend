@@ -17,6 +17,7 @@ celery_app = Celery(
         "workers.reconciliation_worker",
         "workers.refund_reconciliation_worker",
         "workers.media_preview_worker",
+        "workers.outlook_calendar_worker",
     ]
 )
 
@@ -61,6 +62,10 @@ celery_app.conf.update(
         "sweep-store-refund-reconciliation": {
             "task": "workers.refund_reconciliation_worker.sweep_store_refund_reconciliation",
             "schedule": 1800.0,  # Every 30 minutes
+        },
+        "sync-outlook-calendars": {
+            "task": "workers.outlook_calendar_worker.sync_all_outlook_calendars",
+            "schedule": 300.0,
         },
     }
 )

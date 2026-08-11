@@ -762,6 +762,12 @@ async def create_store_order(
     # insert_one mutates order_doc with a non-serializable ObjectId _id; drop it
     # and return the enriched view (with allowed_actions) like the other endpoints.
     order_doc.pop("_id", None)
+    try:
+        from application.order_notifications import queue_order_notifications
+        await queue_order_notifications(db, order_doc, ops_email=settings.ops_email)
+    except Exception as exc:
+        # Checkout must succeed even if a notification channel is temporarily down.
+        logger.exception("Failed to queue order operations notification for %s: %s", order_id, exc)
     return _enrich_store_order(order_doc)
 
 
@@ -2157,7 +2163,7 @@ async def admin_backfill_revel_tx(
     return _enrich_store_order(out)
 
 
-@router.post("/admin/orders/{order_id}/invoice")
+@router.post("/admin/orders/{order_id}/invoice", status_code=status.HTTP_202_ACCEPTED)
 async def send_order_invoice(
     order_id: str,
     current_user: dict = Depends(get_current_active_user),
@@ -2177,18 +2183,23 @@ async def send_order_invoice(
     <p>Payment status: {order["payment_status"]}</p>
     </body></html>
     """
-    email = get_email_service()
-    send_result = await email.send_email(
-        to_email=order["address"]["email"],
-        subject=f"Your Natural Path invoice {invoice_id}",
-        html_content=html,
-    )
     now = _utc_now_iso()
     await db.store_orders.update_one(
         {"order_id": order_id},
         {
-            "$set": {"invoice_id": invoice_id, "invoice_email_status": send_result, "updated_at": now},
-            "$push": {"timeline": {"status": "invoice_sent", "at": now}},
+            "$set": {
+                "invoice_id": invoice_id,
+                "invoice_email_status": {"status": "queued"},
+                "updated_at": now,
+            },
+            "$push": {"timeline": {"status": "invoice_queued", "at": now}},
         },
+    )
+    from workers.notification_worker import send_store_invoice_email
+    send_store_invoice_email.delay(
+        order_id,
+        order["address"]["email"],
+        f"Your Natural Path invoice {invoice_id}",
+        html,
     )
     return await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})

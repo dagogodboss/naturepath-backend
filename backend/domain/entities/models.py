@@ -59,6 +59,7 @@ class NotificationType(str, Enum):
     BOOKING_RESCHEDULED = "booking_rescheduled"
     PAYMENT_RECEIVED = "payment_received"
     WELCOME = "welcome"
+    ORDER_PLACED = "order_placed"
 
 
 # ==================== User Entity ====================
@@ -154,6 +155,8 @@ class Service(BaseModel):
     rating_count: int = 0
     # True for the entry-point discovery offering (visible to guests / pre-unlock customers).
     is_discovery_entry: bool = False
+    # Explicit booking policy. Salt sessions and discovery calls set this False.
+    requires_discovery: bool = True
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
