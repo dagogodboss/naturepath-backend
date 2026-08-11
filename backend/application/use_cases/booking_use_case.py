@@ -5,6 +5,7 @@ Handles the complete booking flow (OTC payment at counter; Revel is store/e-comm
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
+from dateutil.relativedelta import relativedelta
 from domain.entities import (
     Booking, BookingSlot, BookingStatus,
     generate_id, utc_now
@@ -24,10 +25,8 @@ from infrastructure.repositories import (
 )
 from core.calendar_utils import (
     build_booking_ical,
-    google_calendar_template_url,
+    booking_calendar_links,
     ical_to_base64,
-    microsoft_calendar_template_url,
-    outlook_office_calendar_template_url,
 )
 from core.money import Money
 from infrastructure.cache import CacheService
@@ -219,7 +218,8 @@ class BookingUseCase:
         date: str,
         start_time: str,
         end_time: str,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        enable_monthly_recurrence: bool = False,
     ) -> Dict[str, Any]:
         """
         Initiate a booking (Step 1 of booking flow)
@@ -231,12 +231,14 @@ class BookingUseCase:
             raise ValueError("Service not found or inactive")
 
         # Enforce discovery-first booking on the backend for non-discovery services.
+        discovery_unlocked = False
         if not self._is_discovery_service(service):
             eligibility = await self.get_discovery_eligibility(customer_id)
-            if not eligibility.get("is_discovery_completed"):
+            if eligibility.get("state") != "completed":
                 raise ValueError(
                     "Discovery call required before booking this service"
                 )
+            discovery_unlocked = True
         
         practitioner: Optional[Dict[str, Any]] = None
         # Backward-compatible path: explicit practitioner still accepted.
@@ -258,6 +260,14 @@ class BookingUseCase:
             )
             practitioner_id = practitioner["practitioner_id"]
         
+        # After discovery unlock: monthly recurrence only with explicit opt-in.
+        # Children are materialized on confirm (see _materialize_monthly_series).
+        recurrence = (
+            {"frequency": "monthly", "active": True}
+            if discovery_unlocked and enable_monthly_recurrence
+            else None
+        )
+
         # Create booking in draft status
         price_money = Money.from_float(service.get("discount_price") or service["price"], "USD")
         booking = Booking(
@@ -270,7 +280,9 @@ class BookingUseCase:
             total_price=price_money.to_float(),
             payment_mode=None,
             payment_status="none",
-            notes=notes
+            notes=notes,
+            recurrence=recurrence,
+            reminders_sent={},
         )
         
         booking_dict = booking.model_dump()
@@ -411,16 +423,10 @@ class BookingUseCase:
         ics_b64 = ical_to_base64(build_booking_ical(booking_view))
         sk = booking["slot"]
         details_txt = f"Booking {booking_id[:8].upper()} — The Natural Path Spa"
-        loc = "The Natural Path Spa"
+        loc = "100 Sabal Palms Row, Suite 2, Youngsville, LA 70592"
         sn = service.get("name", "Appointment")
-        g_url = google_calendar_template_url(
+        links = booking_calendar_links(
             sn, sk["date"], sk["start_time"], sk["end_time"], details=details_txt, location=loc
-        )
-        ms_url = microsoft_calendar_template_url(
-            sn, sk["date"], sk["start_time"], sk["end_time"], body=details_txt, location=loc
-        )
-        mo_url = outlook_office_calendar_template_url(
-            sn, sk["date"], sk["start_time"], sk["end_time"], body=details_txt, location=loc
         )
         slot = booking["slot"]
         pname = f"{practitioner_user['first_name']} {practitioner_user['last_name']}"
@@ -434,9 +440,10 @@ class BookingUseCase:
                 time=slot["start_time"],
                 booking_id=booking_id,
                 pay_at_counter=pay_at_counter,
-                google_calendar_url=g_url,
-                outlook_live_url=ms_url,
-                outlook_office_url=mo_url,
+                google_calendar_url=links["google"],
+                yahoo_calendar_url=links["yahoo"],
+                outlook_live_url=links["outlook_live"],
+                outlook_office_url=links["outlook_office"],
                 ics_base64=ics_b64,
             )
             if practitioner_user.get("email"):
@@ -448,9 +455,10 @@ class BookingUseCase:
                     date=slot["date"],
                     time=slot["start_time"],
                     booking_id=booking_id,
-                    google_calendar_url=g_url,
-                    outlook_live_url=ms_url,
-                    outlook_office_url=mo_url,
+                    google_calendar_url=links["google"],
+                    yahoo_calendar_url=links["yahoo"],
+                    outlook_live_url=links["outlook_live"],
+                    outlook_office_url=links["outlook_office"],
                     ics_base64=ics_b64,
                 )
             if customer.get("phone"):
@@ -499,8 +507,7 @@ class BookingUseCase:
                 "payment_status": "awaiting_counter",
             },
         )
-        if self._is_discovery_service(service):
-            await self.user_repo.update(user_id, {"is_discovery_completed": True})
+        # Discovery unlock is staff-only via mark_discovery_completed — never auto on confirm.
 
         slot = booking["slot"]
         slots = await self.slot_repo.collection.find(
@@ -526,6 +533,24 @@ class BookingUseCase:
         await self.event_repo.store_event(confirm_event.model_dump())
 
         updated = await self.booking_repo.get_by_id(booking_id)
+
+        # Materialize monthly series children after the parent is confirmed.
+        series_meta = None
+        recurrence = updated.get("recurrence") or {}
+        if recurrence.get("active") and recurrence.get("frequency") == "monthly":
+            try:
+                series_meta = await self._materialize_monthly_series(
+                    parent=updated,
+                    service=service,
+                    customer=customer,
+                    months=3,
+                )
+                updated = await self.booking_repo.get_by_id(booking_id)
+            except Exception as exc:
+                logger.exception(
+                    "Series materialization failed for %s: %s", booking_id, exc
+                )
+
         self._queue_booking_confirmation_notifications(
             booking_id, updated, service, customer, practitioner, practitioner_user, pay_at_counter=True
         )
@@ -546,41 +571,466 @@ class BookingUseCase:
             except Exception as exc:
                 logger.warning("Failed to queue booking invoice for %s: %s", booking_id, exc)
         logger.info("Booking confirmed (pay at counter): %s", booking_id)
-        return {**updated, "payment": None, "revel_order": None}
+        result = {**updated, "payment": None, "revel_order": None}
+        if series_meta:
+            result["series"] = series_meta
+        return result
+
+    async def _materialize_monthly_series(
+        self,
+        parent: Dict[str, Any],
+        service: Dict[str, Any],
+        customer: Optional[Dict[str, Any]],
+        months: int = 3,
+    ) -> Dict[str, Any]:
+        """
+        Create the next `months` monthly child bookings for a confirmed parent.
+
+        Conflict policy (documented choice):
+          - Prefer the same weekday/time on the monthly anniversary date.
+          - If that exact slot is unavailable for the assigned practitioner,
+            skip that month (do not soft-book a conflicting slot).
+          - Collect skipped months and email the customer a short note so they
+            can reschedule those months manually.
+        """
+        parent_id = parent["booking_id"]
+        series_id = parent.get("series_id") or parent_id
+        slot = parent.get("slot") or {}
+        base_date_s = slot.get("date")
+        start_time = slot.get("start_time")
+        end_time = slot.get("end_time")
+        if not (base_date_s and start_time and end_time):
+            return {"series_id": series_id, "created": [], "skipped": []}
+
+        try:
+            base_date = datetime.strptime(base_date_s, "%Y-%m-%d").date()
+        except ValueError:
+            return {"series_id": series_id, "created": [], "skipped": []}
+
+        # Promote parent to series root.
+        recurrence = dict(parent.get("recurrence") or {})
+        recurrence["active"] = True
+        recurrence["frequency"] = "monthly"
+        recurrence["horizon_months"] = months
+        await self.booking_repo.update(
+            parent_id,
+            {
+                "series_id": series_id,
+                "series_parent_id": None,
+                "series_index": 0,
+                "recurrence": recurrence,
+            },
+        )
+
+        practitioner = await self.practitioner_repo.get_by_id(parent["practitioner_id"])
+        created: List[str] = []
+        skipped: List[Dict[str, str]] = []
+        price = parent.get("total_price")
+        price_cents = parent.get("total_price_cents")
+        currency = parent.get("currency") or "USD"
+
+        for i in range(1, months + 1):
+            target = base_date + relativedelta(months=i)
+            target_s = target.isoformat()
+            available = False
+            if practitioner:
+                windows = await self._candidate_slots_for_practitioner(
+                    practitioner, target_s
+                )
+                available = any(
+                    w["start_time"] == start_time and w["end_time"] == end_time
+                    for w in windows
+                )
+            if not available:
+                skipped.append(
+                    {
+                        "date": target_s,
+                        "start_time": start_time,
+                        "reason": "slot_unavailable",
+                    }
+                )
+                continue
+
+            child_id = generate_id()
+            now = utc_now().isoformat()
+            child = {
+                "booking_id": child_id,
+                "customer_id": parent["customer_id"],
+                "practitioner_id": parent["practitioner_id"],
+                "service_id": parent["service_id"],
+                "slot": {
+                    "date": target_s,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                },
+                "status": "confirmed",
+                "total_price": price,
+                "total_price_cents": price_cents,
+                "currency": currency,
+                "payment_mode": "walk_in",
+                "payment_status": "awaiting_counter",
+                "notes": parent.get("notes"),
+                "series_id": series_id,
+                "series_parent_id": parent_id,
+                "series_index": i,
+                "recurrence": {
+                    "frequency": "monthly",
+                    "active": True,
+                    "series_id": series_id,
+                },
+                "reminders_sent": {},
+                "confirmed_at": now,
+                "created_at": now,
+                "updated_at": now,
+            }
+            await self.booking_repo.create(child)
+
+            # Reserve slot row when possible (best-effort).
+            try:
+                new_slot_id = generate_id()
+                await self.slot_repo.collection.update_one(
+                    {
+                        "practitioner_id": parent["practitioner_id"],
+                        "date": target_s,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "status": {"$in": ["available", "locked"]},
+                    },
+                    {
+                        "$set": {
+                            "status": "booked",
+                            "booking_id": child_id,
+                            "updated_at": now,
+                        },
+                        "$setOnInsert": {
+                            "slot_id": new_slot_id,
+                            "practitioner_id": parent["practitioner_id"],
+                            "date": target_s,
+                            "start_time": start_time,
+                            "end_time": end_time,
+                            "created_at": now,
+                        },
+                    },
+                    upsert=True,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Could not lock series slot %s %s: %s", target_s, start_time, exc
+                )
+            created.append(child_id)
+
+        if skipped and customer and customer.get("email"):
+            await self._notify_series_skips(
+                customer=customer,
+                service=service,
+                parent_id=parent_id,
+                skipped=skipped,
+            )
+
+        logger.info(
+            "Series %s: created %d children, skipped %d",
+            series_id,
+            len(created),
+            len(skipped),
+        )
+        return {
+            "series_id": series_id,
+            "created": created,
+            "skipped": skipped,
+        }
+
+    async def _notify_series_skips(
+        self,
+        customer: Dict[str, Any],
+        service: Dict[str, Any],
+        parent_id: str,
+        skipped: List[Dict[str, str]],
+    ) -> None:
+        """Queue email about months that could not be reserved (non-blocking)."""
+        try:
+            from workers.notification_worker import send_generic_email
+
+            service_name = (service or {}).get("name") or "your service"
+            rows = "".join(
+                f"<li>{s['date']} at {s['start_time']}</li>" for s in skipped
+            )
+            html = (
+                f"<p>Hi {customer.get('first_name') or 'there'},</p>"
+                f"<p>We reserved your monthly {service_name} series, but these "
+                f"months were unavailable at your usual time and were skipped:</p>"
+                f"<ul>{rows}</ul>"
+                f"<p>Please open the app to pick alternate times for those months. "
+                f"(Booking {parent_id})</p>"
+            )
+            text = (
+                f"Some months in your {service_name} series were skipped due to "
+                f"unavailable slots: "
+                + ", ".join(f"{s['date']} {s['start_time']}" for s in skipped)
+            )
+            send_generic_email.delay(
+                to_email=customer["email"],
+                subject=f"Monthly series — {len(skipped)} month(s) need a new time",
+                html_content=html,
+                text_content=text,
+            )
+        except Exception as exc:
+            logger.warning("Failed to queue series skip note: %s", exc)
+
+    @staticmethod
+    def _parse_slot_start(slot: Optional[Dict[str, Any]]) -> Optional[datetime]:
+        """Interpret booking slot date+time in the clinic timezone."""
+        if not slot:
+            return None
+        date_s = slot.get("date")
+        time_s = (slot.get("start_time") or "00:00")[:5]
+        if not date_s:
+            return None
+        from core.time_utils import parse_clinic_slot
+
+        return parse_clinic_slot(date_s, time_s)
 
     async def get_discovery_eligibility(self, customer_id: str) -> Dict[str, Any]:
         """
-        Determine whether a user can book non-discovery services.
-        Source of truth: booking history. Cache: user profile flag.
+        Four-state discovery gate for non-discovery booking unlock.
+
+        States:
+          none — no active discovery booking
+          scheduled — discovery confirmed/pending with future slot
+          pending_completion — slot passed or session ended, staff not yet marked done
+          completed — is_discovery_completed set by staff only
         """
         user = await self.user_repo.get_by_id(customer_id)
         has_flag = bool((user or {}).get("is_discovery_completed", False))
 
-        bookings = await self.booking_repo.get_by_customer(customer_id)
-        has_discovery_booking = False
-        discovery_booking_id = None
+        if has_flag:
+            return {
+                "state": "completed",
+                "is_discovery_completed": True,
+                "has_discovery_booking": True,
+                "has_discovery_flag": True,
+                "discovery_booking_id": (user or {}).get("discovery_completed_booking_id"),
+                "discovery_slot": None,
+                "messaging_key": "unlocked",
+            }
 
+        bookings = await self.booking_repo.get_by_customer(customer_id)
+        discovery_candidates: List[Dict[str, Any]] = []
         for booking in bookings:
             status = booking.get("status")
-            if status not in {"confirmed", "completed", "in_progress"}:
+            if status in {"draft", "cancelled"}:
                 continue
             service = await self.service_repo.get_by_id(booking.get("service_id"))
             if self._is_discovery_service(service):
-                has_discovery_booking = True
-                discovery_booking_id = booking.get("booking_id")
-                break
+                discovery_candidates.append(booking)
 
-        # Keep cached flag in sync with booking-derived truth
-        if has_discovery_booking and not has_flag:
-            await self.user_repo.update(customer_id, {"is_discovery_completed": True})
-            has_flag = True
+        if not discovery_candidates:
+            return {
+                "state": "none",
+                "is_discovery_completed": False,
+                "has_discovery_booking": False,
+                "has_discovery_flag": False,
+                "discovery_booking_id": None,
+                "discovery_slot": None,
+                "messaging_key": "please_book",
+            }
+
+        # Prefer the most relevant: future scheduled first, else most recent past/active.
+        from core.time_utils import clinic_now
+
+        now = clinic_now()
+        scheduled: List[Dict[str, Any]] = []
+        pending: List[Dict[str, Any]] = []
+        for booking in discovery_candidates:
+            status = booking.get("status")
+            slot = booking.get("slot") or {}
+            start = self._parse_slot_start(slot)
+            slot_payload = {
+                "date": slot.get("date"),
+                "start_time": slot.get("start_time"),
+            }
+            if status in {"completed", "in_progress", "no_show"}:
+                pending.append({**booking, "_slot_payload": slot_payload, "_start": start})
+                continue
+            if status in {"confirmed", "pending"}:
+                if start is not None and start > now:
+                    scheduled.append({**booking, "_slot_payload": slot_payload, "_start": start})
+                else:
+                    pending.append({**booking, "_slot_payload": slot_payload, "_start": start})
+
+        if scheduled:
+            scheduled.sort(key=lambda b: b.get("_start") or now)
+            chosen = scheduled[0]
+            return {
+                "state": "scheduled",
+                "is_discovery_completed": False,
+                "has_discovery_booking": True,
+                "has_discovery_flag": False,
+                "discovery_booking_id": chosen.get("booking_id"),
+                "discovery_slot": chosen.get("_slot_payload"),
+                "messaging_key": "scheduled",
+            }
+
+        if pending:
+            pending.sort(key=lambda b: b.get("_start") or now, reverse=True)
+            chosen = pending[0]
+            return {
+                "state": "pending_completion",
+                "is_discovery_completed": False,
+                "has_discovery_booking": True,
+                "has_discovery_flag": False,
+                "discovery_booking_id": chosen.get("booking_id"),
+                "discovery_slot": chosen.get("_slot_payload"),
+                "messaging_key": "pending",
+            }
 
         return {
-            "is_discovery_completed": has_discovery_booking or has_flag,
-            "has_discovery_booking": has_discovery_booking,
-            "has_discovery_flag": has_flag,
-            "discovery_booking_id": discovery_booking_id,
+            "state": "none",
+            "is_discovery_completed": False,
+            "has_discovery_booking": False,
+            "has_discovery_flag": False,
+            "discovery_booking_id": None,
+            "discovery_slot": None,
+            "messaging_key": "please_book",
         }
+
+    async def mark_discovery_completed(
+        self,
+        booking_id: str,
+        staff_user_id: str,
+        *,
+        as_admin: bool = False,
+    ) -> Dict[str, Any]:
+        """Staff marks Discovery Call done — unlocks non-discovery bookings for the customer."""
+        booking = await self.booking_repo.get_by_id(booking_id)
+        if not booking:
+            raise ValueError("Booking not found")
+        service = await self.service_repo.get_by_id(booking.get("service_id"))
+        if not self._is_discovery_service(service):
+            raise ValueError("Booking is not a Discovery Call")
+        if booking.get("status") in {"draft", "cancelled"}:
+            raise ValueError("Cannot complete discovery for this booking status")
+
+        if not as_admin:
+            practitioner = await self.practitioner_repo.get_by_id(booking["practitioner_id"])
+            if not practitioner or practitioner.get("user_id") != staff_user_id:
+                raise ValueError("Unauthorized")
+
+        customer_id = booking["customer_id"]
+        now = utc_now().isoformat()
+        await self.user_repo.update(
+            customer_id,
+            {
+                "is_discovery_completed": True,
+                "discovery_completed_at": now,
+                "discovery_completed_by": staff_user_id,
+                "discovery_completed_booking_id": booking_id,
+            },
+        )
+        # Ensure session is marked completed if still open.
+        if booking.get("status") in {"confirmed", "pending", "in_progress"}:
+            await self.booking_repo.update(
+                booking_id,
+                {"status": "completed", "completed_at": now, "updated_at": now},
+            )
+        logger.info(
+            "Discovery completed for customer %s via booking %s by %s",
+            customer_id,
+            booking_id,
+            staff_user_id,
+        )
+        return await self.get_discovery_eligibility(customer_id)
+
+    async def stop_recurring(
+        self,
+        booking_id: str,
+        user_id: str,
+        *,
+        is_admin: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Stop monthly recurrence: deactivate flag on the series and cancel
+        *future* series members only (past/today stay intact).
+        """
+        booking = await self.booking_repo.get_by_id(booking_id)
+        if not booking:
+            raise ValueError("Booking not found")
+        if not is_admin and booking["customer_id"] != user_id:
+            raise ValueError("Unauthorized")
+
+        series_id = booking.get("series_id") or booking_id
+        recurrence = dict(booking.get("recurrence") or {})
+        now = utc_now()
+        today = now.date().isoformat()
+        stopped_at = now.isoformat()
+
+        # Deactivate recurrence on the touched booking and series root.
+        recurrence["active"] = False
+        recurrence["stopped_at"] = stopped_at
+        await self.booking_repo.update(booking_id, {"recurrence": recurrence})
+
+        # Find all series members (parent + children).
+        members = await self.booking_repo.collection.find(
+            {
+                "$or": [
+                    {"series_id": series_id},
+                    {"booking_id": series_id},
+                    {"series_parent_id": series_id},
+                ]
+            },
+            {"_id": 0},
+        ).to_list(length=100)
+
+        cancelled_ids: List[str] = []
+        for member in members:
+            mid = member["booking_id"]
+            # Always clear active flag on every series member.
+            m_rec = dict(member.get("recurrence") or {})
+            m_rec["active"] = False
+            m_rec["stopped_at"] = stopped_at
+            await self.booking_repo.update(mid, {"recurrence": m_rec})
+
+            slot_date = (member.get("slot") or {}).get("date") or ""
+            status = member.get("status")
+            if slot_date > today and status in {"confirmed", "pending", "draft"}:
+                await self.booking_repo.update(
+                    mid,
+                    {
+                        "status": "cancelled",
+                        "cancellation_reason": "Recurring series stopped",
+                        "updated_at": stopped_at,
+                    },
+                )
+                cancelled_ids.append(mid)
+                # Free reserved slots best-effort.
+                try:
+                    mslot = member.get("slot") or {}
+                    await self.slot_repo.collection.update_many(
+                        {
+                            "booking_id": mid,
+                            "status": "booked",
+                        },
+                        {
+                            "$set": {
+                                "status": "available",
+                                "booking_id": None,
+                                "updated_at": stopped_at,
+                            }
+                        },
+                    )
+                except Exception:
+                    pass
+
+        logger.info(
+            "Recurrence stopped for series %s by %s; cancelled future=%s",
+            series_id,
+            user_id,
+            cancelled_ids,
+        )
+        result = await self.get_booking_by_id(
+            booking_id=booking_id, user_id=user_id, is_admin=is_admin
+        )
+        result["series_cancelled_future"] = cancelled_ids
+        return result
 
     async def reschedule_booking(
         self,
@@ -871,3 +1321,45 @@ class BookingUseCase:
             }
         
         return booking
+
+    async def list_series_bookings(
+        self,
+        series_id: str,
+        user_id: str,
+        *,
+        is_admin: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Return all bookings in a series (for .ics multi-instance export)."""
+        rows = await self.booking_repo.collection.find(
+            {"series_id": series_id},
+            {"_id": 0},
+        ).to_list(length=50)
+        if not rows:
+            return []
+        # Authz: any member must belong to user (or admin).
+        sample = rows[0]
+        if not is_admin and sample.get("customer_id") != user_id:
+            practitioner = await self.practitioner_repo.get_by_id(
+                sample.get("practitioner_id")
+            )
+            if not practitioner or practitioner.get("user_id") != user_id:
+                raise ValueError("Unauthorized")
+        service = await self.service_repo.get_by_id(sample.get("service_id"))
+        customer = await self.user_repo.get_by_id(sample.get("customer_id"))
+        if customer:
+            customer = {**customer}
+            customer.pop("password_hash", None)
+        practitioner = await self.practitioner_repo.get_by_id(sample.get("practitioner_id"))
+        enriched = []
+        for row in sorted(
+            rows, key=lambda r: ((r.get("slot") or {}).get("date") or "", r.get("series_index") or 0)
+        ):
+            enriched.append(
+                {
+                    **row,
+                    "service": service,
+                    "customer": customer,
+                    "practitioner": practitioner,
+                }
+            )
+        return enriched

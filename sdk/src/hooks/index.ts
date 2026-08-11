@@ -49,6 +49,8 @@ export {
   usePractitionerCalendar,
   useServiceAvailability,
   useCompletePractitionerSession,
+  useCompleteDiscoveryAsPractitioner,
+  useStopRecurring,
 } from './useBookings';
 
 // User Hooks
@@ -103,3 +105,15 @@ export {
   usePayStoreOrder,
   useStoreOrderOps,
 } from './useStore';
+
+// Content / Reels Hooks
+export {
+  useReelsFeed,
+  useContentPosts,
+  useContentPostById,
+  useMarkReelSeen,
+  useLikeReel,
+  useUnlikeReel,
+  useReelComments,
+  useAddReelComment,
+} from './useContent';

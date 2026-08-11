@@ -33,6 +33,7 @@ from presentation import (
     webhook_router,
     store_router,
     client_router,
+    content_router,
     availability_websocket_handler,
     user_notification_websocket_handler
 )
@@ -70,6 +71,7 @@ async def lifespan(app: FastAPI):
     logger.info("Application shutdown complete")
 
 # Create FastAPI application
+_is_production = settings.app_env.lower() in ("production", "prod")
 app = FastAPI(
     title="The Natural Path Spa Management System",
     description="""
@@ -90,16 +92,28 @@ app = FastAPI(
     - Async-first for high concurrency
     """,
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 
 # CORS middleware
+# SDK may send X-Client-Mode (PWA standalone). Preflight must allow it or
+# browsers report a generic CORS failure from Orb FE / Vite origins.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Accept-Language",
+        "X-Requested-With",
+        "X-Client-Mode",
+    ],
 )
 
 
@@ -133,6 +147,7 @@ app.include_router(admin_router, prefix="/api")
 app.include_router(webhook_router, prefix="/api")
 app.include_router(store_router, prefix="/api")
 app.include_router(client_router, prefix="/api")
+app.include_router(content_router, prefix="/api")
 
 
 # WebSocket endpoints
@@ -158,12 +173,16 @@ async def websocket_notifications(
 # Health check endpoint
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "service": "The Natural Path Spa API",
-        "version": "1.0.0"
-    }
+    """Health check endpoint (deployment fingerprint for local-stack probes)."""
+    return JSONResponse(
+        content={
+            "status": "healthy",
+            "service": "The Natural Path Spa API",
+            "version": "1.0.0",
+            "deployment_target": settings.deployment_target,
+        },
+        headers={"X-Naturepath-Deploy": settings.deployment_target},
+    )
 
 
 # Root endpoint

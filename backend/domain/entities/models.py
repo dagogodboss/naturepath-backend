@@ -66,7 +66,8 @@ class User(BaseModel):
     """User aggregate root"""
     user_id: str = Field(default_factory=generate_id)
     email: EmailStr
-    password_hash: str
+    # Nullable for unclaimed guest-purchase accounts (claim via later register).
+    password_hash: Optional[str] = None
     first_name: str
     last_name: str
     phone: Optional[str] = None
@@ -74,6 +75,11 @@ class User(BaseModel):
     is_active: bool = True
     is_verified: bool = False
     is_discovery_completed: bool = False
+    discovery_completed_at: Optional[datetime] = None
+    discovery_completed_by: Optional[str] = None
+    # password | guest_purchase | oauth
+    auth_method: str = "password"
+    account_claimed: bool = True
     profile_image_url: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
@@ -191,6 +197,14 @@ class Booking(BaseModel):
     receipt_id: Optional[str] = None
     paid_at: Optional[datetime] = None
     payment_reference_id: Optional[str] = None
+    # Monthly series: parent holds recurrence; children share series_id.
+    # Conflict policy on materialize: skip unavailable months + email note.
+    recurrence: Optional[dict] = None  # { frequency: "monthly", active: bool, ... }
+    series_id: Optional[str] = None
+    series_parent_id: Optional[str] = None
+    series_index: Optional[int] = None
+    # Reminder idempotency: { "d3": true, "d1": true, "d0": true }
+    reminders_sent: Optional[dict] = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
     confirmed_at: Optional[datetime] = None

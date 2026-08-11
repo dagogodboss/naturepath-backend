@@ -3,6 +3,12 @@
 *.env.*
 !backend/.env.example
 
+# GCP service account keys (use host mount via docker-compose.local.yml)
+project-naturalpath-*.json
+*-sa.json
+**/gcs-sa.json
+**/secrets/*.json
+
 # SDK (build + deps; see also sdk/.gitignore)
 sdk/node_modules/
 sdk/dist/

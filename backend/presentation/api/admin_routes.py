@@ -20,6 +20,11 @@ from infrastructure.repositories import (
     MongoBookingRepository,
     MongoPaymentRepository
 )
+from application.access_control import (
+    PrivilegeEscalationDenied,
+    assert_can_assign_role,
+    assert_can_mutate_user_status,
+)
 from core.rbac import normalize_role
 from infrastructure.database import get_database
 from .admin_rbac_routes import router as admin_rbac_router
@@ -256,15 +261,34 @@ async def update_user_role(
     current_admin: dict = Depends(get_current_admin),
     user_repo: MongoUserRepository = Depends(get_user_repo)
 ):
-    """Update user role (Admin only)"""
-    normalized = normalize_role(role)
-    if normalized not in ["customer", "staff", "manager", "practitioner", "admin", "owner"]:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
-    
+    """Update user role (Admin only; owner assignment is owner-only)."""
     user = await user_repo.get_by_id(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    
+
+    try:
+        normalized = assert_can_assign_role(
+            current_admin.get("role"),
+            user.get("role"),
+            role,
+        )
+    except PrivilegeEscalationDenied as e:
+        code = (
+            status.HTTP_400_BAD_REQUEST
+            if str(e) == "Invalid role"
+            else status.HTTP_403_FORBIDDEN
+        )
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+    # Prevent demoting the last remaining owner (lockout).
+    if normalize_role(user.get("role")) == "owner" and normalized != "owner":
+        owners = await user_repo.get_by_role("owner")
+        if len(owners) <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot demote the last owner",
+            )
+
     await user_repo.update(user_id, {"role": normalized})
     return {"success": True, "user_id": user_id, "new_role": normalized}
 
@@ -276,11 +300,29 @@ async def update_user_status(
     current_admin: dict = Depends(get_current_admin),
     user_repo: MongoUserRepository = Depends(get_user_repo)
 ):
-    """Activate/deactivate user (Admin only)"""
+    """Activate/deactivate user (Admin only; owner accounts are owner-only)."""
     user = await user_repo.get_by_id(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    
+
+    try:
+        assert_can_mutate_user_status(current_admin.get("role"), user.get("role"))
+    except PrivilegeEscalationDenied as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+
+    if (
+        not is_active
+        and normalize_role(user.get("role")) == "owner"
+        and normalize_role(current_admin.get("role")) == "owner"
+    ):
+        owners = await user_repo.get_by_role("owner")
+        active_owners = [o for o in owners if o.get("is_active", True)]
+        if len(active_owners) <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot deactivate the last active owner",
+            )
+
     await user_repo.update(user_id, {"is_active": is_active})
     return {"success": True, "user_id": user_id, "is_active": is_active}
 

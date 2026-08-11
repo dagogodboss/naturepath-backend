@@ -2,7 +2,9 @@
 from .schemas import (
     # Auth
     RegisterRequest, LoginRequest, TokenResponse, RefreshTokenRequest,
+    GoogleOAuthRequest, CompleteOAuthPhoneRequest,
     SendVerificationOtpRequest, VerifyEmailOtpRequest,
+    LookupEmailRequest, LookupEmailResponse,
     # User
     UserResponse, UpdateProfileRequest,
     # Practitioner
@@ -25,7 +27,9 @@ from .schemas import (
 
 __all__ = [
     "RegisterRequest", "LoginRequest", "TokenResponse", "RefreshTokenRequest",
+    "GoogleOAuthRequest", "CompleteOAuthPhoneRequest",
     "SendVerificationOtpRequest", "VerifyEmailOtpRequest",
+    "LookupEmailRequest", "LookupEmailResponse",
     "UserResponse", "UpdateProfileRequest",
     "PractitionerSpecialtyDTO", "PractitionerAvailabilityDTO",
     "CreatePractitionerRequest", "PractitionerResponse", "UpdatePractitionerRequest",

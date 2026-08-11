@@ -70,12 +70,21 @@ export function createApiClient(): AxiosInstance {
     timeout: 30000,
   });
 
-  // Request interceptor - attach JWT token
+  // Request interceptor - attach JWT token (+ standalone PWA hint)
   client.interceptors.request.use(
     (requestConfig: InternalAxiosRequestConfig) => {
       const token = storage.getAccessToken();
       if (token && requestConfig.headers) {
         requestConfig.headers.Authorization = `Bearer ${token}`;
+      }
+      if (typeof window !== 'undefined' && requestConfig.headers) {
+        const standalone =
+          window.matchMedia?.('(display-mode: standalone)')?.matches ||
+          // iOS Safari installed PWA
+          (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
+        if (standalone) {
+          requestConfig.headers['X-Client-Mode'] = 'standalone';
+        }
       }
       return requestConfig;
     },

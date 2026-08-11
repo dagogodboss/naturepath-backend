@@ -70,6 +70,19 @@ class CacheService:
         except Exception as e:
             logger.error(f"Cache delete error: {e}")
             return False
+
+    async def incr(self, key: str, ttl: int = 60) -> int:
+        """Increment a counter; set TTL on first hit. Returns 1 if Redis unavailable."""
+        if not self.redis:
+            return 1
+        try:
+            count = await self.redis.incr(key)
+            if count == 1:
+                await self.redis.expire(key, ttl)
+            return int(count)
+        except Exception as e:
+            logger.error(f"Cache incr error: {e}")
+            return 1
     
     async def delete_pattern(self, pattern: str) -> int:
         """Delete all keys matching pattern"""

@@ -16,6 +16,7 @@ celery_app = Celery(
         "workers.booking_invoice_worker",
         "workers.reconciliation_worker",
         "workers.refund_reconciliation_worker",
+        "workers.media_preview_worker",
     ]
 )
 
@@ -47,7 +48,7 @@ celery_app.conf.update(
         },
         "send-booking-reminders": {
             "task": "workers.notification_worker.send_daily_reminders",
-            "schedule": 3600.0,  # Every hour
+            "schedule": 1800.0,  # Every 30 minutes (d3/d1/d0 windows)
         },
         "expire-walk-in-holds": {
             "task": "workers.store_worker.expire_walk_in_holds",

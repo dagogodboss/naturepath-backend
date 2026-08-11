@@ -29,7 +29,9 @@ from infrastructure.external.revel_live_client import RevelLiveError
 from presentation.dependencies import (
     get_current_active_user,
     get_optional_user,
+    get_auth_use_case,
 )
+from application.use_cases import AuthUseCase
 
 router = APIRouter(prefix="/store", tags=["Store"])
 logger = logging.getLogger(__name__)
@@ -130,12 +132,163 @@ class AnalyticsEventIn(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
-async def _resolve_store_products(db, q: Optional[str], category: Optional[str], page: int, page_size: int):
-    query: Dict[str, Any] = {"is_active_web": True}
-    if q:
-        query["name"] = {"$regex": q, "$options": "i"}
-    if category:
-        query["category"] = category
+# Revel stores category as numeric IDs (e.g. "112"). Shop UI uses human slugs
+# (supplements, topicals, teas, essentials). Map known IDs + name patterns so
+# filters work without requiring a Revel ProductCategory sync.
+STORE_CATEGORY_SLUGS: Dict[str, Dict[str, Any]] = {
+    "supplements": {
+        "label": "Supplements",
+        "ids": {"11", "19", "23", "108", "146"},
+        "name_patterns": [
+            r"\bcaps?\b",
+            r"capsule",
+            r"tablet",
+            r"vitamin",
+            r"\bmulti\b",
+            r"complex",
+            r"\d+\s*ct\b",
+            r"\d+\s*caps\b",
+        ],
+    },
+    "topicals": {
+        "label": "Topicals",
+        "ids": {"13", "24", "119", "135"},
+        "name_patterns": [
+            r"cream",
+            r"\boil\b",
+            r"balm",
+            r"lotion",
+            r"soap",
+            r"salve",
+            r"ointment",
+            r"serum",
+            r"drops",
+            r"polish",
+            r"foundation",
+            r"bath salt",
+        ],
+    },
+    "teas": {
+        "label": "Teas",
+        "ids": {"112"},
+        "name_patterns": [r"\btea\b", r"tisane"],
+    },
+    "essentials": {
+        "label": "Essentials",
+        "ids": {"116", "117", "165"},
+        "name_patterns": [
+            r"essential",
+            r"salt lamp",
+            r"incense",
+            r"inhaler",
+            r"cheese cloth",
+        ],
+    },
+}
+
+
+def _escape_regex(value: str) -> str:
+    special = r"\.^$*+?{}[]|()\\"
+    return "".join(f"\\{ch}" if ch in special else ch for ch in value)
+
+
+def _build_search_clause(q: Optional[str]) -> Optional[Dict[str, Any]]:
+    term = (q or "").strip()
+    if not term:
+        return None
+    pattern = _escape_regex(term)
+    return {
+        "$or": [
+            {"name": {"$regex": pattern, "$options": "i"}},
+            {"description": {"$regex": pattern, "$options": "i"}},
+            {"sku": {"$regex": pattern, "$options": "i"}},
+        ]
+    }
+
+
+def _build_category_clause(category: Optional[str]) -> Optional[Dict[str, Any]]:
+    raw = (category or "").strip()
+    if not raw or raw.lower() in {"all", "uncategorized"}:
+        return None
+    slug = raw.lower()
+    menu_match = {
+        "$or": [
+            {"category_slug": slug},
+            {"category_label": {"$regex": f"^{_escape_regex(raw)}$", "$options": "i"}},
+            {"category": raw},
+        ]
+    }
+    group = STORE_CATEGORY_SLUGS.get(slug)
+    if group:
+        clauses: List[Dict[str, Any]] = [menu_match]
+        ids = group.get("ids") or set()
+        if ids:
+            clauses.append({"category": {"$in": list(ids)}})
+        for pattern in group.get("name_patterns") or []:
+            clauses.append({"name": {"$regex": pattern, "$options": "i"}})
+        return {"$or": clauses}
+    return menu_match
+
+
+def _slugify_category(label: str) -> str:
+    raw = (label or "").strip().lower()
+    out = []
+    prev_dash = False
+    for ch in raw:
+        if ch.isalnum():
+            out.append(ch)
+            prev_dash = False
+        elif not prev_dash:
+            out.append("-")
+            prev_dash = True
+    slug = "".join(out).strip("-")
+    return slug or "uncategorized"
+
+
+def _compose_product_query(
+    *,
+    q: Optional[str] = None,
+    category: Optional[str] = None,
+    active_web_only: bool = True,
+    custom_menu_only: bool = True,
+) -> Dict[str, Any]:
+    clauses: List[Dict[str, Any]] = []
+    if custom_menu_only:
+        # After Custom Menu sync, only menu-selected products are shoppable.
+        # Missing field is treated as excluded (legacy full-catalog rows stay hidden).
+        clauses.append({"in_custom_menu": True})
+    if active_web_only:
+        # Emergency override: staff can hide a menu item without removing it in Revel.
+        clauses.append({"is_active_web": {"$ne": False}})
+    search = _build_search_clause(q)
+    if search:
+        clauses.append(search)
+    cat = _build_category_clause(category)
+    if cat:
+        clauses.append(cat)
+    if not clauses:
+        return {}
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$and": clauses}
+
+
+async def _resolve_store_products(
+    db,
+    q: Optional[str],
+    category: Optional[str],
+    page: int,
+    page_size: int,
+    *,
+    active_web_only: bool = True,
+    custom_menu_only: bool = True,
+):
+    query = _compose_product_query(
+        q=q,
+        category=category,
+        active_web_only=active_web_only,
+        custom_menu_only=custom_menu_only,
+    )
     skip = (page - 1) * page_size
     # Products with images first, then newest Revel sync (created_at / updated_at).
     pipeline: List[Dict[str, Any]] = [
@@ -226,7 +379,7 @@ async def _reprice_order_lines_from_catalog(
     """Build Revel line items with explicit unit price from synced store_products (source of truth)."""
     product_ids = [it["product_id"] for it in order_items]
     products = await db.store_products.find(
-        {"product_id": {"$in": product_ids}, "is_active_web": True}, {"_id": 0}
+        {"product_id": {"$in": product_ids}, "is_active_web": {"$ne": False}, "in_custom_menu": True}, {"_id": 0}
     ).to_list(length=500)
     by_id = {p["product_id"]: p for p in products}
     revel_items: List[Dict[str, Any]] = []
@@ -266,10 +419,52 @@ async def get_store_products(
     q: Optional[str] = Query(default=None),
     category: Optional[str] = Query(default=None),
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=12, ge=1, le=48),
+    page_size: int = Query(default=25, ge=1, le=75),
     db=Depends(get_database),
 ):
     return await _resolve_store_products(db, q, category, page, page_size)
+
+
+@router.get("/categories")
+async def get_store_categories(db=Depends(get_database)):
+    """Shop-facing category chips from Custom Menu products currently on the shop."""
+    base = _compose_product_query(active_web_only=True, custom_menu_only=True)
+    pipeline: List[Dict[str, Any]] = [
+        {"$match": base},
+        {
+            "$group": {
+                "_id": {
+                    "slug": {
+                        "$ifNull": [
+                            "$category_slug",
+                            {"$toLower": {"$ifNull": ["$category_label", "$category"]}},
+                        ]
+                    },
+                    "label": {"$ifNull": ["$category_label", "$category"]},
+                },
+                "total": {"$sum": 1},
+            }
+        },
+        {"$sort": {"_id.label": 1}},
+    ]
+    rows = await db.store_products.aggregate(pipeline).to_list(length=100)
+    items: List[Dict[str, Any]] = []
+    for row in rows:
+        key = row.get("_id") or {}
+        label = str(key.get("label") or "Other").strip() or "Other"
+        slug = _slugify_category(str(key.get("slug") or label))
+        if label.lower() in {"uncategorized", "none", "null", ""}:
+            continue
+        items.append({"slug": slug, "label": label, "total": int(row.get("total") or 0)})
+    if not items:
+        for slug, meta in STORE_CATEGORY_SLUGS.items():
+            query = _compose_product_query(
+                category=slug, active_web_only=True, custom_menu_only=True
+            )
+            total = await db.store_products.count_documents(query)
+            if total > 0:
+                items.append({"slug": slug, "label": meta["label"], "total": total})
+    return {"items": items}
 
 
 @router.get("/payment-config")
@@ -297,7 +492,11 @@ async def get_store_products_by_ids(
     db=Depends(get_database),
 ):
     rows = await db.store_products.find(
-        {"product_id": {"$in": body.product_ids}, "is_active_web": True},
+        {
+            "product_id": {"$in": body.product_ids},
+            "is_active_web": {"$ne": False},
+            "in_custom_menu": True,
+        },
         {"_id": 0, "raw_revel_payload": 0},
     ).to_list(length=500)
     return {"items": rows}
@@ -328,26 +527,43 @@ async def sync_revel_products(
     current_user: dict = Depends(get_current_active_user),
     db=Depends(get_database),
 ):
+    """
+    Sync shop catalog from Revel Custom Menu (online ordering menu), not the full
+    product table. Fail-safe: if the menu fetch fails, leave the last good snapshot.
+    """
     if not (
         has_permission(current_user, Permission.SERVICE_UPDATE)
         or has_permission(current_user, Permission.USER_ROLE_MANAGE)
     ):
         raise HTTPException(status_code=403, detail="Not allowed")
     revel = get_revel_service()
-    revel_products = await revel.get_all_products()
+    try:
+        revel_products = await revel.get_custom_menu_products()
+    except Exception as exc:
+        logger.exception("Custom Menu sync aborted; catalog unchanged")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Revel Custom Menu sync failed; catalog left unchanged ({exc})",
+        ) from exc
+
     now = _utc_now_iso()
     upserts = 0
+    menu_ids: List[str] = []
     for rp in revel_products:
+        pid = rp["product_id"]
+        menu_ids.append(pid)
+        label = (rp.get("category_label") or "").strip() or None
         doc = {
-            "product_id": rp["product_id"],
-            "revel_product_id": rp["product_id"],
+            "product_id": pid,
+            "revel_product_id": pid,
             "name": rp["name"],
             "category": rp.get("category") or "uncategorized",
+            "category_label": label,
+            "category_slug": _slugify_category(label) if label else None,
             "price": float(rp.get("price", 0)),
-            "discount_price": None,
             "stock_qty": rp.get("stock_qty"),
             "is_active": bool(rp.get("is_active", True)),
-            "is_active_web": True,
+            "in_custom_menu": True,
             "image_url": rp.get("image_url"),
             "description": rp.get("description"),
             "sku": rp.get("sku"),
@@ -355,12 +571,69 @@ async def sync_revel_products(
             "updated_at": now,
         }
         await db.store_products.update_one(
-            {"product_id": rp["product_id"]},
-            {"$set": doc, "$setOnInsert": {"created_at": now}},
+            {"product_id": pid},
+            {
+                "$set": doc,
+                "$setOnInsert": {
+                    "created_at": now,
+                    "is_active_web": True,
+                    "discount_price": None,
+                },
+            },
             upsert=True,
         )
         upserts += 1
-    return {"success": True, "synced": upserts}
+
+    # Products removed from Custom Menu stay in DB for order history but leave the shop.
+    removed = 0
+    if menu_ids:
+        res = await db.store_products.update_many(
+            {"product_id": {"$nin": menu_ids}, "in_custom_menu": {"$ne": False}},
+            {"$set": {"in_custom_menu": False, "updated_at": now}},
+        )
+        removed = int(res.modified_count or 0)
+    else:
+        # Empty menu is a valid PO state — clear the allowlist.
+        res = await db.store_products.update_many(
+            {"in_custom_menu": True},
+            {"$set": {"in_custom_menu": False, "updated_at": now}},
+        )
+        removed = int(res.modified_count or 0)
+
+    return {
+        "success": True,
+        "synced": upserts,
+        "removed_from_menu": removed,
+        "source": "custom_menu",
+    }
+
+
+@router.get("/admin/products")
+async def admin_list_store_products(
+    q: Optional[str] = Query(default=None),
+    category: Optional[str] = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=75),
+    include_inactive: bool = Query(default=True),
+    current_user: dict = Depends(get_current_active_user),
+    db=Depends(get_database),
+):
+    """Office catalog view — includes products hidden from the public shop."""
+    if not (
+        has_permission(current_user, Permission.SERVICE_UPDATE)
+        or has_permission(current_user, Permission.USER_ROLE_MANAGE)
+        or has_permission(current_user, Permission.BOOKING_MANAGE)
+    ):
+        raise HTTPException(status_code=403, detail="Not allowed")
+    return await _resolve_store_products(
+        db,
+        q,
+        category,
+        page,
+        page_size,
+        active_web_only=not include_inactive,
+        custom_menu_only=True,
+    )
 
 
 @router.patch("/admin/products/{product_id}")
@@ -409,12 +682,13 @@ async def update_store_product(
 async def create_store_order(
     body: CreateStoreOrderIn,
     optional_user: Optional[dict] = Depends(get_optional_user),
+    auth_use_case: AuthUseCase = Depends(get_auth_use_case),
     db=Depends(get_database),
 ):
     product_ids = [i.product_id for i in body.items]
     products = (
         await db.store_products.find(
-            {"product_id": {"$in": product_ids}, "is_active_web": True}, {"_id": 0}
+            {"product_id": {"$in": product_ids}, "is_active_web": {"$ne": False}, "in_custom_menu": True}, {"_id": 0}
         ).to_list(length=500)
     )
     by_id = {p["product_id"]: p for p in products}
@@ -442,12 +716,25 @@ async def create_store_order(
     now = _utc_now_iso()
     order_id = _id("np_ord")
 
+    customer_id = optional_user.get("user_id") if optional_user else None
+    # Guest checkout: upsert an unclaimed customer by email so later register can claim.
+    if not customer_id:
+        try:
+            guest = await auth_use_case.upsert_guest_buyer(
+                email=body.address.email,
+                full_name=body.address.full_name,
+                phone=body.address.phone,
+            )
+            customer_id = guest.get("user_id")
+        except Exception as exc:
+            logger.warning("Guest buyer upsert failed for order_id=%s: %s", order_id, exc)
+
     subtotal_money = Money.from_float(subtotal, "USD")
     tax_money = Money.from_float(tax, "USD")
     total_money = Money.from_float(total, "USD")
     order_doc = {
         "order_id": order_id,
-        "customer_id": optional_user.get("user_id") if optional_user else None,
+        "customer_id": customer_id,
         "items": priced_items,
         "address": body.address.model_dump(),
         "payment_method": body.payment_method,
@@ -465,6 +752,7 @@ async def create_store_order(
         "revel_order_id": None,
         "payment_link_url": None,
         "invoice_id": None,
+        # Guests remain unauthenticated even after upsert — keep action_token.
         "action_token": _id("act") if optional_user is None else None,
         "timeline": [{"status": "placed", "at": now}],
         "created_at": now,

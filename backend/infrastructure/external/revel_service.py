@@ -42,6 +42,11 @@ class RevelService:
         self._require_configured()
         return await self._live.get_all_products()
 
+    async def get_custom_menu_products(self) -> List[Dict[str, Any]]:
+        """Shop catalog source: Revel Custom Menu active selections only."""
+        self._require_configured()
+        return await self._live.get_custom_menu_products()
+
     async def create_order(
         self,
         customer_id: str,

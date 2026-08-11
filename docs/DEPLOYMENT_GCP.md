@@ -75,10 +75,15 @@ secrets, and grants the Cloud Run runtime service account
 
 - Source deploy uses `backend/backend/Dockerfile` (now honors `$PORT`).
 - Injects secrets via `--set-secrets` and non-secret config via `--set-env-vars`
-  (`APP_ENV=production`, `DEBUG=false`, `DB_NAME`, `CORS_ALLOWED_ORIGINS`, Revel subdomain).
+  (`APP_ENV=production`, `DEBUG=false`, `DB_NAME`, `CORS_ALLOWED_ORIGINS`,
+  `GOOGLE_OAUTH_CLIENT_ID`, `SENDER_EMAIL`, Revel subdomain).
 - Prints the service URL; check `…/api/health`.
+- Set `CORS_ALLOWED_ORIGINS` to the live frontend URL(s) before production traffic.
+- Set `SENDER_EMAIL` to a Resend-verified domain mailbox (not `onboarding@resend.dev`).
 
 If using **Memorystore**, set `VPC_CONNECTOR` in `config.env` first (see §6).
+
+Then deploy Celery: `./05-deploy-worker.sh` (see §6).
 
 ---
 
@@ -102,9 +107,25 @@ gcloud run services update "$API_SERVICE" --region "$GCP_REGION" \
 Cloud Run **request services scale to zero and require an HTTP listener**, which a
 Celery worker is not. Two supported patterns:
 
-### Option A — Cloud Run worker pool (recommended)
-A worker pool runs a non-HTTP container continuously (manual/min instances), ideal
-for `celery worker`. Beat can run embedded with `-B`:
+### Option A — scripted deploy (recommended)
+
+After `./02-deploy-backend.sh` (secrets + Redis already configured):
+
+```bash
+./05-deploy-worker.sh
+```
+
+This deploys `WORKER_SERVICE` (`natural-path-worker`) with:
+
+```text
+celery -A infrastructure.queue.celery_config worker -B --loglevel=info
+```
+
+Same Secret Manager bindings as the API (`MONGO_URL`, `REDIS_URL`, JWT, Revel,
+Resend). Uses Cloud Run **worker pools** when the CLI supports them; otherwise a
+min-instances=1 service with the same command.
+
+### Option A (manual) — Cloud Run worker pool
 
 ```bash
 gcloud run worker-pools deploy "$WORKER_SERVICE" \

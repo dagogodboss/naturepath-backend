@@ -67,6 +67,14 @@ export const queryKeys = {
     practitionerOrders: (status?: string) =>
       ['store', 'practitioner', 'orders', status || 'all'] as const,
   },
+
+  // Content / Reels
+  content: {
+    posts: (params?: string) => ['content', 'posts', params || 'default'] as const,
+    detail: (id: string) => ['content', 'detail', id] as const,
+    reels: (limit?: number) => ['content', 'reels', limit ?? 30] as const,
+    comments: (postId: string) => ['content', 'comments', postId] as const,
+  },
 } as const;
 
 export type QueryKeys = typeof queryKeys;

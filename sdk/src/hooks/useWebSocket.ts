@@ -7,7 +7,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { NaturalPathWebSocket, createWebSocket } from '../websocket/manager';
-import { getConfig } from '../api/client';
+import { getConfig, getTokenStorage } from '../api/client';
 import { queryKeys } from './queryKeys';
 import type {
   AvailabilitySlot,
@@ -185,8 +185,14 @@ export function useRealtimeNotifications(
         }
       });
 
-      // Connect to notifications WebSocket
-      wsRef.current.connectToNotifications(userId);
+      // Connect to notifications WebSocket (JWT required)
+      let accessToken: string | null = null;
+      try {
+        accessToken = getTokenStorage().getAccessToken();
+      } catch {
+        // SDK may not be initialized in tests; connect without token → server rejects
+      }
+      wsRef.current.connectToNotifications(userId, accessToken);
 
     } catch (err) {
       console.error('[NaturalPath SDK] WebSocket setup error:', err);
@@ -238,7 +244,16 @@ export function useWebSocket() {
     if (type === 'availability' && args.length >= 2) {
       wsRef.current.connectToAvailability(args[0], args[1]);
     } else if (type === 'notifications' && args.length >= 1) {
-      wsRef.current.connectToNotifications(args[0]);
+      // Prefer explicit token arg; otherwise read from token storage (JWT required as ?token=).
+      let accessToken: string | null = args[1] ?? null;
+      if (!accessToken) {
+        try {
+          accessToken = getTokenStorage().getAccessToken();
+        } catch {
+          accessToken = null;
+        }
+      }
+      wsRef.current.connectToNotifications(args[0], accessToken);
     }
   }, []);
 

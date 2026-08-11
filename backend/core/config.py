@@ -17,7 +17,12 @@ class Settings(BaseSettings):
     debug: bool = True
     deployment_target: str = "local"  # local | aws
     use_docker_network: bool = False
-    cors_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cors_allowed_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:8080,http://127.0.0.1:8080,"
+        "https://frontend.naturepath-local.orb.local,"
+        "http://frontend.naturepath-local.orb.local"
+    )
     
     # MongoDB
     mongo_url: Optional[str] = None
@@ -31,6 +36,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+    # Longer refresh when PWA runs as installed app (display-mode: standalone).
+    refresh_token_expire_days_standalone: int = 90
+
+    # Google OAuth (Firebase Web client ID works here — verify Google ID tokens).
+    # Leave empty to disable OAuth endpoints (frontend shows Coming soon).
+    google_oauth_client_id: Optional[str] = None
+    google_oauth_client_secret: Optional[str] = None
     
     # Celery — when True, tasks run in-process (no Redis/worker needed; use for local dev)
     celery_task_always_eager: bool = False
@@ -44,7 +56,8 @@ class Settings(BaseSettings):
     
     # Email (Resend)
     resend_api_key: Optional[str] = None
-    sender_email: str = "onboarding@resend.dev"
+    # Production: set to a mailbox on a domain verified in Resend.
+    sender_email: str = "noreply@YOUR_DOMAIN"
     # Email (SMTP fallback)
     smtp_host: Optional[str] = None
     smtp_port: int = 587
@@ -98,6 +111,11 @@ class Settings(BaseSettings):
     s3_secret_key: Optional[str] = None
     s3_region: str = "us-east-1"
     s3_endpoint_url: Optional[str] = None
+
+    # GCS + CDN for blog/vlog media (optional until provisioned)
+    gcs_bucket: Optional[str] = None
+    cdn_base_url: Optional[str] = None
+    redis_content_url: Optional[str] = None
     
     # REVEL POS — live HTTP only (see infrastructure/external/revel_service.py)
     revel_api_url: str = "https://api.revelup.com"
@@ -135,6 +153,10 @@ class Settings(BaseSettings):
 
     # Used in booking confirmation emails for absolute links (optional)
     public_app_url: str = "http://localhost:5173"
+
+    # Clinic local timezone for slot comparisons / reminder calendar dates
+    # (booking slots are stored as local wall-clock date + HH:MM).
+    clinic_timezone: str = "America/Los_Angeles"
 
     class Config:
         env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")

@@ -154,13 +154,20 @@ async def get_current_user(
 async def get_current_active_user(
     current_user: dict = Depends(get_current_user)
 ):
-    """Get current active user"""
+    """Get current active user; customers must have a phone on file."""
     if not current_user.get("is_active", True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is disabled"
         )
     current_user["role"] = normalize_role(current_user.get("role"))
+    if current_user["role"] == "customer":
+        phone = (current_user.get("phone") or "").strip()
+        if len(phone) < 7:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Phone number required to continue",
+            )
     return current_user
 
 

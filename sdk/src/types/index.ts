@@ -63,12 +63,66 @@ export interface RegisterRequest {
   password: string;
   first_name: string;
   last_name: string;
-  phone?: string;
+  phone: string;
 }
 
 export interface LoginRequest {
   email: string;
   password: string;
+}
+
+export interface LookupEmailRequest {
+  email: string;
+}
+
+export interface LookupEmailResponse {
+  exists: boolean;
+  needs_password: boolean;
+}
+
+export interface GoogleOAuthRequest {
+  id_token: string;
+  phone?: string | null;
+}
+
+export interface CompleteOAuthPhoneRequest {
+  setup_token: string;
+  phone: string;
+}
+
+export interface GoogleOAuthStatus {
+  enabled: boolean;
+  client_id?: string | null;
+}
+
+/**
+ * OAuth exchange: full JWTs when phone is present; otherwise needs_phone +
+ * short-lived setup_token (no access/refresh until /oauth/complete-phone).
+ */
+export interface GoogleOAuthResponse {
+  needs_phone?: boolean;
+  setup_token?: string;
+  setup_token_expires_in?: number;
+  access_token?: string;
+  refresh_token?: string;
+  token_type?: string;
+  expires_in?: number;
+  user?: AuthResponse['user'] & {
+    phone?: string | null;
+    is_discovery_completed?: boolean;
+  };
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+}
+
+export interface SendVerificationOtpRequest {
+  email: string;
+}
+
+export interface VerifyEmailOtpRequest {
+  email: string;
+  code: string;
 }
 
 export interface AuthResponse {
@@ -93,10 +147,13 @@ export interface UpdateProfileRequest {
 }
 
 export interface DiscoveryEligibility {
+  state: 'none' | 'scheduled' | 'pending_completion' | 'completed';
   is_discovery_completed: boolean;
   has_discovery_booking: boolean;
   has_discovery_flag: boolean;
   discovery_booking_id?: string | null;
+  discovery_slot?: { date: string; start_time: string } | null;
+  messaging_key: 'please_book' | 'scheduled' | 'pending' | 'unlocked';
 }
 
 // ==================== Practitioner Types ====================
@@ -179,6 +236,9 @@ export interface Service {
   revel_product_id?: string | null;
   benefits?: string[];
   warning_copy?: string | null;
+  is_discovery_entry?: boolean;
+  /** True when caller may view but not book (pre-discovery / guest gate). */
+  booking_locked?: boolean;
   rating_average?: number;
   rating_count?: number;
   reviews?: ServiceReview[];
@@ -248,6 +308,15 @@ export interface BookingSlot {
   end_time: string; // HH:MM
 }
 
+export interface BookingRecurrence {
+  frequency?: string;
+  active?: boolean;
+  horizon_months?: number;
+  series_id?: string;
+  stopped_at?: string | null;
+  [key: string]: unknown;
+}
+
 export interface Booking {
   booking_id: string;
   customer_id: string;
@@ -268,6 +337,10 @@ export interface Booking {
   receipt_id?: string | null;
   paid_at?: string | null;
   payment_reference_id?: string | null;
+  /** Monthly series id shared by parent + materialised children. */
+  series_id?: string | null;
+  series_parent_id?: string | null;
+  recurrence?: BookingRecurrence | null;
   created_at: string;
   updated_at: string;
   confirmed_at?: string | null;
@@ -276,6 +349,11 @@ export interface Booking {
   service?: Service;
   practitioner?: Practitioner;
   customer?: User;
+}
+
+export interface StopRecurringResponse extends Booking {
+  cancelled_future?: string[];
+  series_id?: string | null;
 }
 
 export interface BookingPaymentStatusResponse {
@@ -300,6 +378,8 @@ export interface InitiateBookingRequest {
   practitioner_id?: string;
   slot: BookingSlot;
   notes?: string;
+  /** Opt-in monthly recurrence after discovery unlock (default false). */
+  enable_monthly_recurrence?: boolean;
 }
 
 export interface ServiceSlotWindow {
@@ -650,6 +730,104 @@ export interface ReconciliationReport {
   resolved_by?: string;
   resolved_at?: string;
   created_at: string;
+}
+
+// ==================== Content / Reels Types ====================
+export type ContentType = 'blog' | 'vlog';
+export type ContentStatus = 'draft' | 'published';
+
+export interface ContentPost {
+  post_id: string;
+  type: ContentType;
+  title: string;
+  slug?: string;
+  body?: string | null;
+  caption?: string | null;
+  cover_url?: string | null;
+  media_url?: string | null;
+  /**
+   * Optional Phase G native 1-min preview clip URL (CDN or GCS).
+   * When absent, clients should use interim `#t=0,preview_seconds` on media_url.
+   * Server composes public URLs from CDN_BASE_URL when set to a real front door;
+   * otherwise signed GET URLs (never anonymous storage.googleapis.com under PAP).
+   * Phase G server-side preview clips are not generated yet — clients use
+   * preview_clip_url when present, else media fragment helpers.
+   */
+  preview_clip_url?: string | null;
+  embed_url?: string | null;
+  status: ContentStatus;
+  aspect_ratio?: '4:5' | '3:4' | null;
+  published_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ReelItem extends ContentPost {
+  seen?: boolean;
+  like_count?: number;
+  comment_count?: number;
+  liked_by_me?: boolean;
+  /** Interim preview window in seconds when preview_clip_url is absent. */
+  preview_seconds?: number;
+}
+
+export interface ContentComment {
+  comment_id: string;
+  post_id: string;
+  user_id: string;
+  author_name?: string;
+  body: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ContentPostsResponse {
+  items: ContentPost[];
+}
+
+export interface ReelsFeedResponse {
+  items: ReelItem[];
+}
+
+export interface ReelCommentsResponse {
+  items: ContentComment[];
+}
+
+export interface CreateContentPostRequest {
+  type: ContentType;
+  title: string;
+  body?: string | null;
+  caption?: string | null;
+  cover_url?: string | null;
+  media_url?: string | null;
+  /** GCS object key for native video (Phase G preview pipeline). */
+  media_object_name?: string | null;
+  embed_url?: string | null;
+  status?: ContentStatus;
+  aspect_ratio?: '4:5' | '3:4' | null;
+}
+
+export type UpdateContentPostRequest = Partial<CreateContentPostRequest>;
+
+export interface SignedUploadRequest {
+  filename: string;
+  content_type: string;
+  kind?: 'image' | 'video';
+}
+
+export interface SignedUploadResponse {
+  upload_url?: string;
+  public_url?: string;
+  object_name?: string;
+  content_type?: string;
+  /** When GCS is unset, API may instruct embed/media_url only. */
+  message?: string;
+  gcs_enabled?: boolean;
+}
+
+export interface StorePaymentConfig {
+  sms_pay_link?: boolean;
+  [key: string]: unknown;
 }
 
 // ==================== WebSocket Types ====================

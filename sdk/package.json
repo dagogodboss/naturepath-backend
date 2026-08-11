@@ -1,6 +1,6 @@
 {
   "name": "natural-path-sdk",
-  "version": "1.0.3",
+  "version": "1.0.6",
   "description": "React TypeScript SDK for The Natural Path Spa Management System",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

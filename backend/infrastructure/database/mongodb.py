@@ -128,6 +128,7 @@ class Database:
         await cls.db.store_products.create_index("product_id", unique=True)
         await cls.db.store_products.create_index("revel_product_id")
         await cls.db.store_products.create_index([("is_active_web", 1), ("category", 1)])
+        await cls.db.store_products.create_index([("in_custom_menu", 1), ("is_active_web", 1)])
         await cls.db.store_orders.create_index("order_id", unique=True)
         await cls.db.store_orders.create_index([("customer_id", 1), ("created_at", -1)])
         await cls.db.store_orders.create_index([("fulfillment_status", 1), ("payment_status", 1)])
@@ -152,6 +153,12 @@ class Database:
         )
         await cls.db.analytics_events.create_index([("event_name", 1), ("created_at", -1)])
         await cls.db.analytics_events.create_index("created_at")
+
+        # Blog / vlog content
+        await cls.db.content_posts.create_index("post_id", unique=True)
+        await cls.db.content_posts.create_index("slug", unique=True)
+        await cls.db.content_posts.create_index([("status", 1), ("type", 1), ("published_at", -1)])
+        await cls.db.content_posts.create_index([("updated_at", -1)])
         
         logger.info("Database indexes created")
     

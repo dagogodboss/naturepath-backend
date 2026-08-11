@@ -8,7 +8,7 @@
 
 A fully-typed React SDK that provides hooks-based abstractions for the Natural Path Spa backend API. Built with React Query for optimal caching and state management.
 
-**Registry:** [natural-path-sdk on npm](https://www.npmjs.com/package/natural-path-sdk) — latest **`1.0.0`**. Install with `npm install natural-path-sdk` (peer: `@tanstack/react-query`). The monorepo `frontend/` app uses **`"natural-path-sdk": "^1.0.0"`** from the registry so it matches what external consumers install.
+**Registry:** [natural-path-sdk on npm](https://www.npmjs.com/package/natural-path-sdk) — latest **`1.0.4`**. Install with `npm install natural-path-sdk` (peer: `@tanstack/react-query`). The monorepo `frontend/` app tracks the published package when available; for unpublished local work use `"natural-path-sdk": "file:../backend/sdk"`.
 
 ## Features
 

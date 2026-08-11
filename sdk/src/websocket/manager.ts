@@ -30,6 +30,20 @@ export interface WebSocketConfig {
   pingInterval?: number;
 }
 
+/** Build notifications WS URL; JWT is required by the API as `?token=`. */
+export function buildNotificationsEndpoint(
+  wsBase: string,
+  userId: string,
+  accessToken?: string | null
+): string {
+  let endpoint = `${wsBase}/ws/notifications/${userId}`;
+  if (accessToken) {
+    const sep = endpoint.includes('?') ? '&' : '?';
+    endpoint = `${endpoint}${sep}token=${encodeURIComponent(accessToken)}`;
+  }
+  return endpoint;
+}
+
 export class NaturalPathWebSocket {
   private ws: WebSocket | null = null;
   private config: Required<WebSocketConfig>;
@@ -59,10 +73,11 @@ export class NaturalPathWebSocket {
 
   /**
    * Connect to user notifications
+   * Passes access JWT as ?token= (required by the API).
    */
-  connectToNotifications(userId: string): void {
+  connectToNotifications(userId: string, accessToken?: string | null): void {
     const wsUrl = this.config.baseUrl.replace(/^http/, 'ws');
-    this.currentEndpoint = `${wsUrl}/ws/notifications/${userId}`;
+    this.currentEndpoint = buildNotificationsEndpoint(wsUrl, userId, accessToken);
     this.connect();
   }
 

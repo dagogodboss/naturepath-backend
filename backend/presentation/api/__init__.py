@@ -8,6 +8,7 @@ from .admin_routes import router as admin_router
 from .webhook_routes import router as webhook_router
 from .store_routes import router as store_router
 from .client_routes import router as client_router
+from .content_routes import router as content_router
 
 __all__ = [
     "auth_router",
@@ -19,4 +20,5 @@ __all__ = [
     "webhook_router",
     "store_router",
     "client_router",
+    "content_router",
 ]

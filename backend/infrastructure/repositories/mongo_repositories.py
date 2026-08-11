@@ -1,6 +1,7 @@
 """
 MongoDB Repository Implementations - Infrastructure Layer
 """
+import re
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -29,7 +30,17 @@ class MongoUserRepository(IUserRepository):
         return await self.collection.find_one({"user_id": entity_id}, {"_id": 0})
     
     async def get_by_email(self, email: str) -> Optional[Dict[str, Any]]:
-        return await self.collection.find_one({"email": email}, {"_id": 0})
+        normalized = (email or "").strip().lower()
+        if not normalized:
+            return None
+        user = await self.collection.find_one({"email": normalized}, {"_id": 0})
+        if user:
+            return user
+        # Legacy mixed-case emails
+        return await self.collection.find_one(
+            {"email": {"$regex": f"^{re.escape((email or '').strip())}$", "$options": "i"}},
+            {"_id": 0},
+        )
     
     async def get_by_role(self, role: str) -> List[Dict[str, Any]]:
         cursor = self.collection.find({"role": role}, {"_id": 0})

@@ -15,6 +15,11 @@ env/
 .env
 .env.*
 !.env.example
+# Never bake GCS/GCP service-account JSON into image layers (compose mounts instead)
+*-sa.json
+**/gcs-sa.json
+**/secrets/*.json
+project-naturalpath-*.json
 
 # Logs & local artifacts
 *.log

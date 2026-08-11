@@ -58,6 +58,23 @@ import type {
   BackfillRevelTransactionRequest,
   BackfillRevelTransactionResponse,
   ReconciliationReport,
+  GoogleOAuthRequest,
+  GoogleOAuthResponse,
+  GoogleOAuthStatus,
+  CompleteOAuthPhoneRequest,
+  SendVerificationOtpRequest,
+  VerifyEmailOtpRequest,
+  StopRecurringResponse,
+  ContentPost,
+  ContentPostsResponse,
+  CreateContentPostRequest,
+  UpdateContentPostRequest,
+  SignedUploadRequest,
+  SignedUploadResponse,
+  ReelsFeedResponse,
+  ReelCommentsResponse,
+  ContentComment,
+  StorePaymentConfig,
 } from '../types';
 
 // ==================== Auth API ====================
@@ -75,6 +92,76 @@ export const authApi = {
    */
   login: async (data: LoginRequest): Promise<AuthResponse> => {
     const response = await getApiClient().post<AuthResponse>('/api/auth/login', data);
+    return response.data;
+  },
+
+  /**
+   * Lightweight email recognition for checkout (rate-limited).
+   */
+  lookupEmail: async (email: string): Promise<{ exists: boolean; needs_password: boolean }> => {
+    const response = await getApiClient().post<{ exists: boolean; needs_password: boolean }>(
+      '/api/auth/lookup-email',
+      { email },
+    );
+    return response.data;
+  },
+
+  /**
+   * Exchange Google Identity Services / Firebase ID token for app JWTs.
+   * When phone is missing, returns needs_phone + setup_token (no access/refresh).
+   */
+  oauthGoogle: async (data: GoogleOAuthRequest): Promise<GoogleOAuthResponse> => {
+    const response = await getApiClient().post<GoogleOAuthResponse>(
+      '/api/auth/oauth/google',
+      data
+    );
+    return response.data;
+  },
+
+  /**
+   * Finish Google OAuth by attaching a phone using the short-lived setup_token.
+   */
+  completeOAuthPhone: async (
+    data: CompleteOAuthPhoneRequest
+  ): Promise<GoogleOAuthResponse> => {
+    const response = await getApiClient().post<GoogleOAuthResponse>(
+      '/api/auth/oauth/complete-phone',
+      data
+    );
+    return response.data;
+  },
+
+  /**
+   * Whether Continue with Google is available (env-gated).
+   */
+  oauthGoogleStatus: async (): Promise<GoogleOAuthStatus> => {
+    const response = await getApiClient().get<GoogleOAuthStatus>('/api/auth/oauth/google/status');
+    return response.data;
+  },
+
+  /**
+   * Send email verification OTP after signup.
+   */
+  sendVerificationOtp: async (
+    data: SendVerificationOtpRequest
+  ): Promise<{ message: string; provider?: string }> => {
+    const response = await getApiClient().post<{ message: string; provider?: string }>(
+      '/api/auth/send-verification-otp',
+      data
+    );
+    return response.data;
+  },
+
+  /**
+   * Verify email with OTP code.
+   */
+  verifyEmailOtp: async (
+    data: VerifyEmailOtpRequest
+  ): Promise<{ message: string }> => {
+    const response = await getApiClient().post<{ message: string }>(
+      '/api/auth/verify-email-otp',
+      data
+    );
     return response.data;
   },
 
@@ -414,6 +501,50 @@ export const bookingApi = {
   },
 
   /**
+   * Mark Discovery Call done for the customer (unlocks non-discovery services).
+   */
+  completeDiscoveryAsPractitioner: async (
+    bookingId: string
+  ): Promise<DiscoveryEligibility> => {
+    const response = await getApiClient().post<DiscoveryEligibility>(
+      `/api/booking/practitioner/${bookingId}/complete-discovery`
+    );
+    return response.data;
+  },
+
+  /**
+   * Admin: mark Discovery Call done for a customer.
+   */
+  completeDiscoveryAsAdmin: async (
+    bookingId: string
+  ): Promise<DiscoveryEligibility> => {
+    const response = await getApiClient().post<DiscoveryEligibility>(
+      `/api/booking/admin/${bookingId}/complete-discovery`
+    );
+    return response.data;
+  },
+
+  /**
+   * Stop monthly recurrence and cancel future series members only.
+   */
+  stopRecurring: async (bookingId: string): Promise<StopRecurringResponse> => {
+    const response = await getApiClient().post<StopRecurringResponse>(
+      `/api/booking/${bookingId}/stop-recurring`
+    );
+    return response.data;
+  },
+
+  /**
+   * Download multi-VEVENT .ics for a booking (Apple / iCloud path).
+   */
+  downloadIcal: async (bookingId: string): Promise<Blob> => {
+    const response = await getApiClient().get<Blob>(`/api/booking/${bookingId}/ical`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  /**
    * Reschedule (practitioner acting for their client)
    */
   rescheduleAsPractitioner: async (data: RescheduleBookingRequest): Promise<Booking> => {
@@ -591,12 +722,38 @@ export const storeApi = {
     page?: number;
     page_size?: number;
   }): Promise<StoreProductsResponse> => {
-    // Backend Query allows page_size le=48; clamp so callers never get 422.
+    // Backend Query allows page_size le=75; clamp so callers never get 422.
     const safe = params ? { ...params } : undefined;
     if (safe?.page_size != null) {
-      safe.page_size = Math.min(Math.max(1, safe.page_size), 48);
+      safe.page_size = Math.min(Math.max(1, safe.page_size), 75);
     }
     const response = await getApiClient().get<StoreProductsResponse>('/api/store/products', {
+      params: safe,
+    });
+    return response.data;
+  },
+
+  getCategories: async (): Promise<{
+    items: Array<{ slug: string; label: string; total: number }>;
+  }> => {
+    const response = await getApiClient().get<{
+      items: Array<{ slug: string; label: string; total: number }>;
+    }>('/api/store/categories');
+    return response.data;
+  },
+
+  getAdminProducts: async (params?: {
+    q?: string;
+    category?: string;
+    page?: number;
+    page_size?: number;
+    include_inactive?: boolean;
+  }): Promise<StoreProductsResponse> => {
+    const safe = params ? { ...params } : undefined;
+    if (safe?.page_size != null) {
+      safe.page_size = Math.min(Math.max(1, safe.page_size), 75);
+    }
+    const response = await getApiClient().get<StoreProductsResponse>('/api/store/admin/products', {
       params: safe,
     });
     return response.data;
@@ -645,6 +802,15 @@ export const storeApi = {
     return response.data;
   },
 
+  resendSms: async (orderId: string, actionToken?: string): Promise<StoreOrder | { success?: boolean }> => {
+    const response = await getApiClient().post<StoreOrder | { success?: boolean }>(
+      `/api/store/checkout/orders/${orderId}/resend-sms`,
+      null,
+      { params: actionToken ? { action_token: actionToken } : undefined }
+    );
+    return response.data;
+  },
+
   getOrder: async (orderId: string): Promise<StoreOrder> => {
     const response = await getApiClient().get<StoreOrder>(`/api/store/orders/${orderId}`);
     return response.data;
@@ -654,6 +820,11 @@ export const storeApi = {
     const response = await getApiClient().get<StoreOrder>(`/api/store/orders/${orderId}/status`, {
       params: actionToken ? { action_token: actionToken } : undefined,
     });
+    return response.data;
+  },
+
+  getPaymentConfig: async (): Promise<StorePaymentConfig> => {
+    const response = await getApiClient().get<StorePaymentConfig>('/api/store/payment-config');
     return response.data;
   },
 
@@ -737,6 +908,137 @@ export const clientsApi = {
   },
   getById: async (clientId: string): Promise<ClientDetailResponse> => {
     const response = await getApiClient().get<ClientDetailResponse>(`/api/clients/${clientId}`);
+    return response.data;
+  },
+};
+
+// ==================== Content / Reels API ====================
+export const contentApi = {
+  getLatest: async (limit = 5): Promise<ContentPost[] | ContentPostsResponse> => {
+    const response = await getApiClient().get<ContentPost[] | ContentPostsResponse>(
+      '/api/content/posts/latest',
+      { params: { limit } }
+    );
+    return response.data;
+  },
+
+  listPosts: async (params?: {
+    type?: string;
+    limit?: number;
+  }): Promise<ContentPost[] | ContentPostsResponse> => {
+    const response = await getApiClient().get<ContentPost[] | ContentPostsResponse>(
+      '/api/content/posts',
+      { params }
+    );
+    return response.data;
+  },
+
+  getBySlug: async (slug: string): Promise<ContentPost> => {
+    const response = await getApiClient().get<ContentPost>(
+      `/api/content/posts/${encodeURIComponent(slug)}`
+    );
+    return response.data;
+  },
+
+  getById: async (postId: string): Promise<ContentPost> => {
+    const response = await getApiClient().get<ContentPost>(
+      `/api/content/posts/id/${encodeURIComponent(postId)}`
+    );
+    return response.data;
+  },
+
+  adminList: async (params?: {
+    type?: string;
+    status?: string;
+  }): Promise<ContentPost[] | ContentPostsResponse> => {
+    const response = await getApiClient().get<ContentPost[] | ContentPostsResponse>(
+      '/api/content/admin/posts',
+      { params }
+    );
+    return response.data;
+  },
+
+  adminCreate: async (data: CreateContentPostRequest): Promise<ContentPost> => {
+    const response = await getApiClient().post<ContentPost>('/api/content/admin/posts', data);
+    return response.data;
+  },
+
+  adminUpdate: async (
+    postId: string,
+    data: UpdateContentPostRequest
+  ): Promise<ContentPost> => {
+    const response = await getApiClient().patch<ContentPost>(
+      `/api/content/admin/posts/${encodeURIComponent(postId)}`,
+      data
+    );
+    return response.data;
+  },
+
+  adminDelete: async (postId: string): Promise<void> => {
+    await getApiClient().delete(`/api/content/admin/posts/${encodeURIComponent(postId)}`);
+  },
+
+  /**
+   * Signed GCS PUT URL when GCS_BUCKET is configured.
+   * public_url uses CDN_BASE_URL when set; otherwise a signed GET URL (PAP-safe).
+   * Never anonymous storage.googleapis.com.
+   */
+  adminSignUpload: async (data: SignedUploadRequest): Promise<SignedUploadResponse> => {
+    const response = await getApiClient().post<SignedUploadResponse>(
+      '/api/content/admin/uploads/sign',
+      data
+    );
+    return response.data;
+  },
+
+  getReelsFeed: async (limit = 30): Promise<ReelsFeedResponse> => {
+    const response = await getApiClient().get<ReelsFeedResponse>('/api/content/reels', {
+      params: { limit },
+    });
+    return response.data;
+  },
+
+  markReelSeen: async (postId: string): Promise<{ success: boolean; post_id: string }> => {
+    const response = await getApiClient().post<{ success: boolean; post_id: string }>(
+      `/api/content/reels/${encodeURIComponent(postId)}/seen`
+    );
+    return response.data;
+  },
+
+  likeReel: async (
+    postId: string
+  ): Promise<{ success: boolean; liked: boolean; like_count: number }> => {
+    const response = await getApiClient().post<{
+      success: boolean;
+      liked: boolean;
+      like_count: number;
+    }>(`/api/content/reels/${encodeURIComponent(postId)}/like`);
+    return response.data;
+  },
+
+  unlikeReel: async (
+    postId: string
+  ): Promise<{ success: boolean; liked: boolean; like_count: number }> => {
+    const response = await getApiClient().delete<{
+      success: boolean;
+      liked: boolean;
+      like_count: number;
+    }>(`/api/content/reels/${encodeURIComponent(postId)}/like`);
+    return response.data;
+  },
+
+  getReelComments: async (postId: string): Promise<ReelCommentsResponse> => {
+    const response = await getApiClient().get<ReelCommentsResponse>(
+      `/api/content/reels/${encodeURIComponent(postId)}/comments`
+    );
+    return response.data;
+  },
+
+  addReelComment: async (postId: string, body: string): Promise<ContentComment> => {
+    const response = await getApiClient().post<ContentComment>(
+      `/api/content/reels/${encodeURIComponent(postId)}/comments`,
+      { body }
+    );
     return response.data;
   },
 };

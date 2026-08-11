@@ -33,6 +33,15 @@ export {
 } from './providers';
 export type { NaturalPathProviderProps, NaturalPathContextValue } from './providers';
 
+// Re-export common react-query hooks so apps can import from one package
+// and avoid dual @tanstack/react-query copies when the SDK is linked locally.
+export {
+  useQuery,
+  useMutation,
+  useInfiniteQuery,
+  keepPreviousData,
+} from '@tanstack/react-query';
+
 // ==================== Types ====================
 export type {
   // Enums
@@ -92,6 +101,31 @@ export type {
   StoreProductsResponse,
   BackfillRevelTransactionRequest,
   BackfillRevelTransactionResponse,
+  StorePaymentConfig,
+  // Content / Reels
+  ContentType,
+  ContentStatus,
+  ContentPost,
+  ReelItem,
+  ContentComment,
+  ContentPostsResponse,
+  ReelsFeedResponse,
+  ReelCommentsResponse,
+  CreateContentPostRequest,
+  UpdateContentPostRequest,
+  SignedUploadRequest,
+  SignedUploadResponse,
+  // Auth extras
+  LookupEmailRequest,
+  LookupEmailResponse,
+  GoogleOAuthRequest,
+  GoogleOAuthResponse,
+  GoogleOAuthStatus,
+  CompleteOAuthPhoneRequest,
+  SendVerificationOtpRequest,
+  VerifyEmailOtpRequest,
+  BookingRecurrence,
+  StopRecurringResponse,
   // Payment
   Payment,
   RevelOrder,
@@ -158,6 +192,8 @@ export {
   usePractitionerCalendar,
   useServiceAvailability,
   useCompletePractitionerSession,
+  useCompleteDiscoveryAsPractitioner,
+  useStopRecurring,
   // User
   useProfile,
   useDiscoveryEligibility,
@@ -198,6 +234,15 @@ export {
   useCreateStoreOrder,
   usePayStoreOrder,
   useStoreOrderOps,
+  // Content / Reels
+  useReelsFeed,
+  useContentPosts,
+  useContentPostById,
+  useMarkReelSeen,
+  useLikeReel,
+  useUnlikeReel,
+  useReelComments,
+  useAddReelComment,
 } from './hooks';
 
 // ==================== API (for advanced usage) ====================
@@ -211,6 +256,7 @@ export {
   healthApi,
   storeApi,
   clientsApi,
+  contentApi,
 } from './api/endpoints';
 
 export {
@@ -226,6 +272,7 @@ export type { NaturalPathConfig, TokenStorage } from './api/client';
 export {
   NaturalPathWebSocket,
   createWebSocket,
+  buildNotificationsEndpoint,
 } from './websocket';
 
 export type { WebSocketConfig, WebSocketEventType, WebSocketEventHandler } from './websocket/manager';
@@ -247,4 +294,21 @@ export {
   generateTimeSlots,
   sleep,
   debounce,
+  discoveryState,
+  discoveryMessagingKey,
+  discoveryBannerCopy,
+  isDiscoveryUnlocked,
+  previewMediaSrc,
+  reelPreviewSrc,
+  embedIframeSrc,
+  buildCalendarLinks,
+  linksFromBooking,
+  downloadBookingIcal,
+} from './utils';
+
+export type {
+  DiscoveryState,
+  DiscoveryMessagingKey,
+  CalendarLinkInput,
+  CalendarLinks,
 } from './utils';

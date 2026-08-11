@@ -121,8 +121,14 @@ class EmailService:
                     filename=a["filename"],
                 )
 
-        with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=20) as server:
-            if self.smtp_use_tls:
+        # Port 465 = implicit SSL (SMTP_SSL). Port 587 = plain + STARTTLS when smtp_use_tls.
+        use_ssl = int(self.smtp_port) == 465
+        if use_ssl:
+            server_cm = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=20)
+        else:
+            server_cm = smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=20)
+        with server_cm as server:
+            if not use_ssl and self.smtp_use_tls:
                 server.starttls()
             if self.smtp_username and self.smtp_password:
                 server.login(self.smtp_username, self.smtp_password)
@@ -140,6 +146,7 @@ class EmailService:
         *,
         pay_at_counter: bool = True,
         google_calendar_url: Optional[str] = None,
+        yahoo_calendar_url: Optional[str] = None,
         outlook_live_url: Optional[str] = None,
         outlook_office_url: Optional[str] = None,
         ics_base64: Optional[str] = None,
@@ -152,11 +159,15 @@ class EmailService:
             else "<p><strong>Payment:</strong> Your payment was processed.</p>"
         )
         calendar_block = ""
-        if google_calendar_url or outlook_live_url or outlook_office_url:
+        if google_calendar_url or yahoo_calendar_url or outlook_live_url or outlook_office_url:
             links = []
             if google_calendar_url:
                 links.append(
                     f'<a class="btn" href="{google_calendar_url}" target="_blank" rel="noopener">Add to Google Calendar</a>'
+                )
+            if yahoo_calendar_url:
+                links.append(
+                    f'<a class="btn secondary" href="{yahoo_calendar_url}" target="_blank" rel="noopener">Add to Yahoo Calendar</a>'
                 )
             if outlook_live_url:
                 links.append(
@@ -168,7 +179,7 @@ class EmailService:
                 )
             calendar_block = f"""
                     <p style="margin-top:20px;"><strong>Add to your calendar</strong></p>
-                    <p style="font-size:13px;color:#555;">Open a link below or use the attached .ics file (Apple Calendar, Google, Outlook).</p>
+                    <p style="font-size:13px;color:#555;">Open a link below or use the attached .ics file (Apple Calendar / iCloud, Google, Outlook).</p>
                     <div style="display:flex;flex-wrap:wrap;gap:10px;margin:12px 0;">{"".join(links)}</div>
             """
         attach_note = (
@@ -252,6 +263,7 @@ class EmailService:
         booking_id: str,
         *,
         google_calendar_url: Optional[str] = None,
+        yahoo_calendar_url: Optional[str] = None,
         outlook_live_url: Optional[str] = None,
         outlook_office_url: Optional[str] = None,
         ics_base64: Optional[str] = None,
@@ -259,11 +271,15 @@ class EmailService:
         """Notify practitioner of a new confirmed booking (same calendar helpers as customer)."""
         subject = f"New appointment: {service_name} — {date} {time}"
         calendar_block = ""
-        if google_calendar_url or outlook_live_url or outlook_office_url:
+        if google_calendar_url or yahoo_calendar_url or outlook_live_url or outlook_office_url:
             links = []
             if google_calendar_url:
                 links.append(
                     f'<a class="btn" href="{google_calendar_url}" target="_blank" rel="noopener">Google Calendar</a>'
+                )
+            if yahoo_calendar_url:
+                links.append(
+                    f'<a class="btn secondary" href="{yahoo_calendar_url}" target="_blank" rel="noopener">Yahoo</a>'
                 )
             if outlook_live_url:
                 links.append(
@@ -325,10 +341,19 @@ class EmailService:
         customer_name: str,
         service_name: str,
         date: str,
-        time: str
+        time: str,
+        reminder_kind: str = "d1",
     ) -> Dict[str, Any]:
-        """Send booking reminder email"""
-        subject = f"Reminder: Your Appointment Tomorrow - The Natural Path Spa"
+        """Send booking reminder email (d3 = 3 days out, d1 = tomorrow, d0 = today)."""
+        when_labels = {
+            "d3": ("in 3 days", "Your Appointment in 3 Days"),
+            "d1": ("tomorrow", "Your Appointment Tomorrow"),
+            "d0": ("today", "Your Appointment Today"),
+        }
+        when_phrase, subject_bit = when_labels.get(
+            reminder_kind, ("soon", "Your Upcoming Appointment")
+        )
+        subject = f"Reminder: {subject_bit} - The Natural Path Spa"
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -349,7 +374,7 @@ class EmailService:
                 </div>
                 <div class="content">
                     <h2>Hello {customer_name},</h2>
-                    <p>This is a friendly reminder about your upcoming appointment.</p>
+                    <p>This is a friendly reminder that your appointment is {when_phrase}.</p>
                     
                     <div class="highlight">
                         <strong>{service_name}</strong><br>

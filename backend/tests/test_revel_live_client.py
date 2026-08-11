@@ -36,3 +36,27 @@ def test_normalize_weborders_product_payload():
     assert product["stock_qty"] == -26
     assert product["sku"] == "033674151464"
     assert product["is_active"] is True
+
+
+def test_walk_custom_menu_categories():
+    from infrastructure.external.revel_live_client import _walk_menu_categories
+
+    categories = [
+        {
+            "name": "Accessories",
+            "products": [
+                {
+                    "id": 17495,
+                    "name": "Mesh Soap Saver Dish",
+                    "price": 2.99,
+                    "id_category": 117,
+                    "barcode": "100000014264",
+                }
+            ],
+        }
+    ]
+    products = _walk_menu_categories(categories)
+    assert len(products) == 1
+    assert products[0]["product_id"] == "17495"
+    assert products[0]["category_label"] == "Accessories"
+    assert products[0]["name"] == "Mesh Soap Saver Dish"

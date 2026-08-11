@@ -2,6 +2,27 @@
  * natural-path-sdk - Utility Functions
  */
 
+export {
+  discoveryState,
+  discoveryMessagingKey,
+  discoveryBannerCopy,
+  isDiscoveryUnlocked,
+} from './discoveryGate';
+export type { DiscoveryState, DiscoveryMessagingKey } from './discoveryGate';
+
+export {
+  previewMediaSrc,
+  reelPreviewSrc,
+  embedIframeSrc,
+} from './previewMedia';
+
+export {
+  buildCalendarLinks,
+  linksFromBooking,
+  downloadBookingIcal,
+} from './calendarLinks';
+export type { CalendarLinkInput, CalendarLinks } from './calendarLinks';
+
 /**
  * Format date to YYYY-MM-DD
  */

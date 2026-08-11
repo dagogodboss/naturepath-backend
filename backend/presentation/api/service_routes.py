@@ -20,38 +20,41 @@ from core.rbac import Permission, has_permission
 router = APIRouter(prefix="/services", tags=["Services"])
 
 
-async def _filter_services_for_caller(
+async def _discovery_gate_active(
+    optional_user: Optional[Dict[str, Any]],
+    booking_use_case: BookingUseCase,
+) -> bool:
+    """
+    True when non-discovery booking is locked for this caller.
+    Unlock only when discovery state is completed (staff-marked).
+    Staff with SERVICE_UPDATE bypass the lock.
+    """
+    if optional_user is not None and has_permission(optional_user, Permission.SERVICE_UPDATE):
+        return False
+    if optional_user is None:
+        return True
+    elig = await booking_use_case.get_discovery_eligibility(optional_user["user_id"])
+    return elig.get("state") != "completed"
+
+def _annotate_booking_lock(
+    service: Dict[str, Any],
+    gate_active: bool,
+) -> Dict[str, Any]:
+    """Marketing list shows all services; booking_locked gates non-discovery CTAs."""
+    is_discovery = BookingUseCase._is_discovery_service(service)
+    return {
+        **service,
+        "booking_locked": bool(gate_active and not is_discovery),
+    }
+
+
+async def _annotate_services_for_caller(
     services: List[Dict[str, Any]],
     optional_user: Optional[Dict[str, Any]],
     booking_use_case: BookingUseCase,
 ) -> List[Dict[str, Any]]:
-    if optional_user is not None and has_permission(optional_user, Permission.SERVICE_UPDATE):
-        return services
-
-    discovery_only = optional_user is None
-    if optional_user is not None:
-        elig = await booking_use_case.get_discovery_eligibility(optional_user["user_id"])
-        discovery_only = not bool(elig.get("is_discovery_completed"))
-
-    if not discovery_only:
-        return services
-
-    return [s for s in services if BookingUseCase._is_discovery_service(s)]
-
-
-async def _caller_may_view_service(
-    service: Dict[str, Any],
-    optional_user: Optional[Dict[str, Any]],
-    booking_use_case: BookingUseCase,
-) -> bool:
-    if BookingUseCase._is_discovery_service(service):
-        return True
-    if optional_user is not None and has_permission(optional_user, Permission.SERVICE_UPDATE):
-        return True
-    if optional_user is None:
-        return False
-    elig = await booking_use_case.get_discovery_eligibility(optional_user["user_id"])
-    return bool(elig.get("is_discovery_completed"))
+    gate_active = await _discovery_gate_active(optional_user, booking_use_case)
+    return [_annotate_booking_lock(s, gate_active) for s in services]
 
 
 @router.get("", response_model=List[dict])
@@ -61,12 +64,12 @@ async def get_all_services(
     service_use_case: ServiceUseCase = Depends(get_service_use_case),
     booking_use_case: BookingUseCase = Depends(get_booking_use_case),
 ):
-    """Active services visible to the caller (guests / pre-discovery customers: discovery entry only)."""
+    """Full service catalog for marketing; non-discovery rows may be booking_locked."""
     if category:
         rows = await service_use_case.get_services_by_category(category)
     else:
         rows = await service_use_case.get_all_services()
-    return await _filter_services_for_caller(rows, optional_user, booking_use_case)
+    return await _annotate_services_for_caller(rows, optional_user, booking_use_case)
 
 
 @router.get("/featured", response_model=List[dict])
@@ -75,25 +78,21 @@ async def get_featured_services(
     service_use_case: ServiceUseCase = Depends(get_service_use_case),
     booking_use_case: BookingUseCase = Depends(get_booking_use_case),
 ):
-    """Featured services, subject to the same visibility rules as the full list."""
+    """Featured services with the same lock annotation as the full list."""
     rows = await service_use_case.get_featured_services()
-    return await _filter_services_for_caller(rows, optional_user, booking_use_case)
+    return await _annotate_services_for_caller(rows, optional_user, booking_use_case)
 
 
 @router.get("/{service_id}/reviews", response_model=List[dict])
 async def get_service_reviews(
     service_id: str,
-    optional_user: Optional[dict] = Depends(get_optional_user),
     service_use_case: ServiceUseCase = Depends(get_service_use_case),
-    booking_use_case: BookingUseCase = Depends(get_booking_use_case),
 ):
-    """Reviews for a service when the caller is allowed to see that service."""
+    """Reviews for a service (catalog is publicly viewable)."""
     try:
         detail = await service_use_case.get_service_by_id(service_id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    if not await _caller_may_view_service(detail, optional_user, booking_use_case):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
     return detail.get("reviews", [])
 
 
@@ -104,14 +103,13 @@ async def get_service(
     service_use_case: ServiceUseCase = Depends(get_service_use_case),
     booking_use_case: BookingUseCase = Depends(get_booking_use_case),
 ):
-    """Get a specific service by ID (404 if hidden for this caller)."""
+    """Get a specific service by ID (viewable by guests; booking_locked when gated)."""
     try:
         data = await service_use_case.get_service_by_id(service_id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    if not await _caller_may_view_service(data, optional_user, booking_use_case):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
-    return data
+    gate_active = await _discovery_gate_active(optional_user, booking_use_case)
+    return _annotate_booking_lock(data, gate_active)
 
 
 @router.post("", response_model=dict, status_code=status.HTTP_201_CREATED)

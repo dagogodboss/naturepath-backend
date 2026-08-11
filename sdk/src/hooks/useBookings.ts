@@ -83,6 +83,43 @@ export function useCompletePractitionerSession() {
 }
 
 /**
+ * Mark Discovery Call complete — unlocks other services for the customer.
+ */
+export function useCompleteDiscoveryAsPractitioner() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (bookingId: string) =>
+      bookingApi.completeDiscoveryAsPractitioner(bookingId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          Array.isArray(q.queryKey) &&
+          q.queryKey[0] === 'bookings' &&
+          q.queryKey[1] === 'practitionerCalendar',
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.user.discoveryEligibility });
+      queryClient.invalidateQueries({ queryKey: queryKeys.user.profile });
+    },
+  });
+}
+
+/**
+ * Stop monthly recurrence for a booking series (customer or admin).
+ */
+export function useStopRecurring() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (bookingId: string) => bookingApi.stopRecurring(bookingId),
+    onSuccess: (booking) => {
+      queryClient.setQueryData(queryKeys.bookings.detail(booking.booking_id), booking);
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.mine });
+    },
+  });
+}
+
+/**
  * Hook to fetch a single booking by ID
  * 
  * @example

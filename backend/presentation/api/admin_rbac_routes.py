@@ -12,7 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from core.rbac import Permission, load_policy_overrides_from_db
+from core.rbac import Permission, load_policy_overrides_from_db, normalize_role
+from application.access_control import rbac_override_requires_owner
 from presentation.dependencies import get_current_admin
 from infrastructure.database import get_database
 
@@ -63,6 +64,16 @@ def _serialize_override(doc: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _require_owner_for_sensitive_override(actor: dict, *, ptype: str, v0: str, v1: str) -> None:
+    if not rbac_override_requires_owner(ptype=ptype, v0=v0, v1=v1):
+        return
+    if normalize_role(actor.get("role")) != "owner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only owner can grant role-manage or admin/owner inheritance overrides",
+        )
+
+
 @router.get("/baseline")
 async def rbac_baseline(_admin: dict = Depends(get_current_admin)):
     """Static hints for UI: all permission keys and typical role bundles."""
@@ -90,9 +101,12 @@ async def list_rbac_overrides(
 @router.post("/overrides", status_code=status.HTTP_201_CREATED)
 async def create_rbac_override(
     body: RbacOverrideCreate,
-    _admin: dict = Depends(get_current_admin),
+    current_admin: dict = Depends(get_current_admin),
     db: AsyncIOMotorDatabase = Depends(get_database),
 ):
+    _require_owner_for_sensitive_override(
+        current_admin, ptype=body.ptype, v0=body.v0, v1=body.v1
+    )
     doc: dict[str, Any] = {
         "ptype": body.ptype,
         "v0": body.v0.strip(),
@@ -110,13 +124,22 @@ async def create_rbac_override(
 @router.delete("/overrides/{doc_id}")
 async def delete_rbac_override(
     doc_id: str,
-    _admin: dict = Depends(get_current_admin),
+    current_admin: dict = Depends(get_current_admin),
     db: AsyncIOMotorDatabase = Depends(get_database),
 ):
     try:
         oid = ObjectId(doc_id)
     except InvalidId as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid id") from e
+    existing = await db.rbac_policy_overrides.find_one({"_id": oid})
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Override not found")
+    _require_owner_for_sensitive_override(
+        current_admin,
+        ptype=str(existing.get("ptype") or ""),
+        v0=str(existing.get("v0") or ""),
+        v1=str(existing.get("v1") or ""),
+    )
     result = await db.rbac_policy_overrides.delete_one({"_id": oid})
     if result.deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Override not found")

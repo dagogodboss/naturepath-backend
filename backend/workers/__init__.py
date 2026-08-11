@@ -6,6 +6,7 @@ from .notification_worker import (
     send_reminder_sms,
     send_cancellation_notification,
     send_welcome_email,
+    send_generic_email,
     send_daily_reminders
 )
 from .slot_worker import (
@@ -23,6 +24,7 @@ __all__ = [
     "send_reminder_sms",
     "send_cancellation_notification",
     "send_welcome_email",
+    "send_generic_email",
     "send_daily_reminders",
     "release_expired_locks",
     "generate_practitioner_slots",

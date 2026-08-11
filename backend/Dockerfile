@@ -9,12 +9,13 @@ ENV PYTHONPATH=/app/backend
 # Set work directory
 WORKDIR /app/backend
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
+# ffmpeg for Phase G ~60s preview clips (Celery media_preview_worker / eager local).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install dependencies
+# Prefer binary wheels (no build-essential). If a dep lacks a wheel, install
+# build-essential temporarily in that layer only.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

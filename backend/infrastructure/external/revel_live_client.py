@@ -96,7 +96,11 @@ def _unwrap_list(payload: Any) -> List[Dict[str, Any]]:
     return []
 
 
-def _normalize_product(raw: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_product(
+    raw: Dict[str, Any],
+    *,
+    category_label: Optional[str] = None,
+) -> Dict[str, Any]:
     pid = raw.get("id")
     product_id = str(pid) if pid is not None else str(raw.get("id_product") or raw.get("product_id") or "")
     price = raw.get("price") or raw.get("cost_price") or raw.get("active_price") or 0
@@ -117,11 +121,13 @@ def _normalize_product(raw: Dict[str, Any]) -> Dict[str, Any]:
     if not image and isinstance(raw.get("images"), list) and raw["images"]:
         first = raw["images"][0]
         image = first.get("url") if isinstance(first, dict) else first
+    label = (category_label or "").strip() or None
     return {
         "product_id": product_id,
         "name": str(raw.get("name") or raw.get("product_name") or "Product"),
         "price": price_f,
         "category": str(category),
+        "category_label": label,
         "is_active": bool(active),
         "stock_qty": stock_qty,
         "image_url": image,
@@ -129,6 +135,40 @@ def _normalize_product(raw: Dict[str, Any]) -> Dict[str, Any]:
         "sku": raw.get("sku") or raw.get("barcode"),
         "raw": raw,
     }
+
+
+def _walk_menu_categories(
+    nodes: Any,
+    *,
+    parent_label: Optional[str] = None,
+    out: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """Flatten Revel Custom Menu Category > Subcategory > Product tree."""
+    if out is None:
+        out = []
+    if not isinstance(nodes, list):
+        return out
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        label = (
+            (node.get("name") or node.get("parent_name") or parent_label or "")
+            .strip()
+            or None
+        )
+        products = node.get("products") or []
+        if isinstance(products, list):
+            for raw in products:
+                if not isinstance(raw, dict):
+                    continue
+                product = _normalize_product(raw, category_label=label)
+                if product.get("product_id") and product.get("is_active", True):
+                    out.append(product)
+        for key in ("subcategories", "children", "categories"):
+            kids = node.get(key)
+            if isinstance(kids, list) and kids:
+                _walk_menu_categories(kids, parent_label=label, out=out)
+    return out
 
 
 def _establishment_id_from_order_payload(raw: Dict[str, Any], default: int) -> int:
@@ -325,6 +365,7 @@ class RevelLiveClient:
         return _normalize_product(data)
 
     async def get_all_products(self) -> List[Dict[str, Any]]:
+        """Full weborders product catalog (legacy). Prefer get_custom_menu_products for shop."""
         if not self._merchant_base:
             raise RevelLiveError("Revel merchant base URL is not configured")
         url = (
@@ -340,6 +381,40 @@ class RevelLiveClient:
         rows = _unwrap_list(payload)
         out = [_normalize_product(r) for r in rows]
         return [p for p in out if p.get("is_active", True) and p.get("product_id")]
+
+    async def get_custom_menu_products(self) -> List[Dict[str, Any]]:
+        """
+        Products selected in Revel Custom Menu / Online Ordering menu.
+
+        This is the PO source of truth for what appears on the website shop.
+        GET /weborders/menu/?establishment=N returns Category > Product tree.
+        """
+        if not self._merchant_base:
+            raise RevelLiveError("Revel merchant base URL is not configured")
+        url = (
+            f"{self._merchant_base}weborders/menu/"
+            f"?establishment={int(self._settings.revel_establishment_id)}"
+        )
+        async with httpx.AsyncClient(timeout=self.client_timeout()) as client:
+            resp = await client.get(url, headers=_auth_headers(self._settings))
+        if resp.status_code >= 400:
+            self._log_http_warning("Revel weborders menu GET failed", resp)
+        resp.raise_for_status()
+        payload = resp.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        categories = []
+        if isinstance(data, dict):
+            categories = data.get("categories") or []
+        elif isinstance(payload, dict):
+            categories = payload.get("categories") or []
+        products = _walk_menu_categories(categories)
+        # Dedupe by product_id (a product can appear under one category only, but be safe).
+        by_id: Dict[str, Dict[str, Any]] = {}
+        for p in products:
+            pid = p.get("product_id")
+            if pid:
+                by_id[pid] = p
+        return list(by_id.values())
 
     async def create_order(
         self,

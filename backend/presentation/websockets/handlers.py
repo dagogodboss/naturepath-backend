@@ -1,14 +1,44 @@
 """
 WebSocket Handler for Real-time Availability Updates
 """
-import asyncio
 import json
 import logging
-from typing import Dict, Set
-from fastapi import WebSocket, WebSocketDisconnect
+from typing import Dict, Optional, Set
+from fastapi import WebSocket, WebSocketDisconnect, status
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_ws_bearer_token(websocket: WebSocket) -> Optional[str]:
+    """Token from ?token= query or Authorization: Bearer header."""
+    token = websocket.query_params.get("token")
+    if token:
+        return token.strip() or None
+    auth = (websocket.headers.get("authorization") or "").strip()
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip() or None
+    return None
+
+
+def _authenticate_notification_ws(websocket: WebSocket, user_id: str) -> bool:
+    """
+    Require a valid access JWT whose sub matches the path user_id.
+    Returns True if authenticated; otherwise returns False (caller closes socket).
+    """
+    from application.use_cases.auth_use_case import AuthUseCase
+
+    token = _extract_ws_bearer_token(websocket)
+    if not token:
+        return False
+    try:
+        payload = AuthUseCase(user_repo=None).verify_token(token)  # type: ignore[arg-type]
+    except ValueError:
+        return False
+    sub = payload.get("sub")
+    if not sub or str(sub) != str(user_id):
+        return False
+    return True
 
 
 class ConnectionManager:
@@ -190,7 +220,11 @@ async def user_notification_websocket_handler(
     websocket: WebSocket,
     user_id: str
 ):
-    """WebSocket endpoint for user notifications"""
+    """WebSocket endpoint for user notifications — JWT required; sub must match user_id."""
+    if not _authenticate_notification_ws(websocket, user_id):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unauthorized")
+        return
+
     await manager.connect_user(websocket, user_id)
     
     try:

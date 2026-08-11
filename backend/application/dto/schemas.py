@@ -13,12 +13,21 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8)
     first_name: str = Field(min_length=1, max_length=50)
     last_name: str = Field(min_length=1, max_length=50)
-    phone: Optional[str] = None
+    phone: str = Field(min_length=7, max_length=32)
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class LookupEmailRequest(BaseModel):
+    email: EmailStr
+
+
+class LookupEmailResponse(BaseModel):
+    exists: bool
+    needs_password: bool
 
 
 class TokenResponse(BaseModel):
@@ -30,6 +39,20 @@ class TokenResponse(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
+    # Optional: "standalone" for installed PWA longer refresh TTL
+    client_mode: Optional[str] = None
+
+
+class GoogleOAuthRequest(BaseModel):
+    """Google Identity Services / Firebase ID token from the client."""
+    id_token: str = Field(min_length=20)
+    phone: Optional[str] = Field(default=None, max_length=32)
+
+
+class CompleteOAuthPhoneRequest(BaseModel):
+    """Finish Google OAuth by attaching a phone using a short-lived setup token."""
+    setup_token: str = Field(min_length=20)
+    phone: str = Field(min_length=7, max_length=32)
 
 
 class SendVerificationOtpRequest(BaseModel):
@@ -192,6 +215,8 @@ class InitiateBookingRequest(BaseModel):
     practitioner_id: Optional[str] = None
     slot: BookingSlotDTO
     notes: Optional[str] = None
+    # Opt-in: attach monthly recurrence after discovery unlock (default off).
+    enable_monthly_recurrence: bool = False
 
 
 class LockSlotRequest(BaseModel):
@@ -224,6 +249,8 @@ class BookingResponse(BaseModel):
     receipt_id: Optional[str]
     paid_at: Optional[str]
     payment_reference_id: Optional[str]
+    recurrence: Optional[dict] = None
+    reminders_sent: Optional[dict] = None
     created_at: str
     confirmed_at: Optional[str]
     completed_at: Optional[str]

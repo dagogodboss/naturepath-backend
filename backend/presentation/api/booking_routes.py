@@ -68,7 +68,8 @@ async def initiate_booking(
             date=request.slot.date,
             start_time=request.slot.start_time,
             end_time=request.slot.end_time,
-            notes=request.notes
+            notes=request.notes,
+            enable_monthly_recurrence=bool(request.enable_monthly_recurrence),
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -541,9 +542,15 @@ async def mark_booking_paid_at_counter(
     booking = await db.bookings.find_one({"booking_id": booking_id}, {"_id": 0})
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
+    # AuthZ before state/amount checks; map 403→404 so customers cannot probe IDs.
+    try:
+        await _assert_booking_invoice_authz(booking, current_user, db)
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            raise HTTPException(status_code=404, detail="Booking not found") from exc
+        raise
     if booking.get("status") not in {"confirmed", "in_progress", "completed"}:
         raise HTTPException(status_code=409, detail="Booking is not in a payable state")
-    await _assert_booking_invoice_authz(booking, current_user, db)
     if booking.get("payment_status") == "captured":
         return booking
 
@@ -620,6 +627,7 @@ async def download_booking_ical(
 ):
     """
     Download an iCalendar (.ics) file for a booking (add to Apple/Google/Outlook calendar).
+    Series include all non-cancelled instances as separate VEVENTs.
     """
     try:
         is_admin = has_permission(current_user, Permission.BOOKING_READ_ALL)
@@ -630,7 +638,20 @@ async def download_booking_ical(
         )
     except ValueError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
-    body = build_booking_ical(booking)
+
+    series_bookings = None
+    series_id = booking.get("series_id")
+    if series_id:
+        try:
+            series_bookings = await booking_use_case.list_series_bookings(
+                series_id=series_id,
+                user_id=current_user["user_id"],
+                is_admin=is_admin,
+            )
+        except Exception:
+            series_bookings = None
+
+    body = build_booking_ical(booking, series_bookings=series_bookings)
     return Response(
         content=body,
         media_type="text/calendar; charset=utf-8",
@@ -638,6 +659,32 @@ async def download_booking_ical(
             "Content-Disposition": f'attachment; filename="booking-{booking_id}.ics"'
         },
     )
+
+
+@router.post("/{booking_id}/stop-recurring", response_model=dict)
+async def stop_recurring_booking(
+    booking_id: str,
+    current_user: dict = Depends(get_current_active_user),
+    booking_use_case: BookingUseCase = Depends(get_booking_use_case),
+):
+    """Stop monthly recurrence and cancel future series members only."""
+    try:
+        is_admin = has_permission(current_user, Permission.BOOKING_MANAGE)
+        return await booking_use_case.stop_recurring(
+            booking_id=booking_id,
+            user_id=current_user["user_id"],
+            is_admin=is_admin,
+        )
+    except ValueError as e:
+        detail = str(e)
+        code = (
+            status.HTTP_404_NOT_FOUND
+            if "not found" in detail.lower()
+            else status.HTTP_400_BAD_REQUEST
+        )
+        if "Unauthorized" in detail:
+            code = status.HTTP_403_FORBIDDEN
+        raise HTTPException(status_code=code, detail=detail)
 
 
 @router.get("/{booking_id}", response_model=dict)
@@ -716,6 +763,46 @@ async def complete_practitioner_session(
         return await booking_use_case.complete_booking_session(
             booking_id=booking_id,
             practitioner_user_id=user["user_id"],
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/practitioner/{booking_id}/complete-discovery", response_model=dict)
+async def complete_discovery_as_practitioner(
+    booking_id: str,
+    ctx: dict = Depends(get_current_practitioner),
+    booking_use_case: BookingUseCase = Depends(get_booking_use_case),
+):
+    """Mark Discovery Call done for the customer (unlocks other services)."""
+    user = ctx["user"]
+    if not has_permission(user, Permission.BOOKING_COMPLETE):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permission denied: booking:complete",
+        )
+    try:
+        return await booking_use_case.mark_discovery_completed(
+            booking_id=booking_id,
+            staff_user_id=user["user_id"],
+            as_admin=False,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/admin/{booking_id}/complete-discovery", response_model=dict)
+async def complete_discovery_as_admin(
+    booking_id: str,
+    current_admin: dict = Depends(get_current_admin),
+    booking_use_case: BookingUseCase = Depends(get_booking_use_case),
+):
+    """Admin marks Discovery Call done for a customer."""
+    try:
+        return await booking_use_case.mark_discovery_completed(
+            booking_id=booking_id,
+            staff_user_id=current_admin["user_id"],
+            as_admin=True,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
