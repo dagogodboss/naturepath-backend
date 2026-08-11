@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from html import escape
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
 
@@ -50,6 +52,32 @@ def build_order_notification(order: Dict[str, Any], user_id: str) -> Dict[str, A
     }
 
 
+async def deliver_order_notification_emails(
+    email_service: Any,
+    emails: Iterable[str],
+    order: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Send operations email directly so checkout alerts do not depend on Redis."""
+    order_id = str(order["order_id"])
+    total = float(order.get("total") or 0)
+    customer = str((order.get("address") or {}).get("full_name") or "Customer")
+    html = (
+        f"<h2>New store order</h2><p>{escape(customer)} placed order "
+        f"<strong>{escape(order_id)}</strong> for <strong>${total:.2f}</strong>.</p>"
+        "<p>Open Store Operations to confirm or reject it.</p>"
+    )
+    tasks = [
+        email_service.send_email(
+            to_email=email,
+            subject=f"New Natural Path order {order_id}",
+            html_content=html,
+            text_content=f"New order {order_id} from {customer} for ${total:.2f}.",
+        )
+        for email in emails
+    ]
+    return list(await asyncio.gather(*tasks)) if tasks else []
+
+
 async def queue_order_notifications(db: Any, order: Dict[str, Any], *, ops_email: str | None) -> int:
     users = await db.users.find(
         {"role": {"$in": sorted(OPS_ROLES)}, "is_active": {"$ne": False}},
@@ -69,20 +97,8 @@ async def queue_order_notifications(db: Any, order: Dict[str, Any], *, ops_email
             notification,
         )
 
-    from workers.notification_worker import send_generic_email
-    order_id = order["order_id"]
-    total = float(order.get("total") or 0)
-    customer = (order.get("address") or {}).get("full_name") or "Customer"
-    for email in targets["emails"]:
-        send_generic_email.delay(
-            email,
-            f"New Natural Path order {order_id}",
-            (
-                f"<h2>New store order</h2><p>{customer} placed order "
-                f"<strong>{order_id}</strong> for <strong>${total:.2f}</strong>.</p>"
-                "<p>Open Store Operations to confirm or reject it.</p>"
-            ),
-            f"New order {order_id} from {customer} for ${total:.2f}.",
-        )
+    from infrastructure.external.email_service import get_email_service
+    await deliver_order_notification_emails(
+        get_email_service(), targets["emails"], order
+    )
     return len(notifications)
-

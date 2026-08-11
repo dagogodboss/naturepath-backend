@@ -2195,11 +2195,26 @@ async def send_order_invoice(
             "$push": {"timeline": {"status": "invoice_queued", "at": now}},
         },
     )
-    from workers.notification_worker import send_store_invoice_email
-    send_store_invoice_email.delay(
-        order_id,
-        order["address"]["email"],
-        f"Your Natural Path invoice {invoice_id}",
-        html,
+    send_result = await get_email_service().send_email(
+        to_email=order["address"]["email"],
+        subject=f"Your Natural Path invoice {invoice_id}",
+        html_content=html,
     )
+    delivered_at = _utc_now_iso()
+    delivery_status = "sent" if send_result.get("success") else "failed"
+    await db.store_orders.update_one(
+        {"order_id": order_id},
+        {
+            "$set": {
+                "invoice_email_status": {"status": delivery_status, **send_result},
+                "updated_at": delivered_at,
+            },
+            "$push": {"timeline": {"status": f"invoice_{delivery_status}", "at": delivered_at}},
+        },
+    )
+    if delivery_status == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=send_result.get("message") or "Invoice email could not be sent",
+        )
     return await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
