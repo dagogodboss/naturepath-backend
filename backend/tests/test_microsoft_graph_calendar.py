@@ -6,7 +6,7 @@ from infrastructure.external.microsoft_graph import (
 )
 
 
-def test_authorization_url_requests_read_calendar_and_offline_access():
+def test_authorization_url_requests_profile_calendar_and_offline_access():
     client = MicrosoftGraphClient(
         client_id="client-id",
         client_secret="secret",
@@ -14,6 +14,7 @@ def test_authorization_url_requests_read_calendar_and_offline_access():
         redirect_uri="https://api.example.com/callback",
     )
     url = client.authorization_url("signed-state")
+    assert "User.Read" in url
     assert "Calendars.Read" in url
     assert "offline_access" in url
     assert "state=signed-state" in url

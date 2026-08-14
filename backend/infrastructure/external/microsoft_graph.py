@@ -81,7 +81,7 @@ def event_to_busy_interval(event: Dict[str, Any], clinic_timezone: str) -> Dict[
 
 
 class MicrosoftGraphClient:
-    scopes = "openid profile email offline_access Calendars.Read"
+    scopes = "openid profile email offline_access User.Read Calendars.Read"
 
     def __init__(
         self,
