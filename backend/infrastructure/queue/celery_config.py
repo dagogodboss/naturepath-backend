@@ -18,6 +18,7 @@ celery_app = Celery(
         "workers.refund_reconciliation_worker",
         "workers.media_preview_worker",
         "workers.outlook_calendar_worker",
+        "workers.review_worker",
     ]
 )
 
@@ -66,6 +67,10 @@ celery_app.conf.update(
         "sync-outlook-calendars": {
             "task": "workers.outlook_calendar_worker.sync_all_outlook_calendars",
             "schedule": 300.0,
+        },
+        "sync-business-reviews": {
+            "task": "workers.review_worker.sync_business_reviews",
+            "schedule": 21600.0,
         },
     }
 )

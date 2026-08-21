@@ -217,6 +217,7 @@ class InitiateBookingRequest(BaseModel):
     practitioner_id: Optional[str] = None
     slot: BookingSlotDTO
     notes: Optional[str] = None
+    education_topics: Optional[List[str]] = None
     # Opt-in: attach monthly recurrence after discovery unlock (default off).
     enable_monthly_recurrence: bool = False
 
@@ -240,6 +241,7 @@ class BookingResponse(BaseModel):
     status: str
     total_price: float
     notes: Optional[str]
+    education_topics: Optional[List[str]] = None
     cancellation_reason: Optional[str]
     revel_order_id: Optional[str]
     revel_transaction_id: Optional[str]

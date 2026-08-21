@@ -10,6 +10,7 @@ from .api import (
     store_router,
     client_router,
     content_router,
+    review_router,
 )
 from .websockets import (
     availability_websocket_handler,
@@ -28,6 +29,7 @@ __all__ = [
     "store_router",
     "client_router",
     "content_router",
+    "review_router",
     "availability_websocket_handler",
     "user_notification_websocket_handler",
     "get_connection_manager"

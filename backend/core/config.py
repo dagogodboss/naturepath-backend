@@ -153,6 +153,12 @@ class Settings(BaseSettings):
     # store_routes; per-establishment rates arrive in Phase 3.
     store_tax_rate: float = 0.0925
     ops_email: Optional[str] = None
+    review_alert_email: Optional[str] = None
+    google_business_profile_access_token: Optional[str] = None
+    google_business_account_id: Optional[str] = None
+    google_business_location_id: Optional[str] = None
+    yelp_api_key: Optional[str] = None
+    yelp_business_id: Optional[str] = None
     # Relative Revel resource name for hosted payment links (validated in A1 spike).
     revel_hosted_payment_endpoint: str = "HostedPaymentLink"
     revel_webhook_tolerance_seconds: int = 300

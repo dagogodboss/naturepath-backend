@@ -165,17 +165,22 @@ class ServiceUseCase:
     
     async def get_all_services(self, active_only: bool = True) -> List[Dict[str, Any]]:
         """Get all services"""
+        def normalized_and_sorted(rows):
+            normalized = [self._normalize_service(service) for service in rows]
+            return sorted(
+                normalized,
+                key=lambda service: (service.get("display_order", 90), service.get("name", "")),
+            )
+
         # Check cache first
         if self.cache:
             cached = await self.cache.get(CacheService.services_key())
             if cached:
                 if active_only:
-                    return [
-                        self._normalize_service(s)
-                        for s in cached
-                        if s.get("is_active")
-                    ]
-                return [self._normalize_service(s) for s in cached]
+                    return normalized_and_sorted(
+                        [service for service in cached if service.get("is_active")]
+                    )
+                return normalized_and_sorted(cached)
         
         if active_only:
             services = await self.service_repo.get_active()
@@ -186,7 +191,7 @@ class ServiceUseCase:
         if self.cache:
             await self.cache.set(CacheService.services_key(), services, ttl=300)
         
-        return [self._normalize_service(s) for s in services]
+        return normalized_and_sorted(services)
     
     async def get_featured_services(self) -> List[Dict[str, Any]]:
         """Get featured services"""

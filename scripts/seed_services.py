@@ -19,12 +19,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+APP_ROOT = ROOT / "backend"
+if str(APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(APP_ROOT))
 
 from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
 
-from seeds.service_catalog import SERVICE_CATALOG  # noqa: E402
+from application.service_catalog import SERVICE_CATALOG  # noqa: E402
 
 
 def _utc_now_iso() -> str:
@@ -49,7 +50,8 @@ async def main() -> None:
         name = entry["name"]
         reviews_in = entry.get("reviews") or []
 
-        existing = await db.services.find_one({"name": name})
+        aliases = entry.get("aliases") or []
+        existing = await db.services.find_one({"name": {"$in": [name, *aliases]}})
         service_id = existing["service_id"] if existing else str(uuid.uuid4())
 
         rating_average = 0.0
@@ -76,13 +78,14 @@ async def main() -> None:
             "warning_copy": entry.get("warning_copy"),
             "is_discovery_entry": bool(entry.get("is_discovery_entry", False)),
             "requires_discovery": bool(entry.get("requires_discovery", True)),
+            "display_order": int(entry.get("display_order", 90)),
             "rating_average": rating_average,
             "rating_count": rating_count,
             "updated_at": now,
         }
 
         await db.services.update_one(
-            {"name": name},
+            {"service_id": service_id},
             {
                 "$set": set_doc,
                 "$setOnInsert": {
@@ -97,6 +100,9 @@ async def main() -> None:
         if not svc:
             continue
         sid = svc["service_id"]
+
+        if entry.get("assign_to_all_practitioners"):
+            await db.practitioners.update_many({}, {"$addToSet": {"services": sid}})
 
         await db.service_reviews.delete_many({"service_id": sid})
 

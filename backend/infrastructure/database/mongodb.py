@@ -169,6 +169,15 @@ class Database:
         await cls.db.analytics_events.create_index([("event_name", 1), ("created_at", -1)])
         await cls.db.analytics_events.create_index("created_at")
 
+        # External business reviews and website testimonials.
+        await cls.db.business_reviews.create_index("review_id", unique=True)
+        await cls.db.business_reviews.create_index(
+            [("source", 1), ("source_review_id", 1)], unique=True
+        )
+        await cls.db.business_reviews.create_index(
+            [("moderation_status", 1), ("classification", 1), ("source_created_at", -1)]
+        )
+
         # Blog / vlog content
         await cls.db.content_posts.create_index("post_id", unique=True)
         await cls.db.content_posts.create_index("slug", unique=True)

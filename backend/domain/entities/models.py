@@ -189,6 +189,7 @@ class Booking(BaseModel):
     status: BookingStatus = BookingStatus.DRAFT
     total_price: float
     notes: Optional[str] = None
+    education_topics: Optional[List[str]] = None
     cancellation_reason: Optional[str] = None
     revel_order_id: Optional[str] = None  # REVEL POS integration
     revel_transaction_id: Optional[str] = None

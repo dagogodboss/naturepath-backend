@@ -236,6 +236,7 @@ class BookingUseCase:
         start_time: str,
         end_time: str,
         notes: Optional[str] = None,
+        education_topics: Optional[List[str]] = None,
         enable_monthly_recurrence: bool = False,
     ) -> Dict[str, Any]:
         """
@@ -246,6 +247,14 @@ class BookingUseCase:
         service = await self.service_repo.get_by_id(service_id)
         if not service or not service.get("is_active"):
             raise ValueError("Service not found or inactive")
+
+        normalized_topics = [str(topic).strip() for topic in (education_topics or []) if str(topic).strip()]
+        service_name = str(service.get("name") or "").lower()
+        is_education_hour = "natural health education" in service_name or "educational hour" in service_name
+        if is_education_hour and len(normalized_topics) != 3:
+            raise ValueError("Please provide exactly three topics for the Natural Health Education Hour")
+        if any(len(topic) > 160 for topic in normalized_topics):
+            raise ValueError("Education topics must be 160 characters or fewer")
 
         # Enforce discovery-first booking on the backend for non-discovery services.
         discovery_unlocked = False
@@ -298,6 +307,7 @@ class BookingUseCase:
             payment_mode=None,
             payment_status="none",
             notes=notes,
+            education_topics=normalized_topics or None,
             recurrence=recurrence,
             reminders_sent={},
         )

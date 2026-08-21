@@ -34,6 +34,7 @@ from presentation import (
     store_router,
     client_router,
     content_router,
+    review_router,
     availability_websocket_handler,
     user_notification_websocket_handler
 )
@@ -50,6 +51,12 @@ async def lifespan(app: FastAPI):
     
     # Connect to MongoDB
     await Database.connect()
+
+    from application.review_management import ensure_default_testimonials
+    await ensure_default_testimonials(Database.get_db())
+
+    from application.service_catalog_migration import ensure_service_catalog
+    await ensure_service_catalog(Database.get_db())
 
     from core.rbac import load_policy_overrides_from_db
     await load_policy_overrides_from_db(Database.get_db())
@@ -148,6 +155,7 @@ app.include_router(webhook_router, prefix="/api")
 app.include_router(store_router, prefix="/api")
 app.include_router(client_router, prefix="/api")
 app.include_router(content_router, prefix="/api")
+app.include_router(review_router, prefix="/api")
 
 
 # WebSocket endpoints

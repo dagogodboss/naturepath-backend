@@ -15,7 +15,13 @@ def is_discovery_exempt(service: Mapping[str, Any] | None) -> bool:
     if service.get("is_discovery_entry") is True:
         return True
     name = _service_name(service)
-    return "discovery call" in name or "salt session" in name or "halotherapy" in name
+    return (
+        "discovery call" in name
+        or "salt session" in name
+        or "halotherapy" in name
+        or "natural health education" in name
+        or "educational hour" in name
+    )
 
 
 def service_requires_discovery(service: Mapping[str, Any] | None) -> bool:
@@ -25,4 +31,3 @@ def service_requires_discovery(service: Mapping[str, Any] | None) -> bool:
     if isinstance(explicit, bool):
         return explicit
     return not is_discovery_exempt(service)
-

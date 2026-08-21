@@ -69,6 +69,7 @@ async def initiate_booking(
             start_time=request.slot.start_time,
             end_time=request.slot.end_time,
             notes=request.notes,
+            education_topics=request.education_topics,
             enable_monthly_recurrence=bool(request.enable_monthly_recurrence),
         )
     except ValueError as e:

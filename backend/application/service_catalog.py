@@ -6,6 +6,7 @@ Matched to existing production seed names so `update_one` upserts by name.
 SERVICE_CATALOG = [
     {
         "name": "Discovery Call",
+        "display_order": 20,
         "is_discovery_entry": True,
         "requires_discovery": False,
         "description": "A Discovery Call is a supportive conversation designed for both prospective and existing clients who would like guidance before taking their next step. This 15-30 minute phone call offers dedicated time to talk through goals, ask questions, and gain clarity on available options.",
@@ -38,6 +39,7 @@ SERVICE_CATALOG = [
     },
     {
         "name": "Salt Session (Halotherapy)",
+        "display_order": 10,
         "requires_discovery": False,
         "description": "Our 45-minute Salt Session is a calming, restorative experience designed to help you slow down, breathe deeply, and relax. Guests sit comfortably in a softly lit salt room, surrounded by the warm glow of Himalayan salt lamps while fine, dry salt particles are gently dispersed into the air.",
         "category": "wellness",
@@ -69,8 +71,33 @@ SERVICE_CATALOG = [
         ],
     },
     {
-        "name": "1-Hour Consultation",
-        "description": "This one-hour consultation provides a focused, individualized review of your current health concerns, goals, and relevant history. The session is designed to assess contributing factors, clarify priorities, and identify areas that may benefit from further support or intervention.",
+        "name": "Natural Health Education Hour",
+        "display_order": 30,
+        "requires_discovery": False,
+        "description": "Bring your questions, curiosity, and rabbit holes! 🐇 Have a natural health topic you've been wanting to understand better? Bring your questions, research, or something you've been wondering about. We'll sort through the noise and competing voices, explore the research, and help you find a balanced, well-rounded view of the topic. Nutrition, supplements, ingredients, wellness, research, and more — your questions, your topics, your hour to learn!",
+        "category": "holistic",
+        "duration_minutes": 60,
+        "price": 125.00,
+        "discount_price": None,
+        "image_url": "https://images.unsplash.com/photo-1456406644174-8ddd4cd52a06?w=800",
+        "is_featured": True,
+        "is_active": True,
+        "max_capacity": 1,
+        "revel_product_id": None,
+        "warning_copy": "Please share your top three topics while booking so Dr. Nichole can prepare for your session.",
+        "benefits": [
+            "A full hour dedicated to your natural health questions and interests.",
+            "Balanced guidance that helps separate useful research from online noise.",
+            "Available in person or by phone and does not require a Discovery Call.",
+        ],
+        "reviews": [],
+        "assign_to_all_practitioners": True,
+    },
+    {
+        "name": "Wellness Consultation",
+        "aliases": ["1-Hour Consultation"],
+        "display_order": 40,
+        "description": "This one-hour consultation provides a focused, individualized review of your current health concerns, goals, and relevant history. Consultations are available in person or by phone. If you’re short on time or travel is inconvenient, a phone consultation makes it easy to get the guidance you need—wherever you are.",
         "category": "holistic",
         "duration_minutes": 60,
         "price": 200.00,
@@ -101,6 +128,7 @@ SERVICE_CATALOG = [
     },
     {
         "name": "2-Hours Extended Consultation",
+        "display_order": 45,
         "description": "This session includes everything from the 1-hour wellness consultation and expands the time for clients with complex histories, substantial documentation, or multiple functional reports requiring detailed review.",
         "category": "holistic",
         "duration_minutes": 120,
@@ -131,7 +159,9 @@ SERVICE_CATALOG = [
         ],
     },
     {
-        "name": "30-Minute Follow Up Consultation",
+        "name": "Follow-up Consultation",
+        "aliases": ["30-Minute Follow Up Consultation"],
+        "display_order": 50,
         "description": "Available to existing clients within one year of their initial consultation. A check-in to reflect, adjust, and stay connected to your evolving goals. If more than a year has passed, a 1-hour consultation is recommended.",
         "category": "holistic",
         "duration_minutes": 30,
@@ -163,6 +193,7 @@ SERVICE_CATALOG = [
     },
     {
         "name": "Direct-to-Consumer Lab Testing",
+        "display_order": 90,
         "description": "Get the lab tests you want, when you want them at over 90% off traditional lab prices.",
         "category": "wellness",
         "duration_minutes": 30,
