@@ -1,5 +1,11 @@
 """Unit tests for content helpers."""
-from presentation.api.content_routes import _slugify, ContentIn, _cdn_url
+from presentation.api.content_routes import (
+    _slugify,
+    ContentIn,
+    LandingSettingsIn,
+    _cdn_url,
+    _landing_settings_doc,
+)
 import pytest
 from unittest.mock import patch
 
@@ -63,6 +69,30 @@ def test_cdn_url_no_anonymous_storage_fallback():
         ):
             url = _cdn_url("content/video/a.mp4")
             assert url is None or "storage.googleapis.com" not in url
+
+
+def test_landing_settings_prefers_fresh_signed_object_url():
+    with patch(
+        "presentation.api.content_routes._cdn_url",
+        return_value="https://signed.example/hero.jpg",
+    ):
+        payload = _landing_settings_doc(
+            {
+                "hero_image_url": "https://old.example/hero.jpg",
+                "hero_image_object_name": "content/image/hero.jpg",
+                "hero_image_alt": "Wellness shelves",
+            }
+        )
+    assert payload["hero_image_url"] == "https://signed.example/hero.jpg"
+    assert payload["configured"] is True
+
+
+def test_landing_settings_sanitizes_alt_text():
+    settings = LandingSettingsIn(
+        hero_image_url="https://example.com/hero.jpg",
+        hero_image_alt="<script>alert(1)</script>Wellness shop",
+    )
+    assert settings.hero_image_alt == "alert(1)Wellness shop"
 
 
 def test_object_name_from_signed_and_cdn_urls():

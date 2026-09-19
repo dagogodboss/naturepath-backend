@@ -206,6 +206,22 @@ class SignedUploadIn(BaseModel):
     kind: Literal["image", "video"] = "video"
 
 
+class LandingSettingsIn(BaseModel):
+    hero_image_url: Optional[str] = None
+    hero_image_object_name: Optional[str] = Field(default=None, max_length=500)
+    hero_image_alt: str = Field(default="The Natural Path wellness shop", max_length=180)
+
+    @field_validator("hero_image_url")
+    @classmethod
+    def _validate_hero_url(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_http_url(v, field="hero_image_url")
+
+    @field_validator("hero_image_alt")
+    @classmethod
+    def _plain_alt(cls, v: str) -> str:
+        return _sanitize_plain_text(v, max_len=180) or "The Natural Path wellness shop"
+
+
 def _gcs_enabled() -> bool:
     return bool(getattr(settings, "gcs_bucket", None))
 
@@ -245,6 +261,19 @@ def _cdn_url(object_name: str) -> Optional[str]:
             "falling back to signed GET"
         )
     return _signed_get_url(object_name)
+
+
+def _landing_settings_doc(doc: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    doc = dict(doc or {})
+    object_name = doc.get("hero_image_object_name")
+    image_url = _cdn_url(object_name) if object_name else doc.get("hero_image_url")
+    return {
+        "hero_image_url": image_url,
+        "hero_image_object_name": object_name,
+        "hero_image_alt": doc.get("hero_image_alt") or "The Natural Path wellness shop",
+        "configured": bool(image_url),
+        "updated_at": doc.get("updated_at"),
+    }
 
 
 async def _cache_get(key: str) -> Optional[str]:
@@ -295,6 +324,41 @@ async def _cache_delete_prefix(prefixes: tuple[str, ...]) -> None:
 
 async def _bust_content_caches() -> None:
     await _cache_delete_prefix(("content:feed",))
+
+
+@router.get("/site-settings/landing")
+async def get_landing_settings(db=Depends(get_database)):
+    doc = await db.site_settings.find_one({"key": "landing"}, {"_id": 0})
+    return _landing_settings_doc(doc)
+
+
+@router.get("/admin/site-settings/landing")
+async def admin_get_landing_settings(
+    current_user: dict = Depends(get_current_active_user),
+    db=Depends(get_database),
+):
+    _require_content_admin(current_user)
+    doc = await db.site_settings.find_one({"key": "landing"}, {"_id": 0})
+    return _landing_settings_doc(doc)
+
+
+@router.patch("/admin/site-settings/landing")
+async def admin_update_landing_settings(
+    body: LandingSettingsIn,
+    current_user: dict = Depends(get_current_active_user),
+    db=Depends(get_database),
+):
+    _require_content_admin(current_user)
+    now = _utc_now().isoformat()
+    updates = body.model_dump()
+    updates.update({"key": "landing", "updated_at": now, "updated_by": current_user["user_id"]})
+    await db.site_settings.update_one(
+        {"key": "landing"},
+        {"$set": updates, "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+    doc = await db.site_settings.find_one({"key": "landing"}, {"_id": 0})
+    return _landing_settings_doc(doc)
 
 
 def _maybe_enqueue_preview_clip(doc: Dict[str, Any]) -> None:

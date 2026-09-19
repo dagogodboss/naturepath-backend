@@ -125,6 +125,8 @@ class Database:
         # Casbin policy overrides (hot-reloaded into enforcer)
         await cls.db.rbac_policy_overrides.create_index([("ptype", 1), ("v0", 1), ("v1", 1)])
 
+        await cls.db.site_settings.create_index("key", unique=True)
+
         # Booking auto-assignment cursor state (round-robin)
         await cls.db.booking_assignment_state.create_index("state_key", unique=True)
 
