@@ -1,0 +1,27 @@
+# Keep local development files and secrets out of Cloud Build source uploads.
+.gcloudignore
+.git/
+.gitignore
+.venv/
+venv/
+env/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+.env.*
+!.env.example
+*-sa.json
+**/gcs-sa.json
+**/secrets/*.json
+project-naturalpath-*.json
+*.log
+.backend-dev.log
+test_reports/
+.idea/
+.vscode/
+tests/
