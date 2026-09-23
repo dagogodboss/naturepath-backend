@@ -37,11 +37,19 @@ class ModerateRequest(BaseModel):
 @router.get("/reviews/testimonials", response_model=dict)
 async def published_testimonials(
     limit: int = Query(default=20, ge=1, le=50),
+    category: str | None = Query(default=None, max_length=40),
     db=Depends(get_database),
 ):
+    query: dict[str, Any] = {
+        "classification": "positive",
+        "moderation_status": "approved",
+    }
+    cleaned = (category or "").strip().lower()
+    if cleaned:
+        query["service_category"] = cleaned
     rows = await (
         db.business_reviews.find(
-            {"classification": "positive", "moderation_status": "approved"},
+            query,
             {"_id": 0, "alert_sent": 0, "alerted_at": 0},
         )
         .sort([("source_created_at", -1), ("created_at", -1)])

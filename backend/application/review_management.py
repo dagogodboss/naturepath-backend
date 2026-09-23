@@ -74,10 +74,12 @@ async def import_reviews(db, items: Iterable[dict[str, Any]], *, notify: bool = 
                 f"naturalpath:review:{item['source']}:{item['source_review_id']}",
             )
         )
+        category = str(raw.get("service_category") or "").strip().lower() or None
         document = {
             **item,
             "review_id": review_id,
             "classification": classification,
+            "service_category": category,
             "updated_at": now,
         }
         if not existing:
@@ -129,31 +131,36 @@ async def import_reviews(db, items: Iterable[dict[str, Any]], *, notify: bool = 
 
 async def ensure_default_testimonials(db) -> None:
     """One-time migration from the former frontend constants into MongoDB."""
-    if await db.business_reviews.count_documents({"source": "legacy"}) >= 6:
-        return
-    testimonials = [
-        ("kylie-nicole-neuville", "Kylie Nicole Neuville", "Can't recommend enough! I felt heard, supported, and given natural options that made sense for me."),
-        ("terri-j-dauzat", "Terri J. Dauzat", "It's always a treat to visit the store! So much knowledge and tips. A visit to the salt room is a must!"),
-        ("kathryn-hernandez-denais", "Kathryn Hernandez Denais", "If you're in need of truly natural products, The Natural Path is the place to go. They have an excellent selection."),
-        ("annalisha-arcides", "Annalisha Arcides", "Nichole and Kristin take the best care of their customers and take time to get to know us. I love this place."),
-        ("claire-clement", "Claire Clement", "Wonderful customer service! Always willing to go above and beyond and answer any question."),
-        ("claire-steel", "Claire Steel", "The staff is amazing, kind, and compassionate. The Natural Path can help with all your natural needs."),
-    ]
-    await import_reviews(
-        db,
-        [
-            {
-                "source": "legacy",
-                "source_review_id": review_id,
-                "author_name": author,
-                "rating": 5,
-                "body": body,
-            }
-            for review_id, author, body in testimonials
-        ],
-        notify=False,
-    )
-    await db.business_reviews.update_many(
-        {"source": "legacy", "classification": "positive"},
-        {"$set": {"moderation_status": "approved"}},
+    if await db.business_reviews.count_documents({"source": "legacy"}) < 6:
+        testimonials = [
+            ("kylie-nicole-neuville", "Kylie Nicole Neuville", "Can't recommend enough! I felt heard, supported, and given natural options that made sense for me.", None),
+            ("terri-j-dauzat", "Terri J. Dauzat", "It's always a treat to visit the store! So much knowledge and tips. A visit to the salt room is a must!", "wellness"),
+            ("kathryn-hernandez-denais", "Kathryn Hernandez Denais", "If you're in need of truly natural products, The Natural Path is the place to go. They have an excellent selection.", None),
+            ("annalisha-arcides", "Annalisha Arcides", "Nichole and Kristin take the best care of their customers and take time to get to know us. I love this place.", None),
+            ("claire-clement", "Claire Clement", "Wonderful customer service! Always willing to go above and beyond and answer any question.", None),
+            ("claire-steel", "Claire Steel", "The staff is amazing, kind, and compassionate. The Natural Path can help with all your natural needs.", None),
+        ]
+        await import_reviews(
+            db,
+            [
+                {
+                    "source": "legacy",
+                    "source_review_id": review_id,
+                    "author_name": author,
+                    "rating": 5,
+                    "body": body,
+                    "service_category": category,
+                }
+                for review_id, author, body, category in testimonials
+            ],
+            notify=False,
+        )
+        await db.business_reviews.update_many(
+            {"source": "legacy", "classification": "positive"},
+            {"$set": {"moderation_status": "approved"}},
+        )
+    # Existing seed text already names the salt room; tag that row only.
+    await db.business_reviews.update_one(
+        {"source": "legacy", "source_review_id": "terri-j-dauzat"},
+        {"$set": {"service_category": "wellness"}},
     )
