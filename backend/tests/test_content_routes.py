@@ -112,6 +112,76 @@ def test_landing_settings_sanitizes_alt_text():
     assert settings.hero_image_alt == "alert(1)Wellness shop"
 
 
+def test_present_refreshes_expired_gcs_media_without_using_it_as_cover():
+    from presentation.api.content_routes import _present_content_post
+
+    expired = (
+        "https://naturalpath-media.storage.googleapis.com/content/video/a.mp4"
+        "?x-goog-date=20260728T145711Z&x-goog-expires=604800&x-goog-signature=redacted"
+    )
+    expired_preview = (
+        "https://storage.googleapis.com/naturalpath-media/content/preview/post_1_t0-60.mp4"
+        "?X-Goog-Date=20260728T152952Z&X-Goog-Expires=604800"
+    )
+    doc = {
+        "post_id": "post_1",
+        "type": "vlog",
+        "cover_url": None,
+        "embed_url": None,
+        "media_url": expired,
+        "media_object_name": "content/video/a.mp4",
+        "preview_clip_url": expired_preview,
+        "preview_clip_object": "content/preview/post_1_t0-60.mp4",
+    }
+    with patch(
+        "presentation.api.content_routes._fresh_object_url",
+        side_effect=lambda name: f"https://signed.example/{name}?fresh=1",
+    ):
+        out = _present_content_post(doc)
+    assert out["media_url"] == "https://signed.example/content/video/a.mp4?fresh=1"
+    assert out["preview_clip_url"] == (
+        "https://signed.example/content/preview/post_1_t0-60.mp4?fresh=1"
+    )
+    assert out["cover_url"] is None
+    assert "x-goog-date=20260728" not in out["media_url"]
+
+
+def test_present_leaves_youtube_and_external_files():
+    from presentation.api.content_routes import _present_content_post
+
+    doc = {
+        "cover_url": None,
+        "embed_url": "https://www.youtube.com/watch?v=abc123",
+        "media_url": "https://cdn.example/clip.mp4",
+    }
+    with patch("presentation.api.content_routes._fresh_object_url") as fresh:
+        out = _present_content_post(doc)
+    fresh.assert_not_called()
+    assert out["embed_url"] == "https://www.youtube.com/watch?v=abc123"
+    assert out["media_url"] == "https://cdn.example/clip.mp4"
+    assert out["cover_url"] is None
+
+
+def test_present_infers_object_name_from_virtual_hosted_signed_url():
+    from presentation.api.content_routes import _present_content_post
+
+    doc = {
+        "cover_url": None,
+        "media_url": (
+            "https://naturalpath-media.storage.googleapis.com/content/video/clip.mp4"
+            "?x-goog-signature=redacted"
+        ),
+    }
+    with patch("presentation.api.content_routes.settings") as settings, patch(
+        "presentation.api.content_routes._fresh_object_url",
+        side_effect=lambda name: f"https://signed.example/{name}",
+    ):
+        settings.gcs_bucket = "naturalpath-media"
+        out = _present_content_post(doc)
+    assert out["media_object_name"] == "content/video/clip.mp4"
+    assert out["media_url"] == "https://signed.example/content/video/clip.mp4"
+
+
 def test_object_name_from_signed_and_cdn_urls():
     from workers.media_preview_worker import object_name_from_media_url
 

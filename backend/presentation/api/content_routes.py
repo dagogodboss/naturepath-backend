@@ -10,11 +10,12 @@ from __future__ import annotations
 import html
 import logging
 import re
+import time
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Literal, Optional
 
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
@@ -309,6 +310,72 @@ def _signed_get_url(object_name: str, *, ttl_minutes: int = 60 * 24 * 7) -> Opti
         return None
 
 
+_OBJECT_URL_CACHE: Dict[str, tuple[float, str]] = {}
+_OBJECT_URL_TTL_SECONDS = 60 * 60
+
+
+def _stored_gcs_object_name(url: Optional[str]) -> Optional[str]:
+    """Object path from a signed GCS URL already saved on a post. Ignores other hosts."""
+    bucket = (getattr(settings, "gcs_bucket", None) or "").strip()
+    if not url or not bucket:
+        return None
+    parsed = urlparse(str(url).strip())
+    host = (parsed.hostname or "").lower()
+    path = unquote(parsed.path).lstrip("/")
+    if host == f"{bucket}.storage.googleapis.com":
+        return path or None
+    if host == "storage.googleapis.com":
+        prefix = f"{bucket}/"
+        if path.startswith(prefix):
+            return path[len(prefix) :] or None
+    return None
+
+
+def _fresh_object_url(object_name: Optional[str]) -> Optional[str]:
+    """Signed (or CDN) GET URL. Cached in-process so list views do not re-sign every hit."""
+    if not object_name:
+        return None
+    now = time.monotonic()
+    cached = _OBJECT_URL_CACHE.get(object_name)
+    if cached and cached[0] > now:
+        return cached[1]
+    url = _cdn_url(object_name)
+    if url:
+        _OBJECT_URL_CACHE[object_name] = (now + _OBJECT_URL_TTL_SECONDS, url)
+    return url
+
+
+def _present_content_post(doc: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Return a client payload with readable media.
+
+    Uploaded videos persist a signed GET URL that expires (7 days). Playback
+    uses media_object_name / preview_clip_object, which do not expire.
+    cover_url is left alone — a video file is never copied into the poster.
+    """
+    out = dict(doc or {})
+    out.pop("_id", None)
+    object_name = out.get("media_object_name") or _stored_gcs_object_name(out.get("media_url"))
+    if object_name:
+        fresh = _fresh_object_url(object_name)
+        if fresh:
+            out["media_url"] = fresh
+            out["media_object_name"] = object_name
+    preview_object = out.get("preview_clip_object") or _stored_gcs_object_name(
+        out.get("preview_clip_url")
+    )
+    if preview_object and not (
+        out.get("preview_clip_object") or str(preview_object).startswith("content/preview/")
+    ):
+        preview_object = None
+    if preview_object:
+        fresh_preview = _fresh_object_url(preview_object)
+        if fresh_preview:
+            out["preview_clip_url"] = fresh_preview
+            out["preview_clip_object"] = preview_object
+    return out
+
+
 def _cdn_url(object_name: str) -> Optional[str]:
     """
     Public media URL for a GCS object.
@@ -460,16 +527,18 @@ async def list_public_posts(
     if cached:
         import json
 
-        return json.loads(cached)
-    rows = (
-        await db.content_posts.find(query, {"_id": 0})
-        .sort("published_at", -1)
-        .to_list(length=limit)
-    )
-    payload = {"items": rows}
-    import json
+        payload = json.loads(cached)
+    else:
+        rows = (
+            await db.content_posts.find(query, {"_id": 0})
+            .sort("published_at", -1)
+            .to_list(length=limit)
+        )
+        payload = {"items": rows}
+        import json
 
-    await _cache_set(cache_key, json.dumps(payload, default=str), ttl=90)
+        await _cache_set(cache_key, json.dumps(payload, default=str), ttl=90)
+    payload["items"] = [_present_content_post(item) for item in payload.get("items") or []]
     return payload
 
 
@@ -484,7 +553,7 @@ async def latest_posts_for_landing(
         .sort("published_at", -1)
         .to_list(length=limit)
     )
-    return {"items": rows}
+    return {"items": [_present_content_post(row) for row in rows]}
 
 
 @router.get("/posts/id/{post_id}")
@@ -495,7 +564,7 @@ async def get_public_post_by_id(post_id: str, db=Depends(get_database)):
     )
     if not doc:
         raise HTTPException(status_code=404, detail="Post not found")
-    return doc
+    return _present_content_post(doc)
 
 
 @router.get("/posts/{slug}")
@@ -510,7 +579,7 @@ async def get_public_post(slug: str, db=Depends(get_database)):
         )
     if not doc:
         raise HTTPException(status_code=404, detail="Post not found")
-    return doc
+    return _present_content_post(doc)
 
 
 @router.get("/admin/posts")
@@ -531,7 +600,7 @@ async def admin_list_posts(
         .sort("updated_at", -1)
         .to_list(length=200)
     )
-    return {"items": rows}
+    return {"items": [_present_content_post(row) for row in rows]}
 
 
 @router.post("/admin/posts", status_code=status.HTTP_201_CREATED)
@@ -572,7 +641,7 @@ async def admin_create_post(
     await db.content_posts.insert_one(doc)
     await _bust_content_caches()
     _maybe_enqueue_preview_clip(doc)
-    return _public_doc(doc)
+    return _present_content_post(_public_doc(doc))
 
 
 @router.patch("/admin/posts/{post_id}")
@@ -588,7 +657,7 @@ async def admin_update_post(
         raise HTTPException(status_code=404, detail="Post not found")
     updates = body.model_dump(exclude_unset=True)
     if not updates:
-        return _public_doc(existing)
+        return _present_content_post(_public_doc(existing))
     if "cover_url" in updates or "embed_url" in updates or "media_url" in updates:
         updates["cover_url"] = _cover_or_provider_poster(
             updates.get("cover_url", existing.get("cover_url")),
@@ -606,7 +675,7 @@ async def admin_update_post(
     )
     if media_touched:
         _maybe_enqueue_preview_clip(doc or {})
-    return doc
+    return _present_content_post(doc)
 
 
 @router.delete("/admin/posts/{post_id}")
@@ -761,15 +830,17 @@ async def list_reels_feed(
     for row in ordered:
         pid = row["post_id"]
         items.append(
-            {
-                **row,
-                "seen": pid in seen_ids,
-                "like_count": like_counts.get(pid, 0),
-                "comment_count": comment_counts.get(pid, 0),
-                "liked_by_me": pid in liked_by_me,
-                # Interim preview hint (client applies #t=0,60 when no GCS clip).
-                "preview_seconds": 60,
-            }
+            _present_content_post(
+                {
+                    **row,
+                    "seen": pid in seen_ids,
+                    "like_count": like_counts.get(pid, 0),
+                    "comment_count": comment_counts.get(pid, 0),
+                    "liked_by_me": pid in liked_by_me,
+                    # Interim preview hint (client applies #t=0,60 when no GCS clip).
+                    "preview_seconds": 60,
+                }
+            )
         )
     return {"items": items}
 
