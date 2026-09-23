@@ -7,6 +7,8 @@ import base64
 import html
 import logging
 import smtplib
+import socket
+import ssl
 from urllib.parse import urlparse
 
 import resend
@@ -15,6 +17,57 @@ from email.message import EmailMessage
 from core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Stay under Render's request timeout. The previous 20s socket timeout
+# consumed the whole request when the first address was unreachable.
+_SMTP_CONNECT_TIMEOUT_SECONDS = 10
+
+
+def _open_ipv4_socket(host: str, port: int, timeout: float) -> socket.socket:
+    """Connect with AF_INET only.
+
+    Render free instances have no IPv6 route. smtplib uses getaddrinfo, which
+    often returns an AAAA address first, and that connect fails with
+    ENETUNREACH (errno 101).
+    """
+    port_int = int(port)
+    last_error: Optional[OSError] = None
+    addresses = socket.getaddrinfo(host, port_int, socket.AF_INET, socket.SOCK_STREAM)
+    if not addresses:
+        raise OSError(101, f"No IPv4 address for {host}")
+    for family, socktype, proto, _canon, sockaddr in addresses:
+        sock = socket.socket(family, socktype, proto)
+        try:
+            sock.settimeout(timeout)
+            sock.connect(sockaddr)
+            return sock
+        except OSError as exc:
+            last_error = exc
+            sock.close()
+    if last_error is not None:
+        raise last_error
+    raise OSError(101, f"No IPv4 address for {host}")
+
+
+class _SMTP_IPv4(smtplib.SMTP):
+    """STARTTLS client that never dials an IPv6 address."""
+
+    def _get_socket(self, host, port, timeout):
+        if self.debuglevel > 0:
+            self._print_debug("connect:", (host, port))
+        return _open_ipv4_socket(host, port, timeout)
+
+
+class _SMTP_SSL_IPv4(smtplib.SMTP_SSL):
+    """Implicit-TLS client (port 465) that never dials an IPv6 address."""
+
+    def _get_socket(self, host, port, timeout):
+        if self.debuglevel > 0:
+            self._print_debug("connect:", (host, port))
+        raw = _open_ipv4_socket(host, port, timeout)
+        server_hostname = getattr(self, "_host", None) or host
+        context = getattr(self, "context", None) or ssl.create_default_context()
+        return context.wrap_socket(raw, server_hostname=server_hostname)
 
 
 class EmailService:
@@ -122,11 +175,20 @@ class EmailService:
                 )
 
         # Port 465 = implicit SSL (SMTP_SSL). Port 587 = plain + STARTTLS when smtp_use_tls.
+        # Force IPv4: Render free has no IPv6 route (errno 101 / ENETUNREACH).
         use_ssl = int(self.smtp_port) == 465
         if use_ssl:
-            server_cm = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=20)
+            server_cm = _SMTP_SSL_IPv4(
+                self.smtp_host,
+                self.smtp_port,
+                timeout=_SMTP_CONNECT_TIMEOUT_SECONDS,
+            )
         else:
-            server_cm = smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=20)
+            server_cm = _SMTP_IPv4(
+                self.smtp_host,
+                self.smtp_port,
+                timeout=_SMTP_CONNECT_TIMEOUT_SECONDS,
+            )
         with server_cm as server:
             if not use_ssl and self.smtp_use_tls:
                 server.starttls()
