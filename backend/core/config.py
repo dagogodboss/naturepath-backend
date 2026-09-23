@@ -8,6 +8,17 @@ from pydantic_settings import BaseSettings
 from typing import Optional, List
 
 
+# Always merged into CORS_ALLOWED_ORIGINS. Explicit list only — never "*".
+# The hosted SPA and Vite dev server must be able to call this API with
+# Authorization (credentialed CORS cannot use a wildcard origin).
+REQUIRED_CORS_ORIGINS = (
+    "https://project-naturalpath.web.app",
+    "https://project-naturalpath.firebaseapp.com",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+)
+
+
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
     
@@ -18,6 +29,8 @@ class Settings(BaseSettings):
     deployment_target: str = "local"  # local | aws
     use_docker_network: bool = False
     cors_allowed_origins: str = (
+        "https://project-naturalpath.web.app,"
+        "https://project-naturalpath.firebaseapp.com,"
         "http://localhost:5173,http://127.0.0.1:5173,"
         "http://localhost:8080,http://127.0.0.1:8080,"
         "https://frontend.naturepath-local.orb.local,"
@@ -99,13 +112,23 @@ class Settings(BaseSettings):
         if self.app_env.lower() in ("production", "prod"):
             if self.jwt_secret_key == "natural-path-spa-super-secret-key-2024":
                 raise ValueError("JWT_SECRET_KEY must be overridden in production")
-            if "*" in self.cors_origins:
+            configured = [
+                v.strip() for v in self.cors_allowed_origins.split(",") if v.strip()
+            ]
+            if any(origin == "*" for origin in configured):
                 raise ValueError("CORS wildcard is not allowed in production")
         return self
 
     @property
     def cors_origins(self) -> List[str]:
-        return [v.strip() for v in self.cors_allowed_origins.split(",") if v.strip()]
+        configured = [
+            v.strip() for v in self.cors_allowed_origins.split(",") if v.strip()
+        ]
+        origins: List[str] = []
+        for origin in (*REQUIRED_CORS_ORIGINS, *configured):
+            if origin not in origins:
+                origins.append(origin)
+        return origins
     
     # SMS (Twilio)
     twilio_account_sid: Optional[str] = None
