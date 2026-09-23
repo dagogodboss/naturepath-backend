@@ -10,7 +10,7 @@ import logging
 import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from core.config import settings
 from core.money import Money
@@ -32,6 +32,12 @@ from presentation.dependencies import (
     get_auth_use_case,
 )
 from application.use_cases import AuthUseCase
+from application.store_fulfillment import (
+    merchandise_totals,
+    normalize_fulfillment_method,
+    ship_address_errors,
+    shipping_amount,
+)
 
 router = APIRouter(prefix="/store", tags=["Store"])
 logger = logging.getLogger(__name__)
@@ -88,11 +94,11 @@ class StoreAddressIn(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
     phone: str = Field(min_length=7, max_length=32)
     email: str = Field(min_length=5, max_length=120)
-    line1: str = Field(min_length=3, max_length=200)
+    line1: str = Field(default="", max_length=200)
     line2: Optional[str] = Field(default=None, max_length=200)
-    city: str = Field(min_length=2, max_length=100)
-    state: str = Field(min_length=2, max_length=100)
-    postal_code: str = Field(min_length=3, max_length=20)
+    city: str = Field(default="", max_length=100)
+    state: str = Field(default="", max_length=100)
+    postal_code: str = Field(default="", max_length=20)
     country: str = Field(default="US", min_length=2, max_length=2)
     delivery_notes: Optional[str] = Field(default=None, max_length=300)
 
@@ -100,9 +106,29 @@ class StoreAddressIn(BaseModel):
 class CreateStoreOrderIn(BaseModel):
     items: List[StoreOrderItemIn] = Field(min_length=1, max_length=50)
     address: StoreAddressIn
+    fulfillment_method: Literal["pickup", "ship"] = "pickup"
     payment_mode: Literal["card_online", "walk_in", "pay_offline", "sms_pay_link"] = "pay_offline"
-    payment_method: str = Field(default="pay_on_delivery")
+    payment_method: str = Field(default="payment_link")
     customer_note: Optional[str] = Field(default=None, max_length=300)
+
+    @model_validator(mode="after")
+    def ship_requires_full_address(self):
+        if self.fulfillment_method != "ship":
+            return self
+        missing = ship_address_errors(self.address.model_dump())
+        if missing:
+            raise ValueError(
+                "Ship My Order requires a street address, city, state, and zip code"
+            )
+        return self
+
+
+class SetShippingIn(BaseModel):
+    shipping_amount: float = Field(ge=0)
+
+
+class SendPaymentLinkIn(BaseModel):
+    payment_link_url: str = Field(min_length=12, max_length=2000)
 
 
 class AdminOrderActionIn(BaseModel):
@@ -340,6 +366,10 @@ def _store_order_allowed_actions(order: Dict[str, Any]) -> Dict[str, bool]:
         # No-card orders are paid in person / via back office; ops records it.
         "record_payment": mode == "pay_offline"
         and ps in {"awaiting_offline_payment", "pending"},
+        "set_shipping": (order.get("fulfillment_method") or "pickup") == "ship"
+        and fs not in {"refunded", "rejected"},
+        "send_payment_link": ps not in {"captured", "paid_offline", "refunded"}
+        and bool((order.get("address") or {}).get("email")),
         # SMS pay-link orders can re-send the text while still awaiting payment.
         "resend_sms": mode == "sms_pay_link"
         and ps == "awaiting_payment"
@@ -369,6 +399,13 @@ def _enrich_store_order(order: Optional[Dict[str, Any]]) -> Optional[Dict[str, A
             legacy_field="refund_amount",
             default_currency="USD",
         )
+    if out.get("shipping_cents") is not None or out.get("shipping") is not None:
+        out["shipping"] = read_amount_cents_first(
+            out, cents_field="shipping_cents", legacy_field="shipping", default_currency="USD"
+        )
+    else:
+        out["shipping"] = 0.0
+    out["fulfillment_method"] = out.get("fulfillment_method") or "pickup"
     out["allowed_actions"] = _store_order_allowed_actions(out)
     return out
 
@@ -711,8 +748,11 @@ async def create_store_order(
                 "line_total": line_total,
             }
         )
-    tax = round(subtotal * float(settings.store_tax_rate), 2)
-    total = round(subtotal + tax, 2)
+    method = normalize_fulfillment_method(body.fulfillment_method)
+    ship = shipping_amount(method, 0)
+    totals = merchandise_totals(subtotal, float(settings.store_tax_rate), ship)
+    tax = totals["tax"]
+    total = totals["total"]
     now = _utc_now_iso()
     order_id = _id("np_ord")
 
@@ -737,12 +777,15 @@ async def create_store_order(
         "customer_id": customer_id,
         "items": priced_items,
         "address": body.address.model_dump(),
+        "fulfillment_method": method,
         "payment_method": body.payment_method,
         "payment_mode": body.payment_mode,
         "payment_status": "pending",
         "fulfillment_status": "placed",
         "subtotal": subtotal_money.to_float(),
         "subtotal_cents": subtotal_money.to_cents(),
+        "shipping": Money.from_float(ship, "USD").to_float(),
+        "shipping_cents": Money.from_float(ship, "USD").to_cents(),
         "tax": tax_money.to_float(),
         "tax_cents": tax_money.to_cents(),
         "total": total_money.to_float(),
@@ -2159,6 +2202,105 @@ async def admin_backfill_revel_tx(
             },
         },
     )
+    out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    return _enrich_store_order(out)
+
+
+@router.post("/admin/orders/{order_id}/shipping")
+async def set_order_shipping(
+    order_id: str,
+    body: SetShippingIn,
+    current_user: dict = Depends(get_current_active_user),
+    db=Depends(get_database),
+):
+    """Staff-entered shipping. Pickup stays 0. Tax already stored is left unchanged."""
+    await _require_order_ops_user(current_user)
+    order = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    method = order.get("fulfillment_method") or "pickup"
+    try:
+        ship = shipping_amount(method, body.shipping_amount)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    subtotal = float(order.get("subtotal") or 0)
+    tax = float(order.get("tax") or 0)
+    total = round(subtotal + tax + ship, 2)
+    ship_money = Money.from_float(ship, "USD")
+    total_money = Money.from_float(total, "USD")
+    now = _utc_now_iso()
+    await db.store_orders.update_one(
+        {"order_id": order_id},
+        {
+            "$set": {
+                "shipping": ship_money.to_float(),
+                "shipping_cents": ship_money.to_cents(),
+                "total": total_money.to_float(),
+                "total_cents": total_money.to_cents(),
+                "updated_at": now,
+            },
+            "$push": {
+                "timeline": {
+                    "status": "shipping_set",
+                    "at": now,
+                    "by": current_user.get("user_id"),
+                    "shipping": ship_money.to_float(),
+                }
+            },
+        },
+    )
+    out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    return _enrich_store_order(out)
+
+
+@router.post("/admin/orders/{order_id}/payment-link")
+async def send_manual_payment_link(
+    order_id: str,
+    body: SendPaymentLinkIn,
+    current_user: dict = Depends(get_current_active_user),
+    db=Depends(get_database),
+):
+    """Email a staff-supplied https payment link. Does not create a Revel hosted payment."""
+    await _require_order_ops_user(current_user)
+    order = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    email = (order.get("address") or {}).get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Order has no email address")
+    try:
+        send_result = await get_email_service().send_store_payment_link(
+            to_email=email,
+            order_id=order_id,
+            pay_link_url=body.payment_link_url.strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    now = _utc_now_iso()
+    delivered = "sent" if send_result.get("success") else "failed"
+    await db.store_orders.update_one(
+        {"order_id": order_id},
+        {
+            "$set": {
+                "payment_link_url": body.payment_link_url.strip(),
+                "payment_link_email_status": {"status": delivered, **send_result},
+                "updated_at": now,
+            },
+            "$push": {
+                "timeline": {
+                    "status": f"payment_link_{delivered}",
+                    "at": now,
+                    "by": current_user.get("user_id"),
+                    "channel": "email",
+                }
+            },
+        },
+    )
+    if delivered == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=send_result.get("message") or "Payment link email could not be sent",
+        )
     out = await db.store_orders.find_one({"order_id": order_id}, {"_id": 0})
     return _enrich_store_order(out)
 
