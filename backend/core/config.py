@@ -169,7 +169,7 @@ class Settings(BaseSettings):
 
     # Clinic local timezone for slot comparisons / reminder calendar dates
     # (booking slots are stored as local wall-clock date + HH:MM).
-    clinic_timezone: str = "America/Los_Angeles"
+    clinic_timezone: str = "America/Chicago"
 
     class Config:
         env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")

@@ -33,6 +33,7 @@ from application.outlook_calendar import subtract_busy_intervals
 from core.money import Money
 from infrastructure.cache import CacheService
 from core.config import settings
+from core.time_utils import assert_clinic_date_not_past
 from workers.notification_worker import (
     send_booking_confirmation_email,
     send_booking_confirmation_sms,
@@ -247,6 +248,8 @@ class BookingUseCase:
         service = await self.service_repo.get_by_id(service_id)
         if not service or not service.get("is_active"):
             raise ValueError("Service not found or inactive")
+
+        assert_clinic_date_not_past(date)
 
         normalized_topics = [str(topic).strip() for topic in (education_topics or []) if str(topic).strip()]
         service_name = str(service.get("name") or "").lower()

@@ -147,9 +147,20 @@ def _build_use_case(practitioners, users, services, available_by_pid_date, slot_
     )
 
 
+def _next_clinic_friday() -> str:
+    """A clinic-local Friday that is today or later, so past-date checks stay stable."""
+    from datetime import timedelta
+
+    from core.time_utils import clinic_now
+
+    today = clinic_now().date()
+    delta = (4 - today.weekday()) % 7
+    return (today + timedelta(days=delta)).isoformat()
+
+
 def test_single_practitioner_assignment_owner():
     service_id = "svc-1"
-    date = "2026-04-03"
+    date = _next_clinic_friday()
     use_case, _state = _build_use_case(
         practitioners={
             "p-owner": {
@@ -179,7 +190,7 @@ def test_single_practitioner_assignment_owner():
 
 def test_round_robin_assignment_sequence():
     service_id = "svc-1"
-    date = "2026-04-03"
+    date = _next_clinic_friday()
     p1_slots = [{"start_time": "09:00", "end_time": "10:00"}]
     p2_slots = [{"start_time": "09:00", "end_time": "10:00"}]
     use_case, _state = _build_use_case(
@@ -204,7 +215,7 @@ def test_round_robin_assignment_sequence():
 
 def test_skip_unavailable_practitioner_for_slot():
     service_id = "svc-1"
-    date = "2026-04-03"
+    date = _next_clinic_friday()
     use_case, _state = _build_use_case(
         practitioners={
             "p1": {"practitioner_id": "p1", "user_id": "u1", "services": [service_id], "availability": []},
@@ -226,7 +237,7 @@ def test_skip_unavailable_practitioner_for_slot():
 
 def test_no_availability_error():
     service_id = "svc-1"
-    date = "2026-04-03"
+    date = _next_clinic_friday()
     use_case, _state = _build_use_case(
         practitioners={
             "p1": {"practitioner_id": "p1", "user_id": "u1", "services": [service_id], "availability": []},

@@ -41,15 +41,26 @@ def utcnow() -> datetime:
 
 def clinic_tz() -> ZoneInfo:
     """Clinic wall-clock timezone (slots are stored as local date + HH:MM)."""
-    name = (getattr(settings, "clinic_timezone", None) or "America/Los_Angeles").strip()
+    name = (getattr(settings, "clinic_timezone", None) or "America/Chicago").strip()
     try:
         return ZoneInfo(name)
     except Exception:
-        return ZoneInfo("America/Los_Angeles")
+        return ZoneInfo("America/Chicago")
 
 
 def clinic_now() -> datetime:
     return datetime.now(clinic_tz())
+
+
+def assert_clinic_date_not_past(date_s: str, *, today: Optional[date] = None) -> None:
+    """Reject booking dates before the clinic-local calendar day."""
+    try:
+        booked = datetime.strptime(date_s, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError("Invalid booking date") from exc
+    clinic_today = today if today is not None else clinic_now().date()
+    if booked < clinic_today:
+        raise ValueError("Cannot book a past date")
 
 
 def parse_clinic_slot(date_s: str, time_s: str = "00:00") -> Optional[datetime]:
