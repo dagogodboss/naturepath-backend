@@ -40,7 +40,7 @@ SERVICE_CATALOG = [
     {
         "name": "Salt Session (Halotherapy)",
         "display_order": 10,
-        "requires_discovery": False,
+        "requires_discovery": True,
         "description": "Our 45-minute Salt Session is a calming, restorative experience designed to help you slow down, breathe deeply, and relax. Guests sit comfortably in a softly lit salt room, surrounded by the warm glow of Himalayan salt lamps while fine, dry salt particles are gently dispersed into the air.",
         "category": "wellness",
         "duration_minutes": 45,

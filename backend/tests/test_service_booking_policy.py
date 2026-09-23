@@ -1,11 +1,12 @@
 from application.service_policy import is_discovery_exempt, service_requires_discovery
 
 
-def test_discovery_and_salt_are_bookable_without_discovery_completion():
+def test_discovery_and_education_are_bookable_without_discovery_completion():
     assert is_discovery_exempt({"name": "Discovery Call"}) is True
-    assert is_discovery_exempt({"name": "Salt Session (Halotherapy)"}) is True
     assert is_discovery_exempt({"name": "Natural Health Education Hour"}) is True
-    assert service_requires_discovery({"name": "Salt Session"}) is False
+    assert is_discovery_exempt({"name": "Salt Session (Halotherapy)"}) is False
+    assert service_requires_discovery({"name": "Salt Session"}) is True
+    assert service_requires_discovery({"name": "Salt Session", "requires_discovery": False}) is True
 
 
 def test_explicit_policy_overrides_legacy_name_fallback():
