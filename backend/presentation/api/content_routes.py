@@ -289,7 +289,16 @@ class LandingSettingsIn(BaseModel):
 
 
 def _gcs_enabled() -> bool:
-    return bool(getattr(settings, "gcs_bucket", None))
+    """True only when a bucket is configured and Google credentials exist."""
+    if not (getattr(settings, "gcs_bucket", None) or "").strip():
+        return False
+    try:
+        from infrastructure.gcs_signing import credentials_available
+
+        return credentials_available()
+    except Exception:
+        logger.warning("GCS availability check failed", exc_info=True)
+        return False
 
 
 def _signed_get_url(object_name: str, *, ttl_minutes: int = 60 * 24 * 7) -> Optional[str]:
@@ -700,10 +709,7 @@ async def admin_sign_upload(
     """Return a GCS signed PUT URL when configured; otherwise instruct embed/media_url use."""
     _require_content_admin(current_user)
     if not _gcs_enabled():
-        return {
-            "enabled": False,
-            "detail": "GCS not configured. Set GCS_BUCKET (and optional CDN_BASE_URL). Use embed_url for YouTube/Vimeo meanwhile.",
-        }
+        raise HTTPException(status_code=503, detail="Video storage is unavailable")
     safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", body.filename)[:120]
     object_name = f"content/{body.kind}/{uuid.uuid4().hex}_{safe_name}"
     try:
@@ -724,9 +730,9 @@ async def admin_sign_upload(
             "content_type": body.content_type,
             "expires_in_seconds": 1800,
         }
-    except Exception as exc:
+    except Exception:
         logger.exception("GCS signed URL failed")
-        raise HTTPException(status_code=502, detail=f"Could not create upload URL: {exc}") from exc
+        raise HTTPException(status_code=503, detail="Video storage is unavailable")
 
 
 @router.post("/admin/posts/{post_id}/preview-clip")
@@ -745,7 +751,7 @@ async def admin_trigger_preview_clip(
     if not (post.get("media_url") or post.get("media_object_name")):
         raise HTTPException(status_code=400, detail="Post has no native media")
     if not _gcs_enabled():
-        raise HTTPException(status_code=503, detail="GCS_BUCKET not configured")
+        raise HTTPException(status_code=503, detail="Video storage is unavailable")
     from workers.media_preview_worker import enqueue_preview_clip
 
     task_id = enqueue_preview_clip(post_id)

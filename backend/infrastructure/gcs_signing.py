@@ -20,6 +20,27 @@ from google.oauth2 import service_account
 
 logger = logging.getLogger(__name__)
 
+class GcsUnavailable(RuntimeError):
+    """GCS credentials or the bucket cannot be used. Callers must not crash the process."""
+
+
+_credentials_available: Optional[bool] = None
+
+
+def credentials_available() -> bool:
+    """True only when Application Default Credentials exist. Never raises."""
+    global _credentials_available
+    if _credentials_available is not None:
+        return _credentials_available
+    try:
+        google.auth.default()
+        _credentials_available = True
+    except Exception:
+        logger.info("GCS credentials are not available; video storage stays disabled")
+        _credentials_available = False
+    return _credentials_available
+
+
 _METADATA_SA_EMAIL = (
     "http://metadata.google.internal/computeMetadata/v1/"
     "instance/service-accounts/default/email"
@@ -27,8 +48,13 @@ _METADATA_SA_EMAIL = (
 
 
 def gcs_client() -> storage.Client:
-    credentials, project = google.auth.default()
-    return storage.Client(credentials=credentials, project=project)
+    if not credentials_available():
+        raise GcsUnavailable("Video storage is unavailable")
+    try:
+        credentials, project = google.auth.default()
+        return storage.Client(credentials=credentials, project=project)
+    except Exception as exc:
+        raise GcsUnavailable("Video storage is unavailable") from exc
 
 
 def _metadata_sa_email() -> Optional[str]:
@@ -98,15 +124,22 @@ def generate_signed_url(
     client: Optional[storage.Client] = None,
 ) -> str:
     """Create a V4 signed URL; uses signBlob under Cloud Run ADC."""
-    credentials, project = google.auth.default()
-    storage_client = client or storage.Client(credentials=credentials, project=project)
-    blob = storage_client.bucket(bucket_name).blob(object_name)
-    kwargs: dict[str, Any] = {
-        "version": "v4",
-        "expiration": expiration,
-        "method": method,
-        **_iam_sign_kwargs(credentials),
-    }
-    if content_type is not None:
-        kwargs["content_type"] = content_type
-    return blob.generate_signed_url(**kwargs)
+    if not credentials_available():
+        raise GcsUnavailable("Video storage is unavailable")
+    try:
+        credentials, project = google.auth.default()
+        storage_client = client or storage.Client(credentials=credentials, project=project)
+        blob = storage_client.bucket(bucket_name).blob(object_name)
+        kwargs: dict[str, Any] = {
+            "version": "v4",
+            "expiration": expiration,
+            "method": method,
+            **_iam_sign_kwargs(credentials),
+        }
+        if content_type is not None:
+            kwargs["content_type"] = content_type
+        return blob.generate_signed_url(**kwargs)
+    except GcsUnavailable:
+        raise
+    except Exception as exc:
+        raise GcsUnavailable("Video storage is unavailable") from exc

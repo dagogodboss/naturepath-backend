@@ -2,7 +2,13 @@
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from infrastructure import gcs_signing
+
+
+def setup_function():
+    gcs_signing._credentials_available = None
 
 
 def test_iam_sign_kwargs_empty_for_service_account_key():
@@ -66,3 +72,14 @@ def test_generate_signed_url_passes_iam_kwargs():
     call_kwargs = blob.generate_signed_url.call_args.kwargs
     assert call_kwargs["service_account_email"] == "runtime@project.iam.gserviceaccount.com"
     assert call_kwargs["access_token"] == "ya29.test-token"
+
+
+def test_generate_signed_url_without_credentials_is_unavailable():
+    with patch.object(gcs_signing.google.auth, "default", side_effect=Exception("no adc")):
+        with pytest.raises(gcs_signing.GcsUnavailable):
+            gcs_signing.generate_signed_url(
+                bucket_name="naturalpath-media",
+                object_name="content/video/a.mp4",
+                method="GET",
+                expiration=timedelta(minutes=5),
+            )

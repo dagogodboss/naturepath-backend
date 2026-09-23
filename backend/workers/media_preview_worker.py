@@ -130,22 +130,39 @@ def _generate_preview_for_post(post_id: str) -> dict:
         if not source_object:
             return {"ok": False, "detail": "no media_object_name / parseable media_url"}
 
-        from google.cloud import storage
+        try:
+            from infrastructure.gcs_signing import gcs_client
 
-        gcs = storage.Client()
+            gcs = gcs_client()
+        except Exception as exc:
+            logger.warning("preview skipped; video storage unavailable: %s", type(exc).__name__)
+            return {"ok": False, "detail": "Video storage is unavailable"}
         bucket = gcs.bucket(settings.gcs_bucket)
         src_blob = bucket.blob(source_object)
-        if not src_blob.exists():
+        try:
+            source_exists = src_blob.exists()
+        except Exception:
+            logger.warning("preview skipped; bucket unreachable post_id=%s", post_id, exc_info=True)
+            return {"ok": False, "detail": "Video storage is unavailable"}
+        if not source_exists:
             return {"ok": False, "detail": f"source object missing: {source_object}"}
 
         preview_object = f"content/preview/{post_id}_t0-{PREVIEW_SECONDS}.mp4"
         with tempfile.TemporaryDirectory(prefix="np-preview-") as tmp:
             src_path = os.path.join(tmp, "source.mp4")
             dst_path = os.path.join(tmp, "preview.mp4")
-            src_blob.download_to_filename(src_path)
+            try:
+                src_blob.download_to_filename(src_path)
+            except Exception:
+                logger.warning("preview download failed post_id=%s", post_id, exc_info=True)
+                return {"ok": False, "detail": "Video storage is unavailable"}
             _run_ffmpeg_clip(src_path, dst_path)
             dst_blob = bucket.blob(preview_object)
-            dst_blob.upload_from_filename(dst_path, content_type="video/mp4")
+            try:
+                dst_blob.upload_from_filename(dst_path, content_type="video/mp4")
+            except Exception:
+                logger.warning("preview upload failed post_id=%s", post_id, exc_info=True)
+                return {"ok": False, "detail": "Video storage is unavailable"}
 
         preview_url = _cdn_or_signed_url(preview_object)
         now = datetime.now(timezone.utc).isoformat()
