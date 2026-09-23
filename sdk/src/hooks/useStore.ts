@@ -142,6 +142,16 @@ export function useStoreOrderOps() {
     mutationFn: (orderId: string) => storeApi.sendInvoice(orderId),
     onSuccess: (order) => refresh(order.order_id),
   });
+  const setShipping = useMutation({
+    mutationFn: ({ orderId, shippingAmount }: { orderId: string; shippingAmount: number }) =>
+      storeApi.setOrderShipping(orderId, shippingAmount),
+    onSuccess: (order) => refresh(order.order_id),
+  });
+  const sendPaymentLink = useMutation({
+    mutationFn: ({ orderId, paymentLinkUrl }: { orderId: string; paymentLinkUrl: string }) =>
+      storeApi.sendPaymentLink(orderId, paymentLinkUrl),
+    onSuccess: (order) => refresh(order.order_id),
+  });
   const voidOrder = useMutation({
     mutationFn: (orderId: string) => storeApi.voidOrder(orderId),
     onSuccess: (order) => refresh(order.order_id),
@@ -152,5 +162,15 @@ export function useStoreOrderOps() {
     onSuccess: (_resp, vars) => refresh(vars.orderId),
   });
 
-  return { confirm, fulfill, reject, refund, invoice, voidOrder, backfillRevelTransaction };
+  return {
+    confirm,
+    fulfill,
+    reject,
+    refund,
+    invoice,
+    setShipping,
+    sendPaymentLink,
+    voidOrder,
+    backfillRevelTransaction,
+  };
 }

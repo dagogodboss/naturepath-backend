@@ -643,9 +643,12 @@ export interface StoreOrderItem {
 
 export type StorePaymentMode = 'card_online' | 'walk_in';
 
+export type StoreFulfillmentMethod = 'pickup' | 'ship';
+
 export interface CreateStoreOrderRequest {
   items: StoreOrderItem[];
   address: StoreAddress;
+  fulfillment_method?: StoreFulfillmentMethod;
   payment_mode?: StorePaymentMode;
   payment_method: StorePaymentMethod;
   customer_note?: string;
@@ -660,7 +663,9 @@ export interface StoreOrder {
   payment_method: StorePaymentMethod;
   payment_status: StorePaymentState;
   fulfillment_status: StoreFulfillmentState;
+  fulfillment_method?: StoreFulfillmentMethod;
   subtotal: number;
+  shipping?: number;
   tax: number;
   total: number;
   currency: string;
@@ -676,6 +681,8 @@ export interface StoreOrder {
     reject: boolean;
     confirm: boolean;
     fulfill: boolean;
+    set_shipping?: boolean;
+    send_payment_link?: boolean;
   };
 }
 

@@ -25,6 +25,23 @@ def test_embed_url_allows_youtube():
     assert "youtube.com" in body.embed_url
 
 
+def test_embed_url_allows_facebook():
+    body = ContentIn(
+        type="vlog",
+        title="Clip",
+        embed_url="https://www.facebook.com/Thenaturalpathla/videos/1234567890",
+    )
+    assert "facebook.com" in body.embed_url
+
+
+def test_youtube_poster_when_cover_empty():
+    from presentation.api.content_routes import provider_poster_url
+
+    poster = provider_poster_url("https://www.youtube.com/watch?v=abc123")
+    assert poster == "https://i.ytimg.com/vi/abc123/hqdefault.jpg"
+    assert provider_poster_url("https://www.facebook.com/watch/?v=1") is None
+
+
 def test_cover_url_rejects_javascript_scheme():
     with pytest.raises(ValueError):
         ContentIn(type="blog", title="Post", cover_url="javascript:alert(1)")

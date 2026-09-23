@@ -2,7 +2,7 @@
  * Reels / vlog preview URL helpers (Phase F interim + G clip prefer).
  */
 import { describe, expect, it } from 'vitest';
-import { embedIframeSrc, previewMediaSrc, reelPreviewSrc } from './previewMedia';
+import { cardPosterSrc, embedIframeSrc, previewMediaSrc, reelPreviewSrc } from './previewMedia';
 
 describe('previewMediaSrc', () => {
   it('prefers Phase G preview_clip_url when present', () => {
@@ -65,5 +65,35 @@ describe('embedIframeSrc', () => {
   it('rejects lookalike hosts and non-http schemes', () => {
     expect(embedIframeSrc('https://youtube.com.evil.example/watch?v=abc')).toBeNull();
     expect(embedIframeSrc('javascript:alert(1)')).toBeNull();
+  });
+
+  it('embeds facebook video links', () => {
+    const src = embedIframeSrc('https://www.facebook.com/Thenaturalpathla/videos/99');
+    expect(src).toContain('facebook.com/plugins/video.php');
+    expect(src).toContain(encodeURIComponent('https://www.facebook.com/Thenaturalpathla/videos/99'));
+  });
+});
+
+describe('cardPosterSrc', () => {
+  it('uses the provider thumbnail when cover_url is empty', () => {
+    expect(
+      cardPosterSrc({
+        cover_url: '',
+        media_url: 'https://www.youtube.com/watch?v=abc123',
+      })
+    ).toBe('https://i.ytimg.com/vi/abc123/hqdefault.jpg');
+  });
+
+  it('does not use a raw video file as an image', () => {
+    expect(cardPosterSrc({ media_url: 'https://cdn.example/clip.mp4' })).toBeNull();
+  });
+
+  it('prefers an uploaded cover', () => {
+    expect(
+      cardPosterSrc({
+        cover_url: 'https://cdn.example/cover.jpg',
+        media_url: 'https://youtu.be/abc123',
+      })
+    ).toBe('https://cdn.example/cover.jpg');
   });
 });

@@ -14,6 +14,7 @@ export {
   previewMediaSrc,
   reelPreviewSrc,
   embedIframeSrc,
+  cardPosterSrc,
 } from './previewMedia';
 
 export {
@@ -23,11 +24,49 @@ export {
 } from './calendarLinks';
 export type { CalendarLinkInput, CalendarLinks } from './calendarLinks';
 
+/** Clinic wall clock for Youngsville, LA. Booking days use this zone, not UTC. */
+export const CLINIC_TIMEZONE = 'America/Chicago';
+
 /**
- * Format date to YYYY-MM-DD
+ * Format a Date as YYYY-MM-DD on the clinic calendar.
+ * `toISOString()` is UTC and shifts US afternoons onto the previous evening
+ * once the string is parsed with `new Date("YYYY-MM-DD")`.
  */
-export function formatDate(date: Date): string {
-  return date.toISOString().split('T')[0];
+export function formatDate(date: Date, timeZone: string = CLINIC_TIMEZONE): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value || '';
+  return `${value('year')}-${value('month')}-${value('day')}`;
+}
+
+/** Add calendar days to a YYYY-MM-DD string without crossing a timezone. */
+export function addCalendarDays(isoDate: string, days: number): string {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  const utc = new Date(Date.UTC(year, month - 1, day + days));
+  const y = utc.getUTCFullYear();
+  const m = String(utc.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(utc.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Label a clinic calendar day. Parsing `YYYY-MM-DD` with `new Date()` is UTC
+ * midnight, which reads as the previous evening in US timezones.
+ */
+export function formatClinicDateLabel(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  const utcNoon = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  return utcNoon.toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 /**

@@ -38,6 +38,41 @@ export function reelPreviewSrc(post: {
   });
 }
 
+function youtubeId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    if (host === 'youtu.be' || host === 'www.youtu.be') {
+      return u.pathname.replace('/', '').split('/')[0] || null;
+    }
+    if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
+      if (u.pathname.startsWith('/embed/')) {
+        return u.pathname.split('/embed/')[1]?.split('/')[0] || null;
+      }
+      return u.searchParams.get('v');
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** Image src for a vlog card. Never falls back to a video file URL. */
+export function cardPosterSrc(post: {
+  cover_url?: string | null;
+  embed_url?: string | null;
+  media_url?: string | null;
+} | null | undefined): string | null {
+  if (!post) return null;
+  if (post.cover_url) return post.cover_url;
+  for (const candidate of [post.embed_url, post.media_url]) {
+    if (!candidate) continue;
+    const id = youtubeId(candidate);
+    if (id) return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+  }
+  return null;
+}
+
 export function embedIframeSrc(url: string | null | undefined): string | null {
   if (!url) return null;
   try {
@@ -70,6 +105,14 @@ export function embedIframeSrc(url: string | null | undefined): string | null {
     if (isVimeo) {
       const id = u.pathname.split('/').filter(Boolean).pop();
       if (id) return `https://player.vimeo.com/video/${id}`;
+    }
+    const isFacebook =
+      host === 'facebook.com' ||
+      host.endsWith('.facebook.com') ||
+      host === 'fb.watch' ||
+      host.endsWith('.fb.watch');
+    if (isFacebook) {
+      return `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(url)}&show_text=false`;
     }
   } catch {
     return null;

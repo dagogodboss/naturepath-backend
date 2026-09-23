@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Literal, Optional
 
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
@@ -56,6 +56,12 @@ _EMBED_ALLOWED_HOSTS = frozenset(
         "vimeo.com",
         "www.vimeo.com",
         "player.vimeo.com",
+        "facebook.com",
+        "www.facebook.com",
+        "m.facebook.com",
+        "web.facebook.com",
+        "fb.watch",
+        "www.fb.watch",
     }
 )
 
@@ -66,8 +72,67 @@ def _validate_embed_url(v: Optional[str]) -> Optional[str]:
     parsed = urlparse(v.strip())
     host = (parsed.hostname or "").lower()
     if parsed.scheme not in {"http", "https"} or host not in _EMBED_ALLOWED_HOSTS:
-        raise ValueError("embed_url must be a YouTube or Vimeo URL")
+        raise ValueError("embed_url must be a YouTube, Vimeo, or Facebook URL")
     return v.strip()
+
+
+def _youtube_id(url: str) -> Optional[str]:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host in {"youtu.be", "www.youtu.be"}:
+        video_id = parsed.path.strip("/").split("/")[0]
+        return video_id or None
+    if "youtube.com" in host:
+        if parsed.path.startswith("/embed/"):
+            return parsed.path.split("/embed/")[-1].split("/")[0] or None
+        video_id = (parse_qs(parsed.query).get("v") or [None])[0]
+        return video_id or None
+    return None
+
+
+def _vimeo_poster(url: str) -> Optional[str]:
+    """Vimeo oEmbed supplies a thumbnail. Facebook does not without an app token."""
+    import json
+    from urllib.parse import quote
+    from urllib.request import urlopen
+
+    endpoint = f"https://vimeo.com/api/oembed.json?url={quote(url, safe='')}"
+    try:
+        with urlopen(endpoint, timeout=3) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        logger.info("Vimeo poster lookup failed for %s", url)
+        return None
+    thumb = str(payload.get("thumbnail_url") or "").strip()
+    if thumb.startswith("https://"):
+        return thumb
+    return None
+
+
+def provider_poster_url(url: Optional[str]) -> Optional[str]:
+    """Poster for a provider video when the editor did not upload a cover."""
+    if not url:
+        return None
+    parsed = urlparse(url.strip())
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return None
+    youtube_id = _youtube_id(url)
+    if youtube_id:
+        return f"https://i.ytimg.com/vi/{youtube_id}/hqdefault.jpg"
+    if "vimeo.com" in host:
+        return _vimeo_poster(url.strip())
+    return None
+
+
+def _cover_or_provider_poster(
+    cover_url: Optional[str],
+    embed_url: Optional[str],
+    media_url: Optional[str],
+) -> Optional[str]:
+    if cover_url:
+        return cover_url
+    return provider_poster_url(embed_url) or provider_poster_url(media_url)
 
 
 def _validate_http_url(v: Optional[str], *, field: str) -> Optional[str]:
@@ -490,7 +555,7 @@ async def admin_create_post(
         "slug": slug,
         "body": body.body,
         "caption": body.caption,
-        "cover_url": body.cover_url,
+        "cover_url": _cover_or_provider_poster(body.cover_url, body.embed_url, body.media_url),
         "media_url": body.media_url,
         "media_object_name": body.media_object_name,
         "embed_url": body.embed_url,
@@ -524,6 +589,12 @@ async def admin_update_post(
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         return _public_doc(existing)
+    if "cover_url" in updates or "embed_url" in updates or "media_url" in updates:
+        updates["cover_url"] = _cover_or_provider_poster(
+            updates.get("cover_url", existing.get("cover_url")),
+            updates.get("embed_url", existing.get("embed_url")),
+            updates.get("media_url", existing.get("media_url")),
+        )
     updates["updated_at"] = _utc_now().isoformat()
     if updates.get("status") == "published" and not existing.get("published_at"):
         updates["published_at"] = _utc_now().isoformat()

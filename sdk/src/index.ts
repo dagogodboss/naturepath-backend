@@ -279,7 +279,10 @@ export type { WebSocketConfig, WebSocketEventType, WebSocketEventHandler } from 
 
 // ==================== Utilities ====================
 export {
+  CLINIC_TIMEZONE,
   formatDate,
+  addCalendarDays,
+  formatClinicDateLabel,
   formatTime,
   parseDate,
   getDayOfWeek,
@@ -301,6 +304,7 @@ export {
   previewMediaSrc,
   reelPreviewSrc,
   embedIframeSrc,
+  cardPosterSrc,
   buildCalendarLinks,
   linksFromBooking,
   downloadBookingIcal,

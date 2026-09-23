@@ -882,6 +882,22 @@ export const storeApi = {
     return response.data;
   },
 
+  setOrderShipping: async (orderId: string, shippingAmount: number): Promise<StoreOrder> => {
+    const response = await getApiClient().post<StoreOrder>(
+      `/api/store/admin/orders/${orderId}/shipping`,
+      { shipping_amount: shippingAmount }
+    );
+    return response.data;
+  },
+
+  sendPaymentLink: async (orderId: string, paymentLinkUrl: string): Promise<StoreOrder> => {
+    const response = await getApiClient().post<StoreOrder>(
+      `/api/store/admin/orders/${orderId}/payment-link`,
+      { payment_link_url: paymentLinkUrl }
+    );
+    return response.data;
+  },
+
   voidOrder: async (orderId: string): Promise<StoreOrder> => {
     const response = await getApiClient().post<StoreOrder>(`/api/store/admin/orders/${orderId}/void`);
     return response.data;
