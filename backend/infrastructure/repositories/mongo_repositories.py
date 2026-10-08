@@ -50,6 +50,27 @@ class MongoUserRepository(IUserRepository):
         data["updated_at"] = datetime.now(timezone.utc).isoformat()
         await self.collection.update_one({"user_id": entity_id}, {"$set": data})
         return await self.get_by_id(entity_id)
+
+    async def claim_if_unclaimed(self, entity_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Apply claim fields only while the account is still an unclaimed guest."""
+        from pymongo import ReturnDocument
+
+        payload = dict(data)
+        payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        return await self.collection.find_one_and_update(
+            {
+                "user_id": entity_id,
+                "auth_method": {"$ne": "oauth"},
+                "account_claimed": {"$ne": True},
+                "$or": [
+                    {"account_claimed": False},
+                    {"auth_method": "guest_purchase"},
+                ],
+            },
+            {"$set": payload},
+            projection={"_id": 0},
+            return_document=ReturnDocument.AFTER,
+        )
     
     async def delete(self, entity_id: str) -> bool:
         result = await self.collection.delete_one({"user_id": entity_id})

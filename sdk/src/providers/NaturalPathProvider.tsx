@@ -50,6 +50,12 @@ const NaturalPathContext = createContext<NaturalPathContextValue | null>(null);
 
 // ==================== Default Token Storage ====================
 
+// Bearer tokens stay in localStorage. The API is on a different origin from
+// the SPA, and installed-PWA sessions are expected to survive a reload.
+// Moving them to memory would sign the user out on every refresh. An HttpOnly
+// cookie would need cross-site cookies and CSRF protection that this bearer
+// client does not use. The hosting Content-Security-Policy is the containment
+// control for this storage mode.
 const createDefaultTokenStorage = (): TokenStorage => {
   const ACCESS_TOKEN_KEY = 'natural_path_access_token';
   const REFRESH_TOKEN_KEY = 'natural_path_refresh_token';

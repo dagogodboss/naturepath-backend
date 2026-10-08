@@ -323,7 +323,10 @@ async def update_user_status(
                 detail="Cannot deactivate the last active owner",
             )
 
-    await user_repo.update(user_id, {"is_active": is_active})
+    updates = {"is_active": is_active}
+    if not is_active:
+        updates["session_epoch"] = int(user.get("session_epoch") or 0) + 1
+    await user_repo.update(user_id, updates)
     return {"success": True, "user_id": user_id, "is_active": is_active}
 
 

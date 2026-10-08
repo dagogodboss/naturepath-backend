@@ -94,12 +94,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       try {
         const response = await authApi.register(data);
-        const storage = getTokenStorage();
-        storage.setTokens(response.access_token, response.refresh_token);
+        if (response.access_token && response.refresh_token) {
+          const storage = getTokenStorage();
+          storage.setTokens(response.access_token, response.refresh_token);
 
-        const profile = await userApi.getProfile();
-        setUser(profile);
-        queryClient.setQueryData(queryKeys.user.profile, profile);
+          const profile = await userApi.getProfile();
+          setUser(profile);
+          queryClient.setQueryData(queryKeys.user.profile, profile);
+        }
 
         return response;
       } catch (err) {
@@ -114,11 +116,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     const storage = getTokenStorage();
+    const refresh = storage.getRefreshToken();
     storage.clearTokens();
     setUser(null);
     setError(null);
     resetApiClient();
     queryClient.clear();
+    if (refresh) {
+      authApi.logout(refresh).catch(() => {
+        // Local credentials are already discarded. A failed revocation
+        // leaves the server credential until it expires or is rotated.
+      });
+    }
   }, [queryClient]);
 
   const refreshToken = useCallback(async (): Promise<string | null> => {

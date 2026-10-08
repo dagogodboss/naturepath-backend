@@ -25,6 +25,17 @@ class FakeCollection:
             return None
         return self.docs.pop(query["email"])
 
+    async def find_one_and_update(self, query, update, return_document=None):
+        del return_document
+        row = self.docs.get(query["email"])
+        if not row or row.get("code_hash") != query.get("code_hash"):
+            return None
+        for field, amount in (update.get("$inc") or {}).items():
+            row[field] = int(row.get(field) or 0) + int(amount)
+        if "$set" in update:
+            row.update(update["$set"])
+        return dict(row)
+
 
 @pytest.mark.asyncio
 async def test_issue_and_consume_normalizes_email_and_never_stores_plain_code():
@@ -79,3 +90,31 @@ async def test_mongo_naive_utc_expiry_is_supported():
     ]["expires_at"].replace(tzinfo=None)
 
     assert await store.consume("person@example.com", "123456", now=issued) is True
+
+
+@pytest.mark.asyncio
+async def test_wrong_codes_exhaust_the_challenge_budget():
+    collection = FakeCollection()
+    store = EmailVerificationStore(collection, secret="test-secret", max_attempts=3)
+    now = datetime(2026, 8, 11, 12, 0, tzinfo=timezone.utc)
+    await store.issue("person@example.com", "123456", now=now)
+
+    assert await store.consume("person@example.com", "000000", now=now) is False
+    assert await store.consume("person@example.com", "000001", now=now) is False
+    assert "person@example.com" in collection.docs
+    assert await store.consume("person@example.com", "000002", now=now) is False
+    assert collection.docs == {}
+    assert await store.consume("person@example.com", "123456", now=now) is False
+
+
+@pytest.mark.asyncio
+async def test_replacement_challenge_resets_only_its_own_attempt_budget():
+    collection = FakeCollection()
+    store = EmailVerificationStore(collection, secret="test-secret", max_attempts=2)
+    now = datetime(2026, 8, 11, 12, 0, tzinfo=timezone.utc)
+    await store.issue("person@example.com", "111111", now=now)
+    assert await store.consume("person@example.com", "000000", now=now) is False
+
+    await store.issue("person@example.com", "222222", now=now)
+    assert collection.docs["person@example.com"]["failed_attempts"] == 0
+    assert await store.consume("person@example.com", "222222", now=now) is True

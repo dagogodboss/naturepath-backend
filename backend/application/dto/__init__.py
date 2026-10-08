@@ -1,7 +1,7 @@
 """Application DTOs Package"""
 from .schemas import (
     # Auth
-    RegisterRequest, LoginRequest, TokenResponse, RefreshTokenRequest,
+    RegisterRequest, LoginRequest, TokenResponse, RefreshTokenRequest, LogoutRequest,
     GoogleOAuthRequest, CompleteOAuthPhoneRequest,
     SendVerificationOtpRequest, VerifyEmailOtpRequest,
     LookupEmailRequest, LookupEmailResponse,
@@ -26,7 +26,7 @@ from .schemas import (
 )
 
 __all__ = [
-    "RegisterRequest", "LoginRequest", "TokenResponse", "RefreshTokenRequest",
+    "RegisterRequest", "LoginRequest", "TokenResponse", "RefreshTokenRequest", "LogoutRequest",
     "GoogleOAuthRequest", "CompleteOAuthPhoneRequest",
     "SendVerificationOtpRequest", "VerifyEmailOtpRequest",
     "LookupEmailRequest", "LookupEmailResponse",

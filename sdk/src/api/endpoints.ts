@@ -157,11 +157,21 @@ export const authApi = {
    */
   verifyEmailOtp: async (
     data: VerifyEmailOtpRequest
-  ): Promise<{ message: string }> => {
-    const response = await getApiClient().post<{ message: string }>(
+  ): Promise<{ message: string; claim_token?: string }> => {
+    const response = await getApiClient().post<{ message: string; claim_token?: string }>(
       '/api/auth/verify-email-otp',
       data
     );
+    return response.data;
+  },
+
+  /**
+   * Revoke the server session for this refresh credential.
+   */
+  logout: async (refreshToken: string): Promise<{ message: string }> => {
+    const response = await getApiClient().post<{ message: string }>('/api/auth/logout', {
+      refresh_token: refreshToken,
+    });
     return response.data;
   },
 

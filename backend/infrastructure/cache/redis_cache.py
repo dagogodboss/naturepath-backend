@@ -71,6 +71,29 @@ class CacheService:
             logger.error(f"Cache delete error: {e}")
             return False
 
+    async def getdel_json(self, key: str):
+        """Atomically read and delete a JSON value.
+
+        Returns ("ok", value), ("missing", None), or ("unavailable", None).
+        """
+        if not self.redis:
+            return "unavailable", None
+        script = """
+        local value = redis.call('GET', KEYS[1])
+        if value then
+          redis.call('DEL', KEYS[1])
+        end
+        return value
+        """
+        try:
+            raw = await self.redis.eval(script, 1, key)
+            if raw is None:
+                return "missing", None
+            return "ok", json.loads(raw)
+        except Exception as e:
+            logger.error(f"Cache getdel error: {e}")
+            return "unavailable", None
+
     async def incr(self, key: str, ttl: int = 60) -> int:
         """Increment a counter; set TTL on first hit. Returns 1 if Redis unavailable."""
         if not self.redis:

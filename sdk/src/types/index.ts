@@ -64,6 +64,8 @@ export interface RegisterRequest {
   first_name: string;
   last_name: string;
   phone: string;
+  /** Single-use credential returned to the caller that verified a guest email. */
+  claim_token?: string;
 }
 
 export interface LoginRequest {

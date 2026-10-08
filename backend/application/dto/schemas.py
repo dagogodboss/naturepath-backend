@@ -14,6 +14,8 @@ class RegisterRequest(BaseModel):
     first_name: str = Field(min_length=1, max_length=50)
     last_name: str = Field(min_length=1, max_length=50)
     phone: str = Field(min_length=7, max_length=32)
+    # Present only when claiming a guest account after email verification.
+    claim_token: Optional[str] = Field(default=None, max_length=200)
 
 
 class LoginRequest(BaseModel):
@@ -39,8 +41,13 @@ class TokenResponse(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
-    # Optional: "standalone" for installed PWA longer refresh TTL
+    # Optional client hint. It cannot extend a session past the lifetime
+    # chosen when that session was created.
     client_mode: Optional[str] = None
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str = Field(min_length=20)
 
 
 class GoogleOAuthRequest(BaseModel):

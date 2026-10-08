@@ -2,6 +2,7 @@
 Authentication Use Cases - Application Layer
 """
 import logging
+import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 from passlib.context import CryptContext
@@ -11,19 +12,35 @@ from core.rbac import normalize_role
 from domain.entities import User, UserRole, generate_id, utc_now
 from infrastructure.repositories import MongoUserRepository
 from workers.notification_worker import send_welcome_email
+from application.auth_attempt_limits import AttemptLimiter
+from application.claim_proof import RedisClaimProofStore
+from application.refresh_sessions import RedisRefreshSessionStore, legacy_refresh_hash
 
 logger = logging.getLogger(__name__)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Short-lived proof that the email owner completed OTP before claiming a guest account.
-# Set by /auth/verify-email-otp; consumed by register claim path.
-EMAIL_CLAIM_OK_PREFIX = "auth:claim_ok:"
-EMAIL_CLAIM_OK_TTL_SEC = 1800
+
+class AuthUnavailable(Exception):
+    """Session storage is required and currently unavailable."""
 
 
-def email_claim_ok_key(email: str) -> str:
-    return f"{EMAIL_CLAIM_OK_PREFIX}{(email or '').strip().lower()}"
+def allows_normal_session(user: Dict[str, Any]) -> bool:
+    """Normal access and refresh tokens require a verified email.
+
+    New password registration stores is_verified false and does not return a
+    session. OTP send/verify, guest checkout, and sign-in of an already
+    verified account do not need a pre-verify bearer token. OAuth accounts are
+    verified by the identity provider. Records that predate this flag keep
+    access when the field is absent; an explicit false does not.
+    """
+    if user.get("auth_method") == "oauth":
+        return user.get("is_verified", True) is not False
+    if user.get("is_verified") is True:
+        return True
+    if "is_verified" not in user or user.get("is_verified") is None:
+        return True
+    return False
 
 
 def _is_unclaimed_account(user: Dict[str, Any]) -> bool:
@@ -48,20 +65,38 @@ def _is_unclaimed_account(user: Dict[str, Any]) -> bool:
 class AuthUseCase:
     """Authentication use cases"""
     
-    def __init__(self, user_repo: MongoUserRepository):
+    def __init__(
+        self,
+        user_repo: MongoUserRepository,
+        *,
+        claim_store=None,
+        session_store=None,
+        attempt_limiter: Optional[AttemptLimiter] = None,
+    ):
         self.user_repo = user_repo
+        self.claim_store = claim_store if claim_store is not None else RedisClaimProofStore()
+        self.session_store = session_store if session_store is not None else RedisRefreshSessionStore()
+        self.attempt_limiter = attempt_limiter
 
-    async def _consume_email_claim_proof(self, email: str) -> bool:
-        """Return True and delete claim proof if OTP verification marked this email."""
+    async def _attempts(self) -> AttemptLimiter:
+        if self.attempt_limiter is not None:
+            return self.attempt_limiter
         from infrastructure.cache import get_cache_service
 
-        cache = await get_cache_service()
-        key = email_claim_ok_key(email)
-        proof = await cache.get(key)
-        if not proof:
-            return False
-        await cache.delete(key)
-        return True
+        return AttemptLimiter(await get_cache_service())
+
+    async def issue_claim_proof(self, user: Dict[str, Any]) -> str:
+        """Return a single-use claim credential bound to this account."""
+        email = (user.get("email") or "").strip().lower()
+        token = await self.claim_store.issue(email=email, user_id=user["user_id"])
+        if not token:
+            raise AuthUnavailable("Verification is temporarily unavailable")
+        return token
+
+    async def _consume_claim_proof(self, email: str, token: Optional[str]) -> Optional[str]:
+        if not token:
+            return None
+        return await self.claim_store.consume(email=email, token=token)
     
     def _hash_password(self, password: str) -> str:
         return pwd_context.hash(password)
@@ -78,7 +113,12 @@ class AuthUseCase:
         return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
     
     def _create_refresh_token(
-        self, data: dict, *, standalone: bool = False
+        self,
+        data: dict,
+        *,
+        standalone: bool = False,
+        jti: Optional[str] = None,
+        session_exp: Optional[datetime] = None,
     ) -> str:
         to_encode = data.copy()
         days = (
@@ -87,7 +127,14 @@ class AuthUseCase:
             else settings.refresh_token_expire_days
         )
         expire = datetime.now(timezone.utc) + timedelta(days=days)
+        if session_exp is not None:
+            cap = session_exp if session_exp.tzinfo else session_exp.replace(tzinfo=timezone.utc)
+            if cap < expire:
+                expire = cap
+            to_encode["session_exp"] = int(cap.timestamp())
         to_encode.update({"exp": expire, "type": "refresh"})
+        if jti:
+            to_encode["jti"] = jti
         if standalone:
             to_encode["standalone"] = True
         return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
@@ -121,18 +168,70 @@ class AuthUseCase:
             algorithm=settings.jwt_algorithm,
         )
 
-    def _token_payload_for_user(
-        self, user: Dict[str, Any], *, standalone: bool = False
+    async def _issue_session_tokens(
+        self,
+        user: Dict[str, Any],
+        *,
+        standalone: bool = False,
+        session_exp: Optional[datetime] = None,
+        sid: Optional[str] = None,
     ) -> Dict[str, Any]:
+        """Issue a normal session. Absolute expiry is fixed for the session."""
+        if not allows_normal_session(user):
+            raise ValueError("Verify your email before signing in")
+        now = datetime.now(timezone.utc)
+        if session_exp is None:
+            days = (
+                settings.refresh_token_expire_days_standalone
+                if standalone
+                else settings.refresh_token_expire_days
+            )
+            session_exp = now + timedelta(days=days)
+        elif session_exp.tzinfo is None:
+            session_exp = session_exp.replace(tzinfo=timezone.utc)
+        if session_exp <= now:
+            raise ValueError("Invalid refresh token")
+
         role = normalize_role(user.get("role"))
+        sid = sid or secrets.token_urlsafe(18)
+        jti = secrets.token_urlsafe(18)
+        epoch = int(user.get("session_epoch") or 0)
+        identity = {
+            "sub": user["user_id"],
+            "email": user["email"],
+            "role": role,
+            "sid": sid,
+            "epoch": epoch,
+        }
+        refresh_token = self._create_refresh_token(
+            identity,
+            standalone=standalone,
+            jti=jti,
+            session_exp=session_exp,
+        )
+        refresh_payload = jwt.decode(
+            refresh_token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+        )
+        refresh_exp = datetime.fromtimestamp(int(refresh_payload["exp"]), tz=timezone.utc)
+        stored = await self.session_store.save(
+            jti=jti,
+            sid=sid,
+            user_id=user["user_id"],
+            refresh_ttl=max(1, int((refresh_exp - now).total_seconds())),
+            session_ttl=max(1, int((session_exp - now).total_seconds())),
+            meta={
+                "session_exp": int(session_exp.timestamp()),
+                "standalone": bool(standalone),
+                "epoch": epoch,
+            },
+        )
+        if not stored:
+            raise AuthUnavailable("Authentication is temporarily unavailable")
         return {
-            "access_token": self._create_access_token(
-                {"sub": user["user_id"], "email": user["email"], "role": role}
-            ),
-            "refresh_token": self._create_refresh_token(
-                {"sub": user["user_id"], "email": user["email"], "role": role},
-                standalone=standalone,
-            ),
+            "access_token": self._create_access_token(identity),
+            "refresh_token": refresh_token,
             "token_type": "bearer",
             "expires_in": settings.access_token_expire_minutes * 60,
             "needs_phone": False,
@@ -155,7 +254,8 @@ class AuthUseCase:
         first_name: str,
         last_name: str,
         phone: Optional[str] = None,
-        role: UserRole = UserRole.CUSTOMER
+        role: UserRole = UserRole.CUSTOMER,
+        claim_token: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Register a new user, or claim an unclaimed guest-purchase account."""
         email_norm = (email or "").strip().lower()
@@ -169,15 +269,16 @@ class AuthUseCase:
         if existing:
             existing_role = normalize_role(existing.get("role"))
             if _is_unclaimed_account(existing) and existing_role == "customer":
-                # Require prior email OTP verification (see /auth/verify-email-otp).
-                # Prevents takeover of guest-purchase accounts by password alone.
-                if not await self._consume_email_claim_proof(email_norm):
+                # The claim credential is issued only to the caller that verified
+                # the OTP, and it is bound to this account's user id.
+                bound_user_id = await self._consume_claim_proof(email_norm, claim_token)
+                if not bound_user_id or bound_user_id != existing["user_id"]:
                     raise ValueError(
                         "Verify your email before claiming this account. "
                         "Request a code via /api/auth/send-verification-otp, "
                         "then /api/auth/verify-email-otp."
                     )
-                updated = await self.user_repo.update(
+                updated = await self.user_repo.claim_if_unclaimed(
                     existing["user_id"],
                     {
                         "password_hash": self._hash_password(password),
@@ -188,14 +289,17 @@ class AuthUseCase:
                         "account_claimed": True,
                         "is_verified": True,
                         "email": email_norm,
+                        "session_epoch": int(existing.get("session_epoch") or 0) + 1,
                     },
                 )
+                if not updated:
+                    raise ValueError("This account was already claimed")
                 logger.info(f"Guest account claimed via register: {email_norm}")
                 try:
                     send_welcome_email.delay(email_norm, f"{first_name} {last_name}")
                 except Exception as e:
                     logger.warning(f"Failed to queue welcome email: {e}")
-                return self._token_payload_for_user(updated or existing)
+                return await self._issue_session_tokens(updated)
             raise ValueError("User with this email already exists")
         
         # Create user
@@ -227,12 +331,27 @@ class AuthUseCase:
             logger.warning(f"Failed to queue welcome email: {e}")
         
         logger.info(f"User registered: {email_norm}")
-        return self._token_payload_for_user(user_dict)
+        return {
+            "verification_required": True,
+            "email": email_norm,
+            "user": self._user_public(user_dict),
+        }
     
-    async def login(self, email: str, password: str) -> Dict[str, Any]:
+    async def login(
+        self,
+        email: str,
+        password: str,
+        *,
+        client_ip: str = "unknown",
+        standalone: bool = False,
+    ) -> Dict[str, Any]:
         """Login user"""
-        user = await self.user_repo.get_by_email((email or "").strip().lower())
+        email_norm = (email or "").strip().lower()
+        attempts = await self._attempts()
+        await attempts.assert_login_allowed(email_norm, client_ip or "unknown")
+        user = await self.user_repo.get_by_email(email_norm)
         if not user:
+            await attempts.record_login_failure(email_norm, client_ip or "unknown")
             raise ValueError("Invalid email or password")
         user["role"] = normalize_role(user.get("role"))
 
@@ -243,18 +362,23 @@ class AuthUseCase:
 
         password_hash = user.get("password_hash")
         if not password_hash or not self._verify_password(password, password_hash):
+            await attempts.record_login_failure(email_norm, client_ip or "unknown")
             raise ValueError("Invalid email or password")
         
         if not user.get("is_active", True):
             raise ValueError("Account is disabled")
+
+        if not allows_normal_session(user):
+            raise ValueError("Verify your email before signing in")
         
         # Update last login
         await self.user_repo.update(user["user_id"], {
             "last_login": datetime.now(timezone.utc).isoformat()
         })
+        await attempts.clear_login_failures(email_norm)
         
-        logger.info(f"User logged in: {email}")
-        return self._token_payload_for_user(user)
+        logger.info(f"User logged in: {email_norm}")
+        return await self._issue_session_tokens(user, standalone=standalone)
 
     async def lookup_email(self, email: str) -> Dict[str, Any]:
         """Minimal email recognition for checkout UX (no PII beyond flags)."""
@@ -355,7 +479,7 @@ class AuthUseCase:
             user["role"] = normalize_role(user.get("role"))
             if self._phone_missing(user):
                 return self._phone_setup_payload(user)
-            return self._token_payload_for_user(user, standalone=standalone)
+            return await self._issue_session_tokens(user, standalone=standalone)
 
         if not phone_norm:
             # Create account without phone; client must complete phone step
@@ -393,7 +517,7 @@ class AuthUseCase:
         logger.info("User registered via Google OAuth: %s", email_norm)
         if self._phone_missing(user_dict):
             return self._phone_setup_payload(user_dict)
-        return self._token_payload_for_user(user_dict, standalone=standalone)
+        return await self._issue_session_tokens(user_dict, standalone=standalone)
 
     async def complete_oauth_phone(
         self,
@@ -424,7 +548,7 @@ class AuthUseCase:
         user = updated or {**user, "phone": phone_norm}
         user["role"] = normalize_role(user.get("role"))
         logger.info("OAuth phone completed for %s", user.get("email"))
-        return self._token_payload_for_user(user, standalone=standalone)
+        return await self._issue_session_tokens(user, standalone=standalone)
 
     async def upsert_guest_buyer(
         self,
@@ -486,53 +610,99 @@ class AuthUseCase:
         logger.info(f"Guest buyer upserted: {email_norm}")
         return user_dict
     
+    def _session_deadline(self, payload: Dict[str, Any]) -> datetime:
+        raw = payload.get("session_exp")
+        if raw is None:
+            raw = payload.get("exp")
+        return datetime.fromtimestamp(int(raw), tz=timezone.utc)
+
     async def refresh_token(
         self, refresh_token: str, *, standalone: bool = False
     ) -> Dict[str, Any]:
-        """Refresh access token"""
+        """Rotate a one-time refresh credential. The client mode cannot extend it."""
+        del standalone  # Session length is fixed at issuance.
         try:
             payload = jwt.decode(
                 refresh_token,
                 settings.jwt_secret_key,
                 algorithms=[settings.jwt_algorithm]
             )
-            
-            if payload.get("type") != "refresh":
-                raise ValueError("Invalid token type")
-            
-            user_id = payload.get("sub")
-            user = await self.user_repo.get_by_id(user_id)
-            
-            if not user or not user.get("is_active", True):
-                raise ValueError("User not found or inactive")
-            user["role"] = normalize_role(user.get("role"))
-            if user["role"] == "customer" and len((user.get("phone") or "").strip()) < 7:
-                raise ValueError("Phone number required to continue")
-
-            # Preserve standalone refresh duration when either the prior token
-            # or the current client requests installed-PWA mode.
-            use_standalone = standalone or bool(payload.get("standalone"))
-            
-            # Generate new tokens
-            token_data = {
-                "sub": user["user_id"],
-                "email": user["email"],
-                "role": user["role"]
-            }
-            new_access_token = self._create_access_token(token_data)
-            new_refresh_token = self._create_refresh_token(
-                token_data, standalone=use_standalone
-            )
-            
-            return {
-                "access_token": new_access_token,
-                "refresh_token": new_refresh_token,
-                "token_type": "bearer",
-                "expires_in": settings.access_token_expire_minutes * 60
-            }
-            
         except JWTError as e:
-            raise ValueError(f"Invalid refresh token: {e}")
+            raise ValueError(f"Invalid refresh token: {e}") from e
+
+        if payload.get("type") != "refresh":
+            raise ValueError("Invalid token type")
+
+        user_id = payload.get("sub")
+        user = await self.user_repo.get_by_id(user_id)
+        if not user or not user.get("is_active", True):
+            raise ValueError("User not found or inactive")
+        user["role"] = normalize_role(user.get("role"))
+        if not allows_normal_session(user):
+            raise ValueError("Verify your email before signing in")
+        if user["role"] == "customer" and len((user.get("phone") or "").strip()) < 7:
+            raise ValueError("Phone number required to continue")
+        token_epoch = int(payload.get("epoch") or 0)
+        if token_epoch != int(user.get("session_epoch") or 0):
+            raise ValueError("Session is no longer valid")
+
+        deadline = self._session_deadline(payload)
+        if deadline <= datetime.now(timezone.utc):
+            raise ValueError("Invalid refresh token")
+
+        # Only the flag stored at session creation may use the longer lifetime.
+        use_standalone = bool(payload.get("standalone"))
+        sid = payload.get("sid")
+        jti = payload.get("jti")
+        if jti:
+            outcome = await self.session_store.consume(str(jti))
+            if outcome == "unavailable":
+                raise AuthUnavailable("Authentication is temporarily unavailable")
+            if outcome == "grace":
+                raise ValueError("Invalid refresh token")
+            if outcome != "consumed":
+                if sid:
+                    await self.session_store.revoke(str(sid))
+                raise ValueError("Invalid refresh token")
+            if sid:
+                state = await self.session_store.session_state(str(sid), user["user_id"])
+                if state == "revoked":
+                    raise ValueError("Invalid refresh token")
+        else:
+            first_use = await self.session_store.consume_legacy(legacy_refresh_hash(refresh_token))
+            if first_use is None:
+                raise AuthUnavailable("Authentication is temporarily unavailable")
+            if not first_use:
+                raise ValueError("Invalid refresh token")
+            sid = None
+
+        return await self._issue_session_tokens(
+            user,
+            standalone=use_standalone,
+            session_exp=deadline,
+            sid=str(sid) if sid else None,
+        )
+
+    async def logout(self, refresh_token: str) -> None:
+        """Revoke the server session for this refresh credential."""
+        if not refresh_token:
+            return
+        try:
+            payload = jwt.decode(
+                refresh_token,
+                settings.jwt_secret_key,
+                algorithms=[settings.jwt_algorithm],
+            )
+        except JWTError:
+            return
+        if payload.get("type") != "refresh":
+            return
+        sid = payload.get("sid")
+        if sid:
+            await self.session_store.revoke(str(sid))
+            return
+        if not payload.get("jti"):
+            await self.session_store.consume_legacy(legacy_refresh_hash(refresh_token))
     
     def verify_token(self, token: str) -> Dict[str, Any]:
         """Verify and decode access token"""
@@ -559,6 +729,18 @@ class AuthUseCase:
         user = await self.user_repo.get_by_id(user_id)
         if not user:
             raise ValueError("User not found")
+        if not user.get("is_active", True):
+            raise ValueError("User account is disabled")
+        if not allows_normal_session(user):
+            raise ValueError("Email verification required")
+        token_epoch = int(payload.get("epoch") or 0)
+        if token_epoch != int(user.get("session_epoch") or 0):
+            raise ValueError("Session is no longer valid")
+        sid = payload.get("sid")
+        if sid:
+            state = await self.session_store.session_state(str(sid), user["user_id"])
+            if state == "revoked":
+                raise ValueError("Session is no longer valid")
         user["role"] = normalize_role(user.get("role"))
         
         # Remove sensitive data

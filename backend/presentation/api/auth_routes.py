@@ -9,11 +9,14 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from application.dto import (
     RegisterRequest, LoginRequest, TokenResponse, RefreshTokenRequest,
+    LogoutRequest,
     GoogleOAuthRequest, CompleteOAuthPhoneRequest,
     SendVerificationOtpRequest, VerifyEmailOtpRequest,
     LookupEmailRequest, LookupEmailResponse,
 )
+from application.auth_attempt_limits import AttemptLimited, AttemptLimiter
 from application.use_cases import AuthUseCase
+from application.use_cases.auth_use_case import AuthUnavailable, _is_unclaimed_account
 from presentation.dependencies import get_auth_use_case, get_user_repo
 from infrastructure.cache import get_cache_service
 from infrastructure.repositories import MongoUserRepository
@@ -36,6 +39,12 @@ def _client_mode_standalone(request: Request, body_mode: Optional[str] = None) -
     return header == "standalone" or mode == "standalone"
 
 
+def _client_ip(request: Request) -> str:
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def register(
     request: RegisterRequest,
@@ -48,25 +57,35 @@ async def register(
             password=request.password,
             first_name=request.first_name,
             last_name=request.last_name,
-            phone=request.phone
+            phone=request.phone,
+            claim_token=request.claim_token,
         )
         return result
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except AuthUnavailable as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
 
 
 @router.post("/login", response_model=dict)
 async def login(
     request: LoginRequest,
+    http_request: Request,
     auth_use_case: AuthUseCase = Depends(get_auth_use_case)
 ):
     """Login with email and password"""
     try:
         result = await auth_use_case.login(
             email=request.email,
-            password=request.password
+            password=request.password,
+            client_ip=_client_ip(http_request),
+            standalone=_client_mode_standalone(http_request),
         )
         return result
+    except AttemptLimited as e:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
+    except AuthUnavailable as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
 
@@ -93,6 +112,8 @@ async def oauth_google(
             phone=body.phone,
             standalone=_client_mode_standalone(http_request),
         )
+    except AuthUnavailable as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -110,6 +131,8 @@ async def oauth_complete_phone(
             phone=body.phone,
             standalone=_client_mode_standalone(http_request),
         )
+    except AuthUnavailable as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -160,8 +183,20 @@ async def refresh_token(
             standalone=_client_mode_standalone(http_request, request.client_mode),
         )
         return result
+    except AuthUnavailable as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+
+
+@router.post("/logout", response_model=dict)
+async def logout(
+    body: LogoutRequest,
+    auth_use_case: AuthUseCase = Depends(get_auth_use_case),
+):
+    """Revoke the refresh session. The client should discard its copy either way."""
+    await auth_use_case.logout(body.refresh_token)
+    return {"message": "Signed out"}
 
 
 @router.post("/send-verification-otp", response_model=dict)
@@ -191,8 +226,11 @@ async def send_verification_otp(
     if not user:
         return generic
 
-    otp_code = f"{secrets.randbelow(1000000):06d}"
     normalized_email = normalize_email(request.email)
+    if not await AttemptLimiter(cache).reserve_otp_send(normalized_email):
+        return generic
+
+    otp_code = f"{secrets.randbelow(1000000):06d}"
     challenge_store = EmailVerificationStore(
         db.email_verification_challenges,
         secret=settings.jwt_secret_key,
@@ -217,37 +255,50 @@ async def send_verification_otp(
 @router.post("/verify-email-otp", response_model=dict)
 async def verify_email_otp(
     request: VerifyEmailOtpRequest,
+    http_request: Request,
     user_repo: MongoUserRepository = Depends(get_user_repo),
+    auth_use_case: AuthUseCase = Depends(get_auth_use_case),
     db=Depends(get_database),
 ):
     """Verify email with OTP and mark user as verified."""
     normalized_email = normalize_email(request.email)
+    client_ip = _client_ip(http_request)
+    cache = await get_cache_service()
+    limiter = AttemptLimiter(cache)
+    invalid = "Invalid or expired verification code"
+    try:
+        await limiter.assert_otp_verify_allowed(normalized_email, client_ip)
+    except AttemptLimited as exc:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc))
     challenge_store = EmailVerificationStore(
         db.email_verification_challenges,
         secret=settings.jwt_secret_key,
     )
     if not await challenge_store.consume(normalized_email, str(request.code)):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
+        await limiter.record_otp_verify_failure(normalized_email, client_ip)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=invalid)
 
     user = await user_repo.get_by_email(normalized_email)
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=invalid)
+
+    claim_token = None
+    if _is_unclaimed_account(user):
+        try:
+            claim_token = await auth_use_case.issue_claim_proof(user)
+        except AuthUnavailable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(exc),
+            )
 
     await user_repo.update(
         user["user_id"],
         {"is_verified": True, "updated_at": datetime.now(timezone.utc).isoformat()},
     )
-    # Allow password claim of unclaimed guest accounts within the claim window.
-    from application.use_cases.auth_use_case import (
-        EMAIL_CLAIM_OK_TTL_SEC,
-        email_claim_ok_key,
-    )
+    await limiter.clear_otp_verify_failures(normalized_email)
 
-    cache = await get_cache_service()
-    await cache.set(
-        email_claim_ok_key(normalized_email),
-        {"verified": True},
-        ttl=EMAIL_CLAIM_OK_TTL_SEC,
-    )
-
-    return {"message": "Email verified successfully"}
+    body = {"message": "Email verified successfully"}
+    if claim_token:
+        body["claim_token"] = claim_token
+    return body
