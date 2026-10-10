@@ -11,7 +11,7 @@ from .schemas import (
     PractitionerSpecialtyDTO, PractitionerAvailabilityDTO,
     CreatePractitionerRequest, PractitionerResponse, UpdatePractitionerRequest,
     # Service
-    CreateServiceRequest, ServiceResponse, UpdateServiceRequest,
+    CreateServiceRequest, ServiceResponse, UpdateServiceRequest, BookingPolicyUpdate,
     # Booking
     BookingSlotDTO, InitiateBookingRequest, LockSlotRequest,
     ConfirmBookingRequest, BookingResponse, CancelBookingRequest, RescheduleBookingRequest,
@@ -33,7 +33,7 @@ __all__ = [
     "UserResponse", "UpdateProfileRequest",
     "PractitionerSpecialtyDTO", "PractitionerAvailabilityDTO",
     "CreatePractitionerRequest", "PractitionerResponse", "UpdatePractitionerRequest",
-    "CreateServiceRequest", "ServiceResponse", "UpdateServiceRequest",
+    "CreateServiceRequest", "ServiceResponse", "UpdateServiceRequest", "BookingPolicyUpdate",
     "BookingSlotDTO", "InitiateBookingRequest", "LockSlotRequest",
     "ConfirmBookingRequest", "BookingResponse", "CancelBookingRequest", "RescheduleBookingRequest",
     "AvailabilitySlotResponse", "GetAvailabilityRequest", "GenerateSlotsRequest",

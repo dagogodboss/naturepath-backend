@@ -40,9 +40,13 @@ class ServiceUseCase:
         out.setdefault("rating_count", 0)
         if "is_discovery_entry" not in out:
             out["is_discovery_entry"] = False
+        if "is_prerequisite" not in out:
+            out["is_prerequisite"] = False
+        if "requires_prerequisite" not in out:
+            from application.service_policy import service_requires_prerequisite
+            out["requires_prerequisite"] = service_requires_prerequisite(out)
         if "requires_discovery" not in out:
-            from application.service_policy import service_requires_discovery
-            out["requires_discovery"] = service_requires_discovery(out)
+            out["requires_discovery"] = out["requires_prerequisite"]
         return out
 
     async def _with_reviews(self, doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -70,6 +74,7 @@ class ServiceUseCase:
         warning_copy: Optional[str] = None,
         is_discovery_entry: bool = False,
         requires_discovery: bool = True,
+        requires_prerequisite: bool = True,
     ) -> Dict[str, Any]:
         """Create a new service"""
         # Validate with REVEL if product ID provided
@@ -94,7 +99,8 @@ class ServiceUseCase:
             benefits=list(benefits or []),
             warning_copy=warning_copy,
             is_discovery_entry=is_discovery_entry,
-            requires_discovery=requires_discovery,
+            requires_discovery=requires_prerequisite,
+            requires_prerequisite=requires_prerequisite,
         )
         
         service_dict = service.model_dump()

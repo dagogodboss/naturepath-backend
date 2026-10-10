@@ -163,6 +163,7 @@ class CreateServiceRequest(BaseModel):
     warning_copy: Optional[str] = None
     is_discovery_entry: bool = False
     requires_discovery: bool = True
+    requires_prerequisite: bool = True
 
 
 class ServiceReviewResponse(BaseModel):
@@ -210,6 +211,11 @@ class UpdateServiceRequest(BaseModel):
     warning_copy: Optional[str] = None
     is_discovery_entry: Optional[bool] = None
     requires_discovery: Optional[bool] = None
+    requires_prerequisite: Optional[bool] = None
+
+
+class BookingPolicyUpdate(BaseModel):
+    prerequisite_service_id: str
 
 
 # ==================== Booking DTOs ====================

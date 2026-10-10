@@ -28,7 +28,8 @@ from core.calendar_utils import (
     booking_calendar_links,
     ical_to_base64,
 )
-from application.service_policy import service_requires_discovery
+from application.booking_policy import read_prerequisite_service_id
+from application.service_policy import service_requires_prerequisite
 from application.outlook_calendar import subtract_busy_intervals
 from core.money import Money
 from infrastructure.cache import CacheService
@@ -76,6 +77,44 @@ class BookingUseCase:
             return True
         name = str(service.get("name", "")).strip().lower()
         return "discovery call" in name
+
+    async def _prerequisite_service_id(self) -> Optional[str]:
+        collection = getattr(self.booking_repo, "collection", None)
+        db = getattr(collection, "database", None) if collection is not None else None
+        return await read_prerequisite_service_id(db)
+
+    def _service_is_current_prerequisite(
+        self,
+        service: Optional[Dict[str, Any]],
+        prerequisite_service_id: Optional[str],
+    ) -> bool:
+        if not service:
+            return False
+        if prerequisite_service_id:
+            return service.get("service_id") == prerequisite_service_id
+        return self._is_discovery_service(service)
+
+    async def _completion_matches_prerequisite(
+        self,
+        user: Optional[Dict[str, Any]],
+        prerequisite_service_id: Optional[str],
+    ) -> bool:
+        """True when the stored completion flag is for the current prerequisite service.
+
+        Legacy rows only have ``is_discovery_completed``. Those still unlock while
+        the prerequisite is the discovery service. After an admin points the
+        prerequisite at a different service, the flag counts only when it records
+        that service id.
+        """
+        if not user or not user.get("is_discovery_completed"):
+            return False
+        if not prerequisite_service_id:
+            return True
+        completed_service_id = user.get("prerequisite_completed_service_id")
+        if completed_service_id:
+            return completed_service_id == prerequisite_service_id
+        prerequisite = await self.service_repo.get_by_id(prerequisite_service_id)
+        return bool(prerequisite and self._is_discovery_service(prerequisite))
 
     @staticmethod
     def _slot_key(start_time: str, end_time: str) -> str:
@@ -259,9 +298,10 @@ class BookingUseCase:
         if any(len(topic) > 160 for topic in normalized_topics):
             raise ValueError("Education topics must be 160 characters or fewer")
 
-        # Enforce discovery-first booking on the backend for non-discovery services.
+        # Lock services whose stored flag requires the current prerequisite.
         discovery_unlocked = False
-        if service_requires_discovery(service):
+        prerequisite_service_id = await self._prerequisite_service_id()
+        if service_requires_prerequisite(service, prerequisite_service_id):
             eligibility = await self.get_discovery_eligibility(customer_id)
             if eligibility.get("state") != "completed":
                 raise ValueError(
@@ -830,7 +870,8 @@ class BookingUseCase:
           completed — is_discovery_completed set by staff only
         """
         user = await self.user_repo.get_by_id(customer_id)
-        has_flag = bool((user or {}).get("is_discovery_completed", False))
+        prerequisite_service_id = await self._prerequisite_service_id()
+        has_flag = await self._completion_matches_prerequisite(user, prerequisite_service_id)
 
         if has_flag:
             return {
@@ -850,7 +891,7 @@ class BookingUseCase:
             if status in {"draft", "cancelled"}:
                 continue
             service = await self.service_repo.get_by_id(booking.get("service_id"))
-            if self._is_discovery_service(service):
+            if self._service_is_current_prerequisite(service, prerequisite_service_id):
                 discovery_candidates.append(booking)
 
         if not discovery_candidates:
@@ -930,13 +971,14 @@ class BookingUseCase:
         *,
         as_admin: bool = False,
     ) -> Dict[str, Any]:
-        """Staff marks Discovery Call done — unlocks non-discovery bookings for the customer."""
+        """Staff marks the current prerequisite service done — unlocks gated bookings."""
         booking = await self.booking_repo.get_by_id(booking_id)
         if not booking:
             raise ValueError("Booking not found")
         service = await self.service_repo.get_by_id(booking.get("service_id"))
-        if not self._is_discovery_service(service):
-            raise ValueError("Booking is not a Discovery Call")
+        prerequisite_service_id = await self._prerequisite_service_id()
+        if not self._service_is_current_prerequisite(service, prerequisite_service_id):
+            raise ValueError("Booking is not the prerequisite service")
         if booking.get("status") in {"draft", "cancelled"}:
             raise ValueError("Cannot complete discovery for this booking status")
 
@@ -954,6 +996,7 @@ class BookingUseCase:
                 "discovery_completed_at": now,
                 "discovery_completed_by": staff_user_id,
                 "discovery_completed_booking_id": booking_id,
+                "prerequisite_completed_service_id": (service or {}).get("service_id"),
             },
         )
         # Ensure session is marked completed if still open.

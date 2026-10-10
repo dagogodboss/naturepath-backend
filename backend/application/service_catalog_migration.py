@@ -26,16 +26,28 @@ async def ensure_service_catalog(db) -> None:
         fields = {
             key: value
             for key, value in entry.items()
-            if key not in {"aliases", "reviews", "assign_to_all_practitioners"}
+            if key
+            not in {
+                "aliases",
+                "reviews",
+                "assign_to_all_practitioners",
+                "requires_discovery",
+                "requires_prerequisite",
+                "is_prerequisite",
+            }
         }
         fields.update(
             {
                 "is_discovery_entry": bool(entry.get("is_discovery_entry", False)),
-                "requires_discovery": bool(entry.get("requires_discovery", True)),
                 "display_order": int(entry.get("display_order", 90)),
                 "updated_at": now,
             }
         )
+        # Apply starting policy once. Later admin edits must survive the next boot.
+        if not existing or "requires_prerequisite" not in existing:
+            fields["requires_prerequisite"] = bool(entry.get("requires_prerequisite", True))
+            fields["requires_discovery"] = bool(entry.get("requires_discovery", True))
+            fields["is_prerequisite"] = bool(entry.get("is_prerequisite", False))
 
         await db.services.update_one(
             {"service_id": service_id},
@@ -54,4 +66,23 @@ async def ensure_service_catalog(db) -> None:
         if entry.get("assign_to_all_practitioners"):
             await db.practitioners.update_many(
                 {}, {"$addToSet": {"services": service_id}}
+            )
+
+    discovery = await db.services.find_one(
+        {"name": "Discovery Call"},
+        {"_id": 0, "service_id": 1},
+    )
+    if discovery and discovery.get("service_id"):
+        existing_policy = await db.site_settings.find_one({"key": "booking_policy"})
+        if not existing_policy or not existing_policy.get("prerequisite_service_id"):
+            await db.site_settings.update_one(
+                {"key": "booking_policy"},
+                {
+                    "$set": {
+                        "key": "booking_policy",
+                        "prerequisite_service_id": discovery["service_id"],
+                        "updated_at": now,
+                    }
+                },
+                upsert=True,
             )

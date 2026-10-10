@@ -78,6 +78,8 @@ class User(BaseModel):
     is_discovery_completed: bool = False
     discovery_completed_at: Optional[datetime] = None
     discovery_completed_by: Optional[str] = None
+    # Service id that was completed when the prerequisite gate was unlocked.
+    prerequisite_completed_service_id: Optional[str] = None
     # password | guest_purchase | oauth
     auth_method: str = "password"
     account_claimed: bool = True
@@ -155,8 +157,12 @@ class Service(BaseModel):
     rating_count: int = 0
     # True for the entry-point discovery offering (visible to guests / pre-unlock customers).
     is_discovery_entry: bool = False
-    # Explicit booking policy. Salt sessions and discovery calls set this False.
+    # True for the single business-wide prerequisite service.
+    is_prerequisite: bool = False
+    # Legacy flag kept in sync with requires_prerequisite.
     requires_discovery: bool = True
+    # On: customer must complete the current prerequisite service before booking.
+    requires_prerequisite: bool = True
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
