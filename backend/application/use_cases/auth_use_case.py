@@ -193,6 +193,7 @@ class AuthUseCase:
             raise ValueError("Invalid refresh token")
 
         role = normalize_role(user.get("role"))
+        rotating = sid is not None
         sid = sid or secrets.token_urlsafe(18)
         jti = secrets.token_urlsafe(18)
         epoch = int(user.get("session_epoch") or 0)
@@ -215,20 +216,29 @@ class AuthUseCase:
             algorithms=[settings.jwt_algorithm],
         )
         refresh_exp = datetime.fromtimestamp(int(refresh_payload["exp"]), tz=timezone.utc)
-        stored = await self.session_store.save(
-            jti=jti,
-            sid=sid,
-            user_id=user["user_id"],
-            refresh_ttl=max(1, int((refresh_exp - now).total_seconds())),
-            session_ttl=max(1, int((session_exp - now).total_seconds())),
-            meta={
-                "session_exp": int(session_exp.timestamp()),
-                "standalone": bool(standalone),
-                "epoch": epoch,
-            },
-        )
-        if not stored:
-            raise AuthUnavailable("Authentication is temporarily unavailable")
+        session_meta = {
+            "session_exp": int(session_exp.timestamp()),
+            "standalone": bool(standalone),
+            "epoch": epoch,
+        }
+        session_kwargs = {
+            "jti": jti,
+            "sid": sid,
+            "user_id": user["user_id"],
+            "refresh_ttl": max(1, int((refresh_exp - now).total_seconds())),
+            "session_ttl": max(1, int((session_exp - now).total_seconds())),
+            "meta": session_meta,
+        }
+        if rotating:
+            committed = await self.session_store.rotate(**session_kwargs)
+            if committed == "rejected":
+                raise ValueError("Invalid refresh token")
+            if committed != "stored":
+                raise AuthUnavailable("Authentication is temporarily unavailable")
+        else:
+            stored = await self.session_store.save(**session_kwargs)
+            if not stored:
+                raise AuthUnavailable("Authentication is temporarily unavailable")
         return {
             "access_token": self._create_access_token(identity),
             "refresh_token": refresh_token,
@@ -662,11 +672,15 @@ class AuthUseCase:
                 raise ValueError("Invalid refresh token")
             if outcome != "consumed":
                 if sid:
-                    await self.session_store.revoke(str(sid))
+                    revoked = await self.session_store.revoke(str(sid))
+                    if not revoked:
+                        raise AuthUnavailable("Authentication is temporarily unavailable")
                 raise ValueError("Invalid refresh token")
             if sid:
                 state = await self.session_store.session_state(str(sid), user["user_id"])
-                if state == "revoked":
+                if state == "unavailable":
+                    raise AuthUnavailable("Authentication is temporarily unavailable")
+                if state != "active":
                     raise ValueError("Invalid refresh token")
         else:
             first_use = await self.session_store.consume_legacy(legacy_refresh_hash(refresh_token))
@@ -683,10 +697,10 @@ class AuthUseCase:
             sid=str(sid) if sid else None,
         )
 
-    async def logout(self, refresh_token: str) -> None:
-        """Revoke the server session for this refresh credential."""
+    async def logout(self, refresh_token: str) -> bool:
+        """Revoke the server session. False means revocation could not be stored."""
         if not refresh_token:
-            return
+            return True
         try:
             payload = jwt.decode(
                 refresh_token,
@@ -694,15 +708,16 @@ class AuthUseCase:
                 algorithms=[settings.jwt_algorithm],
             )
         except JWTError:
-            return
+            return True
         if payload.get("type") != "refresh":
-            return
+            return True
         sid = payload.get("sid")
         if sid:
-            await self.session_store.revoke(str(sid))
-            return
+            return bool(await self.session_store.revoke(str(sid)))
         if not payload.get("jti"):
-            await self.session_store.consume_legacy(legacy_refresh_hash(refresh_token))
+            recorded = await self.session_store.consume_legacy(legacy_refresh_hash(refresh_token))
+            return recorded is not None
+        return True
     
     def verify_token(self, token: str) -> Dict[str, Any]:
         """Verify and decode access token"""
@@ -739,7 +754,9 @@ class AuthUseCase:
         sid = payload.get("sid")
         if sid:
             state = await self.session_store.session_state(str(sid), user["user_id"])
-            if state == "revoked":
+            if state == "unavailable":
+                raise AuthUnavailable("Authentication is temporarily unavailable")
+            if state != "active":
                 raise ValueError("Session is no longer valid")
         user["role"] = normalize_role(user.get("role"))
         

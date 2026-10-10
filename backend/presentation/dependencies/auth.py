@@ -26,6 +26,7 @@ from application.use_cases import (
     ServiceUseCase,
     PractitionerUseCase
 )
+from application.use_cases.auth_use_case import AuthUnavailable
 from core.rbac import Permission, has_permission, normalize_role
 
 async def _audit_authorization(
@@ -143,6 +144,11 @@ async def get_current_user(
         token = credentials.credentials
         user = await auth_use_case.get_current_user(token)
         return user
+    except AuthUnavailable as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -313,5 +319,10 @@ async def get_optional_user(
         user = await auth_use_case.get_current_user(credentials.credentials)
         user["role"] = normalize_role(user.get("role"))
         return user
+    except AuthUnavailable as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        )
     except ValueError:
         return None

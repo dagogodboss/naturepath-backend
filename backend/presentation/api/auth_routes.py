@@ -195,7 +195,12 @@ async def logout(
     auth_use_case: AuthUseCase = Depends(get_auth_use_case),
 ):
     """Revoke the refresh session. The client should discard its copy either way."""
-    await auth_use_case.logout(body.refresh_token)
+    revoked = await auth_use_case.logout(body.refresh_token)
+    if not revoked:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to complete sign-out. Try again.",
+        )
     return {"message": "Signed out"}
 
 
