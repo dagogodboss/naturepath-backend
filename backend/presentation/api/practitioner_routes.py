@@ -28,7 +28,7 @@ from core.rbac import Permission, has_permission
 from core.config import settings
 from infrastructure.database import get_database
 from infrastructure.external.microsoft_graph import OutlookTokenCipher
-from application.outlook_sync import graph_client, sync_outlook_connection
+from application.outlook_sync import OutlookSyncError, graph_client, sync_outlook_connection
 from domain.entities import generate_id
 
 router = APIRouter(prefix="/practitioners", tags=["Practitioners"])
@@ -169,7 +169,10 @@ async def sync_outlook_now(
     )
     if not connection:
         raise HTTPException(status_code=404, detail="Outlook calendar is not connected")
-    return await sync_outlook_connection(db, connection)
+    try:
+        return await sync_outlook_connection(db, connection)
+    except OutlookSyncError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.get("/outlook/events", response_model=dict)

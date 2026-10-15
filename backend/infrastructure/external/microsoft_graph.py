@@ -140,30 +140,61 @@ class MicrosoftGraphClient:
         start: datetime,
         end: datetime,
     ) -> List[Dict[str, Any]]:
-        url = f"{GRAPH_BASE}/me/calendarView"
+        """
+        Load busy intervals from the signed-in mailbox calendar.
+
+        Prefer /me/calendar/calendarView (default calendar). Fall back to
+        /me/calendarView when tenants still expose only the shorthand path.
+        """
         params = {
             "startDateTime": start.astimezone(timezone.utc).isoformat(),
             "endDateTime": end.astimezone(timezone.utc).isoformat(),
             "$select": "id,start,end,showAs,isCancelled,lastModifiedDateTime",
             "$top": "250",
         }
-        events: List[Dict[str, Any]] = []
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Prefer": 'outlook.timezone="UTC"',
+        }
+        candidates = (
+            f"{GRAPH_BASE}/me/calendar/calendarView",
+            f"{GRAPH_BASE}/me/calendarView",
+        )
+        last_error: Exception | None = None
         async with httpx.AsyncClient(timeout=30) as client:
-            while url:
-                response = await client.get(
-                    url,
-                    params=params,
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Prefer": 'outlook.timezone="UTC"',
-                    },
-                )
-                response.raise_for_status()
-                payload = response.json()
-                events.extend(payload.get("value") or [])
-                url = payload.get("@odata.nextLink")
-                params = None
-        return events
+            for start_url in candidates:
+                url: str | None = start_url
+                page_params: Dict[str, Any] | None = dict(params)
+                events: List[Dict[str, Any]] = []
+                try:
+                    while url:
+                        response = await client.get(
+                            url,
+                            params=page_params,
+                            headers=headers,
+                        )
+                        if response.status_code == 404 and start_url == candidates[0]:
+                            last_error = httpx.HTTPStatusError(
+                                f"Client error '404 Not Found' for url '{response.url}'",
+                                request=response.request,
+                                response=response,
+                            )
+                            break
+                        response.raise_for_status()
+                        payload = response.json()
+                        events.extend(payload.get("value") or [])
+                        url = payload.get("@odata.nextLink")
+                        page_params = None
+                    else:
+                        return events
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    if exc.response is not None and exc.response.status_code == 404:
+                        continue
+                    raise
+        if last_error:
+            raise last_error
+        return []
 
     async def create_subscription(
         self,
