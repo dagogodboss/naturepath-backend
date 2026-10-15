@@ -29,6 +29,7 @@ from core.calendar_utils import (
     ical_to_base64,
 )
 from application.booking_policy import read_prerequisite_service_id
+from application.practitioner_schedule_services import practitioner_has_weekly_schedule
 from application.service_policy import service_requires_prerequisite
 from application.outlook_calendar import subtract_busy_intervals
 from core.money import Money
@@ -192,7 +193,24 @@ class BookingUseCase:
         return windows
 
     async def _eligible_practitioners(self, service_id: str) -> List[Dict[str, Any]]:
+        """
+        Practitioners who can take this service.
+
+        Prefer an explicit services[] link. If none (catalog/admin missed the
+        link), fall back to active practitioners who publish weekly hours —
+        the clinic uses one shared schedule for every active bookable service.
+        """
+        service = await self.service_repo.get_by_id(service_id)
+        if not service or not service.get("is_active"):
+            return []
+
         practitioners = await self.practitioner_repo.get_by_service(service_id)
+        if not practitioners:
+            all_practitioners = await self.practitioner_repo.list_all(skip=0, limit=500)
+            practitioners = [
+                row for row in all_practitioners if practitioner_has_weekly_schedule(row)
+            ]
+
         eligible: List[Dict[str, Any]] = []
         for practitioner in practitioners:
             user = await self.user_repo.get_by_id(practitioner["user_id"])
@@ -315,7 +333,8 @@ class BookingUseCase:
             practitioner = await self.practitioner_repo.get_by_id(practitioner_id)
             if not practitioner:
                 raise ValueError("Practitioner not found")
-            if service_id not in practitioner.get("services", []):
+            linked = service_id in (practitioner.get("services") or [])
+            if not linked and not practitioner_has_weekly_schedule(practitioner):
                 raise ValueError("Practitioner does not offer this service")
             windows = await self._candidate_slots_for_practitioner(practitioner, date)
             if not any(w["start_time"] == start_time and w["end_time"] == end_time for w in windows):

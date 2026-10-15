@@ -25,6 +25,9 @@ if str(APP_ROOT) not in sys.path:
 
 from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
 
+from application.practitioner_schedule_services import (  # noqa: E402
+    sync_active_services_onto_scheduled_practitioners,
+)
 from application.service_catalog import SERVICE_CATALOG  # noqa: E402
 
 
@@ -124,6 +127,12 @@ async def main() -> None:
             await db.service_reviews.insert_many(review_docs)
 
         print(f"Upserted service + {len(review_docs)} reviews: {name} ({sid})")
+
+    sync_result = await sync_active_services_onto_scheduled_practitioners(db)
+    print(
+        "Synced active services onto scheduled practitioners:",
+        sync_result,
+    )
 
     print("Done.")
     client.close()

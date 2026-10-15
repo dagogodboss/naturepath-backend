@@ -4,6 +4,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from application.practitioner_schedule_services import (
+    sync_active_services_onto_scheduled_practitioners,
+)
 from application.service_catalog import SERVICE_CATALOG
 
 
@@ -86,3 +89,6 @@ async def ensure_service_catalog(db) -> None:
                 },
                 upsert=True,
             )
+
+    # Durable clinic rule: weekly hours cover every active bookable service.
+    await sync_active_services_onto_scheduled_practitioners(db)

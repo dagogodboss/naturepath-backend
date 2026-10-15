@@ -102,6 +102,10 @@ class FakePractitionerRepo:
         row = self.practitioners.get(practitioner_id)
         return deepcopy(row) if row else None
 
+    async def list_all(self, skip=0, limit=100):
+        rows = list(self.practitioners.values())[skip : skip + limit]
+        return deepcopy(rows)
+
 
 class FakeUserRepo:
     def __init__(self, users):

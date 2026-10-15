@@ -220,10 +220,15 @@ async def create_service(
         requires_discovery=requires_flag,
         requires_prerequisite=requires_flag,
     )
+    sid = created["service_id"]
+    # New active services must join the shared weekly schedule immediately.
+    await practitioner_repo.collection.update_many(
+        {"availability.0": {"$exists": True}},
+        {"$addToSet": {"services": sid}},
+    )
     if not has_permission(ctx["user"], Permission.USER_ROLE_MANAGE) and ctx.get("practitioner"):
         p = ctx["practitioner"]
         services = list(p.get("services", []))
-        sid = created["service_id"]
         if sid not in services:
             services.append(sid)
             await practitioner_repo.update(p["practitioner_id"], {"services": services})

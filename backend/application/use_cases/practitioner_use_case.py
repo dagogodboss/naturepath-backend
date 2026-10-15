@@ -14,6 +14,10 @@ from infrastructure.repositories import (
     MongoAvailabilitySlotRepository
 )
 from infrastructure.cache import CacheService
+from application.practitioner_schedule_services import (
+    merge_service_ids,
+    practitioner_has_weekly_schedule,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +117,18 @@ class PractitionerUseCase:
                 a.model_dump() if hasattr(a, 'model_dump') else a 
                 for a in updates["availability"]
             ]
+            # Saving weekly hours must keep every active service bookable on
+            # this shared clinic schedule (not only Education Hour).
+            probe = {**practitioner, "availability": updates["availability"]}
+            db = getattr(getattr(self.practitioner_repo, "collection", None), "database", None)
+            if db is not None and practitioner_has_weekly_schedule(probe):
+                active = await db.services.find(
+                    {"is_active": True},
+                    {"_id": 0, "service_id": 1},
+                ).to_list(length=500)
+                active_ids = [row["service_id"] for row in active if row.get("service_id")]
+                current_services = updates.get("services", practitioner.get("services"))
+                updates["services"] = merge_service_ids(current_services, active_ids)
         
         await self.practitioner_repo.update(practitioner_id, updates)
         

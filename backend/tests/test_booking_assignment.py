@@ -105,6 +105,10 @@ class FakePractitionerRepo:
         p = self.practitioners.get(practitioner_id)
         return deepcopy(p) if p else None
 
+    async def list_all(self, skip=0, limit=100):
+        rows = list(self.practitioners.values())[skip : skip + limit]
+        return deepcopy(rows)
+
 
 class FakeUserRepo:
     def __init__(self, users):
@@ -326,3 +330,46 @@ def test_candidate_slots_booked_concrete_blocks_weekly_same_window():
     )
     slots = asyncio.run(use_case.get_service_available_slots(service_id, date))
     assert slots == [{"start_time": "10:00", "end_time": "11:00"}]
+
+
+def test_shared_weekly_schedule_covers_unlinked_active_service():
+    """Weekly hours still yield slots when services[] omitted the selected service."""
+    linked_service = "edu-hour"
+    unlinked_service = "discovery"
+    date = "2026-04-03"  # Friday -> weekday 4
+    use_case, _ = _build_use_case(
+        practitioners={
+            "p1": {
+                "practitioner_id": "p1",
+                "user_id": "u1",
+                "services": [linked_service],
+                "availability": [
+                    {
+                        "day_of_week": 4,
+                        "start_time": "10:00",
+                        "end_time": "12:00",
+                        "is_available": True,
+                    }
+                ],
+            }
+        },
+        users={"u1": {"user_id": "u1", "is_active": True}},
+        services={
+            linked_service: {
+                "service_id": linked_service,
+                "name": "Natural Health Education Hour",
+                "price": 125,
+                "is_active": True,
+            },
+            unlinked_service: {
+                "service_id": unlinked_service,
+                "name": "Discovery Call",
+                "price": 30,
+                "is_active": True,
+            },
+        },
+        available_by_pid_date={},
+        slot_docs=[],
+    )
+    slots = asyncio.run(use_case.get_service_available_slots(unlinked_service, date))
+    assert [s["start_time"] for s in slots] == ["10:00", "11:00"]
