@@ -16,6 +16,7 @@ from core.money import Money
 from core.money_fields import read_amount_cents_first
 from pydantic import BaseModel, Field
 
+from application.booking_open_dates import clinic_window_dates, open_dates_in_window
 from application.dto import (
     InitiateBookingRequest, LockSlotRequest, ConfirmBookingRequest,
     BookingResponse, CancelBookingRequest, RescheduleBookingRequest
@@ -88,6 +89,29 @@ async def get_service_slots(
     Practitioner is chosen server-side during initiate.
     """
     return await booking_use_case.get_service_available_slots(service_id=service_id, date=date)
+
+
+@router.get("/service-open-dates", response_model=dict)
+async def get_service_open_dates(
+    service_id: str,
+    days: int = 7,
+    booking_use_case: BookingUseCase = Depends(get_booking_use_case),
+):
+    """
+    Public summary of the booking window.
+
+    Guests and signed-in customers use this before the wizard. Slot rows still
+    come from get_service_available_slots, so Outlook busy time and booked
+    hours are already removed.
+    """
+    window = clinic_window_dates(days)
+    return await open_dates_in_window(
+        window,
+        lambda day: booking_use_case.get_service_available_slots(
+            service_id=service_id,
+            date=day,
+        ),
+    )
 
 
 @router.post("/lock-slot", response_model=dict)

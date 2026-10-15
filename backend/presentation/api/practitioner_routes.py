@@ -152,7 +152,7 @@ async def outlook_callback(
 
     from workers.outlook_calendar_worker import sync_outlook_connection_task
     sync_outlook_connection_task.delay(connection_id)
-    target = f"{settings.public_app_url.rstrip('/')}/practitioner/availability?outlook=connected"
+    target = f"{settings.public_app_url.rstrip('/')}/availability?outlook=connected"
     return RedirectResponse(target, status_code=302)
 
 
