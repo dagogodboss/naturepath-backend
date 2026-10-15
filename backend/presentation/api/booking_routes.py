@@ -94,11 +94,11 @@ async def get_service_slots(
 @router.get("/service-open-dates", response_model=dict)
 async def get_service_open_dates(
     service_id: str,
-    days: int = 7,
+    days: int = 60,
     booking_use_case: BookingUseCase = Depends(get_booking_use_case),
 ):
     """
-    Public summary of the booking window.
+    Public summary of the booking window (up to 60 days, matching slot generation).
 
     Guests and signed-in customers use this before the wizard. Slot rows still
     come from get_service_available_slots, so Outlook busy time and booked

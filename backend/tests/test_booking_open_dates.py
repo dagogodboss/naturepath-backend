@@ -14,7 +14,8 @@ def test_window_is_clinic_local_and_capped():
         "2026-10-20",
         "2026-10-21",
     ]
-    assert len(clinic_window_dates(60, today=date(2026, 10, 15))) == 14
+    assert len(clinic_window_dates(60, today=date(2026, 10, 15))) == 60
+    assert len(clinic_window_dates(90, today=date(2026, 10, 15))) == 60
 
 
 def test_days_without_slots_stay_in_the_window_but_are_not_open():
