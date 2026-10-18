@@ -149,7 +149,12 @@ class MicrosoftGraphClient:
         params = {
             "startDateTime": start.astimezone(timezone.utc).isoformat(),
             "endDateTime": end.astimezone(timezone.utc).isoformat(),
-            "$select": "id,start,end,showAs,isCancelled,lastModifiedDateTime",
+            # categories/subject enable Phase 2 multi-resource classify; unused
+            # by legacy event_to_busy_intervals when MULTI_RESOURCE_SCHEDULING is off.
+            "$select": (
+                "id,start,end,showAs,isCancelled,categories,subject,"
+                "lastModifiedDateTime"
+            ),
             "$top": "250",
         }
         headers = {

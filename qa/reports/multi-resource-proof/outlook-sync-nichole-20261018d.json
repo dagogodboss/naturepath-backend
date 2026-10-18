@@ -1,0 +1,29 @@
+{
+  "kind": "outlook_connection_sync",
+  "generated_at": "2026-10-18T18:06:44.791673+00:00",
+  "connection_id": "0ae88711-4e79-42b4-831f-141705d6ca9c",
+  "db_name": "natural_path_staging",
+  "staging_api": "https://natural-path-api-staging-qxje535rja-uc.a.run.app",
+  "before": {
+    "last_sync_status": "error",
+    "last_sync_error": "Client error '400 Bad Request' for url 'https://login.microsoftonline.com/common/oauth2/v2.0/token'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400",
+    "event_count": 96
+  },
+  "practitioner_id": "a6e5a244-13d2-4983-afe1-ca504b10ab92",
+  "staff_email": "Nmoore@thenaturalpathla.com",
+  "sync_http_status": 502,
+  "sync_response": {
+    "detail": "Outlook calendar sync failed (400). Try again shortly."
+  },
+  "ok": false,
+  "after": {
+    "last_sync_status": "error",
+    "last_sync_error": "Client error '400 Bad Request' for url 'https://login.microsoftonline.com/common/oauth2/v2.0/token'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400",
+    "event_count": 96,
+    "last_synced_at": "2026-10-18T17:17:02.480120+00:00"
+  },
+  "resource_busy_interval_counts": {
+    "5786a4d5-93bd-5ae9-83ba-43db7872cf89": 2
+  },
+  "nichole_busy_on_prove_date": []
+}

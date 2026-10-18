@@ -1,0 +1,107 @@
+{
+  "kind": "phase_6_prod_data_prep_flag_off",
+  "generated_at": "2026-10-18T19:05:00+01:00",
+  "gcp_project": "project-990664b0-1bae-4746-88d",
+  "mongo_target": {
+    "host": "naturepath-data-1 (VPC)",
+    "db_name": "natural_path",
+    "safety_check": "natural_path_staging also present; all ops used DB_NAME=natural_path only"
+  },
+  "prod_api": {
+    "service": "natural-path-api",
+    "revision": "natural-path-api-00021-hv8",
+    "multi_resource_scheduling": "unset (defaults false)",
+    "booking_behavior": "legacy (unchanged)"
+  },
+  "dry_run": {
+    "seed": {
+      "nichole_would_create": 1,
+      "salt_would_create": 1,
+      "practitioners_seen": 1,
+      "resources_before": 0
+    },
+    "service_backfill": {
+      "note": "Skipped until resources exist; expected 7 attaches (same catalog as staging)",
+      "would_update_after_seed": 7
+    },
+    "booking_backfill": {
+      "bookings_seen": 2,
+      "would_update": 0,
+      "anomalies_pre_seed": 2,
+      "anomaly_reason": "resources not seeded (expected; not payment/booking corruption)",
+      "artifact": "qa/reports/multi-resource-proof/prod-booking-backfill-dryrun.json"
+    }
+  },
+  "apply": {
+    "seed": {
+      "nichole_written": 1,
+      "salt_written": 1,
+      "indexes_created": 7,
+      "resources_after": 2,
+      "nichole_resource_id": "5786a4d5-93bd-5ae9-83ba-43db7872cf89",
+      "salt_resource_id": "80ef009d-d1e1-5e2b-a7ad-ebbbb5ee0a41"
+    },
+    "service_backfill": {
+      "updated": 7,
+      "unrecognized": 0,
+      "services_with_required_resource_id": 7
+    },
+    "booking_backfill": {
+      "bookings_seen": 2,
+      "updated": 2,
+      "anomalies": 0,
+      "resource_busy_written": 2,
+      "artifact": "qa/reports/multi-resource-proof/prod-booking-backfill-apply.json"
+    }
+  },
+  "outlook_connection_templates": {
+    "artifact": "qa/reports/multi-resource-proof/prod-outlook-templates.json",
+    "nichole": {
+      "op": "patch_nichole_authoritative",
+      "connection_id": "0ae88711-4e79-42b4-831f-141705d6ca9c",
+      "mailbox_email": "nmoore@thenaturalpathla.com",
+      "authoritative_for_resource_ids": ["5786a4d5-93bd-5ae9-83ba-43db7872cf89"],
+      "category_map_count": 3
+    },
+    "clients_placeholder": {
+      "op": "insert_clients_placeholder",
+      "connection_id": "a5d43af5-0f20-4871-8d79-5af254b1e936",
+      "mailbox_email": "Clients@thenaturalpathla.com",
+      "is_active": false,
+      "oauth_pending": true
+    }
+  },
+  "frontend_deploy": {
+    "deployed": true,
+    "hosting_project": "project-990664b0-1bae-4746-88d",
+    "url": "https://project-990664b0-1bae-4746-88d.web.app",
+    "admin_scheduling_route_http": 200,
+    "bundle_contains_admin_scheduling": true,
+    "project_naturalpath_web_app": {
+      "deployed": false,
+      "reason": "Firebase CLI cannot access project-naturalpath from this account; bundle still lacks /admin/scheduling until that hosting is updated or users use 990664b0 alias"
+    }
+  },
+  "cutover_after_oauth_and_staging_signoff": {
+    "prerequisites": [
+      "Staging P1–P8 pass + Jonathan sign-off",
+      "Nichole Graph re-consent on prod (sync healthy)",
+      "Clients@thenaturalpathla.com delegated OAuth on prod callback"
+    ],
+    "enable_flag_exact_command": "gcloud run services update natural-path-api --project project-990664b0-1bae-4746-88d --region us-central1 --update-env-vars MULTI_RESOURCE_SCHEDULING=true",
+    "rollback_command": "gcloud run services update natural-path-api --project project-990664b0-1bae-4746-88d --region us-central1 --remove-env-vars MULTI_RESOURCE_SCHEDULING",
+    "rollback_note": "Unset removes env var; API defaults MULTI_RESOURCE_SCHEDULING to false and returns to legacy booking + Outlook path. Do not delete resources or resource_busy_intervals collections.",
+    "do_not": [
+      "Do not enable MULTI_RESOURCE_SCHEDULING before OAuth + sign-off",
+      "Do not change DNS",
+      "Redeploying via deploy/gcp/02-deploy-backend.sh without adding the var to ENV_VARS will not set the flag — use update-env-vars for cutover"
+    ]
+  },
+  "remaining_human": [
+    "Nichole OAuth / Graph re-consent on prod",
+    "Clients@ OAuth (activate placeholder a5d43af5-… or merge row)",
+    "MULTI_RESOURCE_SCHEDULING=true on prod API after checklist",
+    "Prod P1–P8 manual proof"
+  ],
+  "goal_complete": false
+}

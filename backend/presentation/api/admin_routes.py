@@ -28,9 +28,13 @@ from application.access_control import (
 from core.rbac import normalize_role
 from infrastructure.database import get_database
 from .admin_rbac_routes import router as admin_rbac_router
+from .scheduling_admin_routes import router as scheduling_admin_router
 
 router = APIRouter(prefix="/admin", tags=["Admin Dashboard"])
 router.include_router(admin_rbac_router, prefix="/rbac", tags=["Admin RBAC"])
+# Phase 4 scheduling admin — always registered; handlers 404 when
+# settings.multi_resource_scheduling is False (do not expose unfinished UI).
+router.include_router(scheduling_admin_router)
 
 
 @router.get("/reconciliation/reports", response_model=dict)

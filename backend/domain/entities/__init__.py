@@ -7,6 +7,10 @@ from .models import (
     AvailabilitySlot, SlotStatus,
     PaymentReference, PaymentStatus,
     Notification, NotificationType,
+    ResourceType, ResourceSlotGrid, Resource,
+    BusyIntervalSource, ResourceBusyInterval,
+    ReviewQueueItemType, ReviewQueueItemStatus, ReviewQueueItem,
+    OutlookCategoryMap, OutlookMailboxConnectionFields,
     generate_id, utc_now
 )
 
@@ -18,5 +22,9 @@ __all__ = [
     "AvailabilitySlot", "SlotStatus",
     "PaymentReference", "PaymentStatus",
     "Notification", "NotificationType",
+    "ResourceType", "ResourceSlotGrid", "Resource",
+    "BusyIntervalSource", "ResourceBusyInterval",
+    "ReviewQueueItemType", "ReviewQueueItemStatus", "ReviewQueueItem",
+    "OutlookCategoryMap", "OutlookMailboxConnectionFields",
     "generate_id", "utc_now"
 ]

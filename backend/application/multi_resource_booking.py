@@ -1,0 +1,366 @@
+"""
+Booking-path bridge for multi-resource slots (Phase 3 wiring).
+
+Gated by settings.multi_resource_scheduling (default False). When the flag is
+off, callers must not use this module — legacy practitioner-global busy remains
+authoritative.
+
+PROVISIONAL until Jonathan confirms (see docs/plans/phase-0-jonathan-questions.md):
+  Q3 — Last Discovery start: occupied must end ≤ 17:45. If occupied is 45 min,
+       last start is 17:00 — NOT 17:15 until he confirms that "5:15" means
+       customer-end only (busy may extend past session end).
+  Q4 — Untagged/unmapped Outlook busy blocks the resource until review
+       classifies it (already persisted as authoritative busy by Phase 2 sync).
+  Q7 — Outlook/office priority for free times; app booking rows are not silently
+       rewritten (payment/status). Conflicts → review_queue (see
+       multi_resource_conflicts). Reschedule still updates slot only via app API.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, List, Mapping, Optional, Sequence
+
+from application.multi_resource_slots import (
+    hhmm_from_minutes,
+    minutes_from_hhmm,
+    occupied_interval_for_session_start,
+    slots_for_open_dates_preview,
+)
+from domain.entities.models import BusyIntervalSource, generate_id, utc_now
+from domain.scheduling_occupation import resolve_customer_duration_minutes
+
+logger = logging.getLogger(__name__)
+
+# LOCKED Nichole: occupied must finish by 17:45 America/Chicago.
+NICHOLE_OCCUPIED_FINISH_BY = "17:45"
+
+# PROVISIONAL Q3: when resource has no last_start_time, derive last session
+# start so occupied ends at NICHOLE_OCCUPIED_FINISH_BY (45m occupied → 17:00).
+# Do not invent 17:15 until Jonathan confirms customer-end-only interpretation.
+
+
+def session_minutes_for_service(service: Mapping[str, Any]) -> int:
+    return resolve_customer_duration_minutes(
+        int(service.get("duration_minutes") or 0),
+        service.get("customer_duration_minutes"),
+    )
+
+
+def provisional_last_start_for_occupied_finish(
+    *,
+    prep_minutes: int,
+    session_minutes: int,
+    recovery_minutes: int,
+    finish_by: str = NICHOLE_OCCUPIED_FINISH_BY,
+) -> str:
+    """
+    PROVISIONAL Q3: last customer start such that occupied ends ≤ finish_by.
+
+    Example: finish_by 17:45, occupied 45 (0+30+15 or 0+45+0) → last start 17:00.
+    """
+    finish_m = minutes_from_hhmm(finish_by)
+    last_start_m = finish_m - session_minutes - recovery_minutes
+    # Prep is before session start; occupied start = last_start - prep must still
+    # land in free windows (engine enforces). Last *session* start clock:
+    if last_start_m < 0:
+        last_start_m = 0
+    return hhmm_from_minutes(last_start_m)
+
+
+def effective_last_start_time(
+    resource: Mapping[str, Any],
+    service: Mapping[str, Any],
+) -> Optional[str]:
+    """Prefer resource.last_start_time; else PROVISIONAL Q3 finish-by derivation."""
+    explicit = resource.get("last_start_time")
+    if explicit:
+        return str(explicit)
+    # Salt always seeds last_start_time=17:00. Practitioner/Discovery often
+    # omits it — apply occupied-finish-by 17:45 rule (PROVISIONAL Q3).
+    prep = int(service.get("prep_minutes") or 0)
+    recovery = int(service.get("recovery_minutes") or 0)
+    try:
+        session_m = session_minutes_for_service(service)
+    except ValueError:
+        return NICHOLE_OCCUPIED_FINISH_BY
+    return provisional_last_start_for_occupied_finish(
+        prep_minutes=prep,
+        session_minutes=session_m,
+        recovery_minutes=recovery,
+    )
+
+
+def db_from_booking_repo(booking_repo: Any) -> Any:
+    """Motor collections expose `.database`; test fakes may set it on the collection."""
+    collection = getattr(booking_repo, "collection", None)
+    if collection is None:
+        return None
+    db = getattr(collection, "database", None)
+    if db is not None:
+        return db
+    # Some repos attach the db handle directly.
+    return getattr(booking_repo, "db", None)
+
+
+async def fetch_resource(db: Any, resource_id: str) -> Optional[Dict[str, Any]]:
+    if db is None or not resource_id:
+        return None
+    col = getattr(db, "resources", None)
+    if col is None:
+        return None
+    try:
+        return await col.find_one({"resource_id": resource_id}, {"_id": 0})
+    except Exception:
+        logger.exception("Failed to load resource %s", resource_id)
+        return None
+
+
+def busy_intervals_for_slot_engine(
+    busy_intervals: Sequence[Mapping[str, Any]],
+    *,
+    exclude_booking_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Busy rows fed into the slot engine.
+
+    When rechecking the same booking (lock → confirm), ignore its own
+    source=booking hold so confirm does not fail against its pending dual-write.
+    """
+    if not exclude_booking_id:
+        return [dict(row) for row in busy_intervals]
+    excluded = str(exclude_booking_id)
+    out: List[Dict[str, Any]] = []
+    for row in busy_intervals:
+        if (
+            str(row.get("source") or "").lower() == BusyIntervalSource.BOOKING.value
+            and str(row.get("booking_id") or "") == excluded
+        ):
+            continue
+        out.append(dict(row))
+    return out
+
+
+async def fetch_resource_busy(
+    db: Any, resource_id: str, date_str: str
+) -> List[Dict[str, Any]]:
+    """
+    Busy rows for one resource on one clinic-local date.
+
+    PROVISIONAL Q4: untagged Outlook busy is stored as authoritative busy on the
+    resource and therefore blocks slots until classified/review resolves it.
+    Never mix another resource's busy into this list (Discovery ≠ Salt).
+    """
+    if db is None or not resource_id:
+        return []
+    col = getattr(db, "resource_busy_intervals", None)
+    if col is None:
+        return []
+    try:
+        return await col.find(
+            {"resource_id": resource_id, "date": date_str},
+            {"_id": 0},
+        ).to_list(length=500)
+    except Exception:
+        logger.exception(
+            "Failed to load resource_busy_intervals for %s on %s",
+            resource_id,
+            date_str,
+        )
+        return []
+
+
+def compute_session_slots(
+    *,
+    date_str: str,
+    service: Mapping[str, Any],
+    resource: Mapping[str, Any],
+    busy_intervals: Sequence[Mapping[str, Any]],
+) -> List[Dict[str, str]]:
+    """Pure slot list for service+resource+busy (no DB)."""
+    prep = int(service.get("prep_minutes") or 0)
+    recovery = int(service.get("recovery_minutes") or 0)
+    try:
+        session_m = session_minutes_for_service(service)
+    except ValueError:
+        return []
+    flags = service.get("flags") or {}
+    # Inject effective last_start onto a shallow resource view for the preview facade.
+    resource_view = dict(resource)
+    last_start = effective_last_start_time(resource, service)
+    if last_start:
+        resource_view["last_start_time"] = last_start
+    return slots_for_open_dates_preview(
+        date_str=date_str,
+        resource=resource_view,
+        busy_intervals=busy_intervals,
+        prep_minutes=prep,
+        session_minutes=session_m,
+        recovery_minutes=recovery,
+        flags=flags,
+        service_hours=service.get("service_hours"),
+    )
+
+
+async def slots_for_service_date(
+    *,
+    db: Any,
+    service: Mapping[str, Any],
+    date_str: str,
+) -> List[Dict[str, str]]:
+    """
+    Fail closed: missing/inactive required_resource_id or resource → [].
+
+    Does not fall back to practitioner-global busy (would break Discovery≠Salt).
+    """
+    rid = service.get("required_resource_id")
+    if not rid:
+        logger.warning(
+            "multi_resource: service %s missing required_resource_id — empty slots",
+            service.get("service_id"),
+        )
+        return []
+    resource = await fetch_resource(db, str(rid))
+    if not resource or resource.get("active") is False:
+        logger.warning(
+            "multi_resource: resource %s missing/inactive for service %s — empty slots",
+            rid,
+            service.get("service_id"),
+        )
+        return []
+    busy = await fetch_resource_busy(db, str(rid), date_str)
+    return compute_session_slots(
+        date_str=date_str,
+        service=service,
+        resource=resource,
+        busy_intervals=busy,
+    )
+
+
+def slot_still_open(
+    slots: Sequence[Mapping[str, str]],
+    start_time: str,
+    end_time: str,
+) -> bool:
+    return any(
+        s.get("start_time") == start_time and s.get("end_time") == end_time for s in slots
+    )
+
+
+async def recheck_session_available(
+    *,
+    db: Any,
+    service: Mapping[str, Any],
+    date_str: str,
+    start_time: str,
+    end_time: str,
+    exclude_booking_id: Optional[str] = None,
+) -> bool:
+    """Confirm-time recheck: regenerate slots and require exact session window."""
+    rid = service.get("required_resource_id")
+    if not rid:
+        return False
+    resource = await fetch_resource(db, str(rid))
+    if not resource or resource.get("active") is False:
+        return False
+    busy = await fetch_resource_busy(db, str(rid), date_str)
+    busy = busy_intervals_for_slot_engine(
+        busy, exclude_booking_id=exclude_booking_id
+    )
+    slots = compute_session_slots(
+        date_str=date_str,
+        service=service,
+        resource=resource,
+        busy_intervals=busy,
+    )
+    return slot_still_open(slots, start_time, end_time)
+
+
+def occupied_times_for_session(
+    service: Mapping[str, Any],
+    start_time: str,
+) -> Dict[str, str]:
+    prep = int(service.get("prep_minutes") or 0)
+    recovery = int(service.get("recovery_minutes") or 0)
+    session_m = session_minutes_for_service(service)
+    return occupied_interval_for_session_start(
+        start_time,
+        prep_minutes=prep,
+        session_minutes=session_m,
+        recovery_minutes=recovery,
+    )
+
+
+async def clear_booking_resource_busy(
+    *,
+    db: Any,
+    booking_id: str,
+    resource_id: str,
+    date_str: str,
+) -> None:
+    """Remove source=booking busy row for a booking on one clinic-local date."""
+    if db is None or not resource_id:
+        return
+    col = getattr(db, "resource_busy_intervals", None)
+    if col is None:
+        return
+    try:
+        await col.delete_many(
+            {
+                "booking_id": booking_id,
+                "resource_id": resource_id,
+                "date": date_str,
+                "source": BusyIntervalSource.BOOKING.value,
+            }
+        )
+    except Exception:
+        logger.exception(
+            "Failed to clear resource busy for booking %s on %s", booking_id, date_str
+        )
+
+
+async def dual_write_booking_busy(
+    *,
+    db: Any,
+    resource_id: str,
+    date_str: str,
+    occupied_start: str,
+    occupied_end: str,
+    booking_id: str,
+) -> None:
+    """Write source=booking busy so subsequent open-dates see the hold."""
+    if db is None or not resource_id:
+        return
+    col = getattr(db, "resource_busy_intervals", None)
+    if col is None:
+        return
+    now = utc_now()
+    doc = {
+        "interval_id": generate_id(),
+        "resource_id": resource_id,
+        "date": date_str,
+        "start_time": occupied_start,
+        "end_time": occupied_end,
+        "source": BusyIntervalSource.BOOKING.value,
+        "authoritative": True,
+        "booking_id": booking_id,
+        "show_as": "busy",
+        "is_cancelled": False,
+        "synced_at": now.isoformat() if hasattr(now, "isoformat") else now,
+        "created_at": now.isoformat() if hasattr(now, "isoformat") else now,
+    }
+    try:
+        # Idempotent on re-confirm of same booking window.
+        await col.update_one(
+            {
+                "booking_id": booking_id,
+                "resource_id": resource_id,
+                "date": date_str,
+                "source": BusyIntervalSource.BOOKING.value,
+            },
+            {"$set": doc},
+            upsert=True,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to dual-write resource busy for booking %s", booking_id
+        )

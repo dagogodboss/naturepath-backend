@@ -1,0 +1,21 @@
+{
+  "kind": "prod_nichole_outlook_sync_attempt",
+  "generated_at": "2026-10-18T18:07:37.446447+00:00",
+  "prod_api": "https://natural-path-api-qxje535rja-uc.a.run.app",
+  "db_name": "natural_path",
+  "connection_id": "0ae88711-4e79-42b4-831f-141705d6ca9c",
+  "sync_http": 502,
+  "sync_response": {
+    "detail": "Outlook calendar sync failed (400). Try again shortly."
+  },
+  "after_sync_status": "error",
+  "after_sync_error": "Client error '400 Bad Request' for url 'https://login.microsoftonline.com/bbefcd77-2f78-4240-85f3-41dcf671c9bf/oauth2/v2.0/token'",
+  "nichole_resource_busy_count": 2,
+  "clients_placeholder": {
+    "connection_id": "a5d43af5-0f20-4871-8d79-5af254b1e936",
+    "has_refresh": false,
+    "oauth_pending": true
+  },
+  "ok": false,
+  "note": "Graph refresh requires human re-consent; do not enable MULTI_RESOURCE_SCHEDULING on prod until Nichole + Clients@ OAuth succeed."
+}

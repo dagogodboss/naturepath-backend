@@ -29,6 +29,15 @@ from core.calendar_utils import (
     ical_to_base64,
 )
 from application.booking_policy import read_prerequisite_service_id
+from application.multi_resource_booking import (
+    clear_booking_resource_busy,
+    db_from_booking_repo,
+    dual_write_booking_busy,
+    occupied_times_for_session,
+    recheck_session_available,
+    slots_for_service_date,
+)
+from application.multi_resource_conflicts import flag_office_conflict_if_blocked_by_outlook
 from application.practitioner_schedule_services import practitioner_has_weekly_schedule
 from application.service_policy import service_requires_prerequisite
 from application.outlook_calendar import subtract_busy_intervals
@@ -223,6 +232,18 @@ class BookingUseCase:
         service_id: str,
         date: str,
     ) -> List[Dict[str, str]]:
+        # Flag default False: identical legacy practitioner-global path below.
+        # When True: per-resource slots (Discovery busy ≠ Salt room busy).
+        if settings.multi_resource_scheduling:
+            service = await self.service_repo.get_by_id(service_id)
+            if not service or not service.get("is_active"):
+                return []
+            db = db_from_booking_repo(self.booking_repo)
+            # Fail closed empty when required_resource_id / resource missing.
+            return await slots_for_service_date(
+                db=db, service=service, date_str=date
+            )
+
         practitioners = await self._eligible_practitioners(service_id)
         if not practitioners:
             return []
@@ -235,6 +256,101 @@ class BookingUseCase:
                     "end_time": w["end_time"],
                 }
         return sorted(windows_map.values(), key=lambda w: w["start_time"])
+
+    async def _assert_multi_resource_slot_open(
+        self,
+        service: Dict[str, Any],
+        date: str,
+        start_time: str,
+        end_time: str,
+        *,
+        booking_id: Optional[str] = None,
+        action: str = "book",
+    ) -> None:
+        """Raise if the requested session is no longer free on the required resource."""
+        db = db_from_booking_repo(self.booking_repo)
+        ok = await recheck_session_available(
+            db=db,
+            service=service,
+            date_str=date,
+            start_time=start_time,
+            end_time=end_time,
+            exclude_booking_id=booking_id,
+        )
+        if not ok:
+            await flag_office_conflict_if_blocked_by_outlook(
+                db,
+                service=service,
+                date_str=date,
+                start_time=start_time,
+                end_time=end_time,
+                booking_id=booking_id,
+                action=action,
+            )
+            raise ValueError("Selected time is no longer available")
+
+    @staticmethod
+    def _resolve_booking_resource_id(
+        booking: Dict[str, Any], service: Optional[Dict[str, Any]]
+    ) -> Optional[str]:
+        rid = booking.get("resource_id")
+        if rid:
+            return str(rid)
+        if service and service.get("required_resource_id"):
+            return str(service["required_resource_id"])
+        return None
+
+    async def _dual_write_booking_hold_busy(
+        self,
+        *,
+        booking_id: str,
+        booking: Dict[str, Any],
+        service: Dict[str, Any],
+    ) -> None:
+        """Write source=booking busy for pending/confirmed holds (flag on only)."""
+        if not settings.multi_resource_scheduling:
+            return
+        resource_id = self._resolve_booking_resource_id(booking, service)
+        slot = booking.get("slot") or {}
+        date_str = slot.get("date")
+        start_time = slot.get("start_time")
+        if not resource_id or not date_str or not start_time:
+            return
+        try:
+            occupied = occupied_times_for_session(service, start_time)
+        except ValueError:
+            return
+        db = db_from_booking_repo(self.booking_repo)
+        await dual_write_booking_busy(
+            db=db,
+            resource_id=resource_id,
+            date_str=date_str,
+            occupied_start=occupied["start_time"],
+            occupied_end=occupied["end_time"],
+            booking_id=booking_id,
+        )
+
+    async def _clear_booking_hold_busy(
+        self,
+        *,
+        booking_id: str,
+        booking: Dict[str, Any],
+        service: Optional[Dict[str, Any]],
+    ) -> None:
+        if not settings.multi_resource_scheduling:
+            return
+        resource_id = self._resolve_booking_resource_id(booking, service)
+        slot = booking.get("slot") or {}
+        date_str = slot.get("date")
+        if not resource_id or not date_str:
+            return
+        db = db_from_booking_repo(self.booking_repo)
+        await clear_booking_resource_busy(
+            db=db,
+            booking_id=booking_id,
+            resource_id=resource_id,
+            date_str=date_str,
+        )
 
     async def _select_practitioner_round_robin(
         self,
@@ -328,6 +444,21 @@ class BookingUseCase:
             discovery_unlocked = True
         
         practitioner: Optional[Dict[str, Any]] = None
+        resource_id: Optional[str] = None
+        occupied: Optional[Dict[str, str]] = None
+
+        if settings.multi_resource_scheduling:
+            # Capacity is per required resource (Salt room vs Nichole), not
+            # practitioner-global busy. Fail closed if resource/slot missing.
+            await self._assert_multi_resource_slot_open(
+                service, date, start_time, end_time, action="initiate"
+            )
+            resource_id = service.get("required_resource_id")
+            try:
+                occupied = occupied_times_for_session(service, start_time)
+            except ValueError as exc:
+                raise ValueError(str(exc)) from exc
+
         # Backward-compatible path: explicit practitioner still accepted.
         if practitioner_id:
             practitioner = await self.practitioner_repo.get_by_id(practitioner_id)
@@ -336,16 +467,41 @@ class BookingUseCase:
             linked = service_id in (practitioner.get("services") or [])
             if not linked and not practitioner_has_weekly_schedule(practitioner):
                 raise ValueError("Practitioner does not offer this service")
-            windows = await self._candidate_slots_for_practitioner(practitioner, date)
-            if not any(w["start_time"] == start_time and w["end_time"] == end_time for w in windows):
-                raise ValueError("Practitioner is not available for this time slot")
+            if not settings.multi_resource_scheduling:
+                windows = await self._candidate_slots_for_practitioner(practitioner, date)
+                if not any(
+                    w["start_time"] == start_time and w["end_time"] == end_time
+                    for w in windows
+                ):
+                    raise ValueError("Practitioner is not available for this time slot")
         else:
-            practitioner = await self._select_practitioner_round_robin(
-                service_id=service_id,
-                date=date,
-                start_time=start_time,
-                end_time=end_time,
-            )
+            if settings.multi_resource_scheduling:
+                # Ownership / notifications still need a practitioner; capacity
+                # already validated against the resource above.
+                practitioners = await self._eligible_practitioners(service_id)
+                if not practitioners:
+                    raise ValueError("No practitioner available for this time slot")
+                practitioners = sorted(
+                    practitioners, key=lambda p: p["practitioner_id"]
+                )
+                state_coll = self.booking_repo.collection.database.booking_assignment_state
+                state_key = f"service:{service_id}"
+                state = await state_coll.find_one({"state_key": state_key}, {"_id": 0})
+                last_id = (state or {}).get("last_practitioner_id")
+                practitioner = practitioners[0]
+                if last_id:
+                    ids = [c["practitioner_id"] for c in practitioners]
+                    if last_id in ids:
+                        practitioner = practitioners[
+                            (ids.index(last_id) + 1) % len(practitioners)
+                        ]
+            else:
+                practitioner = await self._select_practitioner_round_robin(
+                    service_id=service_id,
+                    date=date,
+                    start_time=start_time,
+                    end_time=end_time,
+                )
             practitioner_id = practitioner["practitioner_id"]
         
         # After discovery unlock: monthly recurrence only with explicit opt-in.
@@ -384,6 +540,12 @@ class BookingUseCase:
             "start_time": start_time,
             "end_time": end_time
         }
+        if settings.multi_resource_scheduling and resource_id and occupied:
+            booking_dict["resource_id"] = resource_id
+            booking_dict["customer_start_time"] = start_time
+            booking_dict["customer_end_time"] = end_time
+            booking_dict["occupied_start_time"] = occupied["start_time"]
+            booking_dict["occupied_end_time"] = occupied["end_time"]
         
         await self.booking_repo.create(booking_dict)
         await self._persist_assignment_cursor(service_id, practitioner_id)
@@ -430,8 +592,21 @@ class BookingUseCase:
         
         if booking["status"] != "draft":
             raise ValueError("Booking is not in draft status")
-        
+
         slot = booking["slot"]
+        service = None
+        if settings.multi_resource_scheduling:
+            service = await self.service_repo.get_by_id(booking["service_id"])
+            if service:
+                await self._assert_multi_resource_slot_open(
+                    service,
+                    slot["date"],
+                    slot["start_time"],
+                    slot["end_time"],
+                    booking_id=booking_id,
+                    action="lock",
+                )
+
         pid = booking["practitioner_id"]
         date = slot["date"]
         st = slot["start_time"]
@@ -475,6 +650,15 @@ class BookingUseCase:
         
         # Update booking status
         await self.booking_repo.update(booking_id, {"status": "pending"})
+
+        if settings.multi_resource_scheduling and service:
+            booking_after = await self.booking_repo.get_by_id(booking_id)
+            if booking_after:
+                await self._dual_write_booking_hold_busy(
+                    booking_id=booking_id,
+                    booking=booking_after,
+                    service=service,
+                )
         
         # Invalidate cache
         if self.cache:
@@ -586,19 +770,62 @@ class BookingUseCase:
         practitioner = await self.practitioner_repo.get_by_id(booking["practitioner_id"])
         practitioner_user = await self.user_repo.get_by_id(practitioner["user_id"])
 
-        now = utc_now().isoformat()
-        await self.booking_repo.update(
-            booking_id,
-            {
-                "status": "confirmed",
-                "confirmed_at": now,
-                "payment_mode": "walk_in",
-                "payment_status": "awaiting_counter",
-            },
-        )
+        slot = booking["slot"]
+        confirm_patch: Dict[str, Any] = {
+            "status": "confirmed",
+            "confirmed_at": utc_now().isoformat(),
+            "payment_mode": "walk_in",
+            "payment_status": "awaiting_counter",
+        }
+
+        # Flag on: recheck resource busy before confirm; dual-write occupied busy.
+        # PROVISIONAL Q7: app remains SoT for booking times (no Outlook rewrite here).
+        if settings.multi_resource_scheduling:
+            if not service:
+                raise ValueError("Service not found")
+            await self._assert_multi_resource_slot_open(
+                service,
+                slot["date"],
+                slot["start_time"],
+                slot["end_time"],
+                booking_id=booking_id,
+                action="confirm",
+            )
+            resource_id = booking.get("resource_id") or service.get("required_resource_id")
+            if not resource_id:
+                raise ValueError("Selected time is no longer available")
+            try:
+                occupied = occupied_times_for_session(service, slot["start_time"])
+            except ValueError as exc:
+                raise ValueError(str(exc)) from exc
+            confirm_patch.update(
+                {
+                    "resource_id": resource_id,
+                    "customer_start_time": slot["start_time"],
+                    "customer_end_time": slot["end_time"],
+                    "occupied_start_time": occupied["start_time"],
+                    "occupied_end_time": occupied["end_time"],
+                }
+            )
+            db = db_from_booking_repo(self.booking_repo)
+            await dual_write_booking_busy(
+                db=db,
+                resource_id=str(resource_id),
+                date_str=slot["date"],
+                occupied_start=occupied["start_time"],
+                occupied_end=occupied["end_time"],
+                booking_id=booking_id,
+            )
+
+        now = confirm_patch["confirmed_at"]
+        await self.booking_repo.update(booking_id, confirm_patch)
+
+        if settings.multi_resource_scheduling and self.cache:
+            await self.cache.delete(
+                CacheService.availability_key(booking["practitioner_id"], slot["date"])
+            )
         # Discovery unlock is staff-only via mark_discovery_completed — never auto on confirm.
 
-        slot = booking["slot"]
         slots = await self.slot_repo.collection.find(
             {
                 "practitioner_id": booking["practitioner_id"],
@@ -742,7 +969,7 @@ class BookingUseCase:
 
             child_id = generate_id()
             now = utc_now().isoformat()
-            child = {
+            child: Dict[str, Any] = {
                 "booking_id": child_id,
                 "customer_id": parent["customer_id"],
                 "practitioner_id": parent["practitioner_id"],
@@ -772,7 +999,38 @@ class BookingUseCase:
                 "created_at": now,
                 "updated_at": now,
             }
+            if settings.multi_resource_scheduling:
+                child.update(
+                    {
+                        k: parent[k]
+                        for k in (
+                            "resource_id",
+                            "customer_start_time",
+                            "customer_end_time",
+                            "occupied_start_time",
+                            "occupied_end_time",
+                        )
+                        if parent.get(k) is not None
+                    }
+                )
+                if not child.get("resource_id") and service.get("required_resource_id"):
+                    child["resource_id"] = service["required_resource_id"]
+                try:
+                    occ = occupied_times_for_session(service, start_time)
+                    child["customer_start_time"] = start_time
+                    child["customer_end_time"] = end_time
+                    child["occupied_start_time"] = occ["start_time"]
+                    child["occupied_end_time"] = occ["end_time"]
+                except ValueError:
+                    pass
             await self.booking_repo.create(child)
+
+            if settings.multi_resource_scheduling and service:
+                await self._dual_write_booking_hold_busy(
+                    booking_id=child_id,
+                    booking=child,
+                    service=service,
+                )
 
             # Reserve slot row when possible (best-effort).
             try:
@@ -1156,6 +1414,19 @@ class BookingUseCase:
         if old_date == new_date and old_start == new_start_time:
             return await self.booking_repo.get_by_id(booking_id)
 
+        service = await self.service_repo.get_by_id(booking["service_id"])
+        if settings.multi_resource_scheduling:
+            if not service:
+                raise ValueError("Service not found")
+            await self._assert_multi_resource_slot_open(
+                service,
+                new_date,
+                new_start_time,
+                new_end_time,
+                booking_id=booking_id,
+                action="reschedule",
+            )
+
         pid = booking["practitioner_id"]
         new_slot_id = generate_id()
         await self.slot_repo.collection.update_one(
@@ -1208,17 +1479,47 @@ class BookingUseCase:
                 },
             )
 
-        await self.booking_repo.update(
-            booking_id,
-            {
-                "slot": {
-                    "date": new_date,
-                    "start_time": new_start_time,
-                    "end_time": new_end_time,
-                },
-                "updated_at": utc_now().isoformat(),
+        reschedule_patch: Dict[str, Any] = {
+            "slot": {
+                "date": new_date,
+                "start_time": new_start_time,
+                "end_time": new_end_time,
             },
-        )
+            "updated_at": utc_now().isoformat(),
+        }
+        if settings.multi_resource_scheduling and service:
+            resource_id = booking.get("resource_id") or service.get("required_resource_id")
+            if resource_id:
+                try:
+                    occupied = occupied_times_for_session(service, new_start_time)
+                except ValueError as exc:
+                    raise ValueError(str(exc)) from exc
+                reschedule_patch.update(
+                    {
+                        "resource_id": resource_id,
+                        "customer_start_time": new_start_time,
+                        "customer_end_time": new_end_time,
+                        "occupied_start_time": occupied["start_time"],
+                        "occupied_end_time": occupied["end_time"],
+                    }
+                )
+                db = db_from_booking_repo(self.booking_repo)
+                await clear_booking_resource_busy(
+                    db=db,
+                    booking_id=booking_id,
+                    resource_id=str(resource_id),
+                    date_str=old_date,
+                )
+                await dual_write_booking_busy(
+                    db=db,
+                    resource_id=str(resource_id),
+                    date_str=new_date,
+                    occupied_start=occupied["start_time"],
+                    occupied_end=occupied["end_time"],
+                    booking_id=booking_id,
+                )
+
+        await self.booking_repo.update(booking_id, reschedule_patch)
 
         ev = BookingRescheduledEvent(
             booking_id=booking_id,
@@ -1268,6 +1569,12 @@ class BookingUseCase:
         }, {"_id": 0}).to_list(length=1)
         if slots:
             await self.slot_repo.release_slot(slots[0]["slot_id"])
+
+        await self._clear_booking_hold_busy(
+            booking_id=booking_id,
+            booking=booking,
+            service=service,
+        )
         
         # Update booking
         await self.booking_repo.update(booking_id, {

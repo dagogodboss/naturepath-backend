@@ -7,6 +7,10 @@ from typing import Any, Dict
 
 import httpx
 
+from application.outlook_category_sync import (
+    MultiResourceSyncConfigError,
+    persist_resource_busy_from_events,
+)
 from core.config import settings
 from infrastructure.external.microsoft_graph import (
     MicrosoftGraphClient,
@@ -83,6 +87,7 @@ async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[s
             status_code=502,
         ) from exc
 
+    # Legacy practitioner-scoped busy (always dual-written; sole path when flag off).
     intervals = []
     for event in events:
         for interval in event_to_busy_intervals(event, settings.clinic_timezone):
@@ -95,6 +100,21 @@ async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[s
                 }
             )
             intervals.append(interval)
+
+    multi_resource_meta: Dict[str, int] = {}
+    if settings.multi_resource_scheduling:
+        # Fail closed before any resource busy wipe when maps/resources missing.
+        try:
+            multi_resource_meta = await persist_resource_busy_from_events(
+                db,
+                connection,
+                events,
+                clinic_timezone=settings.clinic_timezone,
+                synced_at=now,
+            )
+        except MultiResourceSyncConfigError as exc:
+            await _mark_sync_error(db, connection_id, exc)
+            raise OutlookSyncError(str(exc), status_code=502) from exc
 
     await db.outlook_calendar_events.delete_many({"connection_id": connection_id})
     if intervals:
@@ -112,4 +132,11 @@ async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[s
             }
         },
     )
-    return {"status": "ok", "event_count": len(intervals), "last_synced_at": now.isoformat()}
+    result: Dict[str, Any] = {
+        "status": "ok",
+        "event_count": len(intervals),
+        "last_synced_at": now.isoformat(),
+    }
+    if multi_resource_meta:
+        result.update(multi_resource_meta)
+    return result

@@ -194,8 +194,19 @@ class Settings(BaseSettings):
     # (booking slots are stored as local wall-clock date + HH:MM).
     clinic_timezone: str = "America/Chicago"
 
+    # Multi-resource scheduling. Default off — booking open-dates/slots/confirm
+    # use the per-resource engine only when True (do not set true in env until
+    # Phase 6 prove). Outlook category sync also gated on this flag.
+    multi_resource_scheduling: bool = False
+
     class Config:
-        env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+        # Package .env first, then repo backend/.env (Atlas URLs often live there).
+        _pkg_root = os.path.dirname(os.path.dirname(__file__))
+        _backend_root = os.path.dirname(_pkg_root)
+        env_file = (
+            os.path.join(_pkg_root, ".env"),
+            os.path.join(_backend_root, ".env"),
+        )
         extra = "ignore"
 
 
@@ -206,3 +217,6 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+# Env: MULTI_RESOURCE_SCHEDULING (pydantic-settings maps field name). Default False.
+MULTI_RESOURCE_SCHEDULING: bool = bool(settings.multi_resource_scheduling)

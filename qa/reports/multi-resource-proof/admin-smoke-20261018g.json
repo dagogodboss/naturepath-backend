@@ -1,0 +1,21 @@
+{
+  "kind": "phase_6_staging_admin_smoke",
+  "generated_at": "2026-10-18T18:06:52.334790+00:00",
+  "staging_api": "https://natural-path-api-staging-qxje535rja-uc.a.run.app",
+  "admin_user": {
+    "email": "Nmoore@thenaturalpathla.com",
+    "role": "owner"
+  },
+  "GET /api/admin/resources": {
+    "status": 200,
+    "body_preview": {
+      "total": null,
+      "resource_names": [
+        "Dr. Nichole",
+        "Salt room"
+      ]
+    }
+  },
+  "ran": true,
+  "ok": true
+}

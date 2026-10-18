@@ -163,6 +163,15 @@ class Service(BaseModel):
     requires_discovery: bool = True
     # On: customer must complete the current prerequisite service before booking.
     requires_prerequisite: bool = True
+    # Multi-resource scheduling (Phase 1 scaffold; unused until flag + Phase 3).
+    required_resource_id: Optional[str] = None
+    customer_duration_minutes: Optional[int] = None  # synonym of duration_minutes when set
+    prep_minutes: int = 0
+    recovery_minutes: int = 0
+    service_hours: Optional[List[PractitionerAvailability]] = None
+    booking_window_days: Optional[int] = None
+    min_notice_minutes: Optional[int] = None
+    flags: dict = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
@@ -215,6 +224,12 @@ class Booking(BaseModel):
     series_index: Optional[int] = None
     # Reminder idempotency: { "d3": true, "d1": true, "d0": true }
     reminders_sent: Optional[dict] = None
+    # Multi-resource scheduling (Phase 1 scaffold; unused until cutover).
+    resource_id: Optional[str] = None
+    customer_start_time: Optional[str] = None  # HH:MM; defaults to slot.start_time
+    customer_end_time: Optional[str] = None
+    occupied_start_time: Optional[str] = None
+    occupied_end_time: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
     confirmed_at: Optional[datetime] = None
@@ -266,3 +281,110 @@ class Notification(BaseModel):
     sent_email: bool = False
     sent_sms: bool = False
     created_at: datetime = Field(default_factory=utc_now)
+
+
+# ==================== Multi-resource scheduling (Phase 1 scaffold) ====================
+# Schema groundwork only. Booking open-dates and Outlook sync stay on the legacy
+# practitioner-scoped paths until MULTI_RESOURCE_SCHEDULING is enabled in later phases.
+
+
+class ResourceType(str, Enum):
+    PRACTITIONER = "practitioner"
+    ROOM = "room"
+
+
+class ResourceSlotGrid(BaseModel):
+    """Optional slot-offer grid. LOCKED Salt: anytime (seed uses fine increment, e.g. 15)."""
+    start_increment_minutes: int = 60
+
+
+class Resource(BaseModel):
+    """Schedulable capacity unit (practitioner or room). Collection: resources."""
+    resource_id: str = Field(default_factory=generate_id)
+    type: ResourceType
+    name: str
+    timezone: str = "America/Chicago"
+    active: bool = True
+    weekly_hours: List[PractitionerAvailability] = Field(default_factory=list)
+    linked_practitioner_id: Optional[str] = None
+    linked_practitioner_user_id: Optional[str] = None
+    slot_grid: Optional[ResourceSlotGrid] = None
+    last_start_time: Optional[str] = None  # HH:MM; LOCKED Salt "17:00"
+    capacity: int = 1
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class BusyIntervalSource(str, Enum):
+    OUTLOOK = "outlook"
+    BOOKING = "booking"
+    MANUAL = "manual"
+
+
+class ResourceBusyInterval(BaseModel):
+    """Occupied span on a resource. Collection: resource_busy_intervals."""
+    interval_id: str = Field(default_factory=generate_id)
+    resource_id: str
+    date: str  # YYYY-MM-DD clinic-local
+    start_time: str  # HH:MM (or 24:00)
+    end_time: str
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    source: BusyIntervalSource
+    authoritative: bool = True
+    connection_id: Optional[str] = None
+    event_id: Optional[str] = None
+    booking_id: Optional[str] = None
+    category_name: Optional[str] = None
+    show_as: str = "busy"
+    is_cancelled: bool = False
+    synced_at: Optional[datetime] = None
+
+
+class ReviewQueueItemType(str, Enum):
+    UNMAPPED_CATEGORY = "unmapped_category"
+    SYNC_CONFLICT = "sync_conflict"
+    SCHEDULE_CHANGE_IMPACT = "schedule_change_impact"
+    MANUAL_OUTLOOK_RACE = "manual_outlook_race"
+
+
+class ReviewQueueItemStatus(str, Enum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+    DISMISSED = "dismissed"
+
+
+class ReviewQueueItem(BaseModel):
+    """Scheduling review queue (not service star-reviews). Collection: review_queue."""
+    review_id: str = Field(default_factory=generate_id)
+    type: ReviewQueueItemType
+    status: ReviewQueueItemStatus = ReviewQueueItemStatus.OPEN
+    resource_id: Optional[str] = None
+    connection_id: Optional[str] = None
+    event_id: Optional[str] = None
+    booking_id: Optional[str] = None
+    category_name: Optional[str] = None
+    message: str
+    payload: dict = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+    resolved_at: Optional[datetime] = None
+
+
+class OutlookCategoryMap(BaseModel):
+    """Category → resource map entry stored on an Outlook mailbox connection."""
+    category_name: str
+    resource_ids: List[str] = Field(default_factory=list)
+    blocks_all_authoritative: Optional[bool] = None
+
+
+class OutlookMailboxConnectionFields(BaseModel):
+    """
+    Multi-resource fields for outlook_calendar_connections (extend existing docs).
+
+    Not wired into OAuth callback / sync yet — scaffold for Phase 2.
+    """
+    mailbox_email: Optional[str] = None
+    linked_practitioner_id: Optional[str] = None
+    authoritative_for_resource_ids: List[str] = Field(default_factory=list)
+    visibility_only: bool = False
+    category_maps: List[OutlookCategoryMap] = Field(default_factory=list)
