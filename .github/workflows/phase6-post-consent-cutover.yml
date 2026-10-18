@@ -1,0 +1,72 @@
+# Zero-spam trigger: human runs this AFTER Entra admin consent Accept.
+# Does not poll. Staging cutover by default; prod requires explicit input.
+#
+# One-button (from issue #8 / ops):
+#   gh workflow run phase6-post-consent-cutover.yml --repo dagogodboss/naturepath-backend
+#   gh workflow run phase6-post-consent-cutover.yml -f mode=dry-run
+#
+# Requires repo secret GCP_SA_KEY (JSON) with compute.osAdminLogin / IAP tunnel
+# to naturepath-data-1, plus secretmanager.secretAccessor.
+# Local fallback (no GH secret needed if your gcloud user can IAP SSH):
+#   ./scripts/phase6_post_consent_cutover_remote.sh
+#   ./scripts/phase6_post_consent_cutover_remote.sh --dry-run
+
+name: Phase 6 post-consent cutover
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run (probe only) or staging (full cutover)"
+        type: choice
+        options:
+          - dry-run
+          - staging
+        default: staging
+      sync_code:
+        description: "Rsync this repo checkout to the VM before running"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  cutover:
+    runs-on: ubuntu-latest
+    env:
+      GCP_PROJECT: project-990664b0-1bae-4746-88d
+      GCP_ZONE: us-central1-a
+      GCP_INSTANCE: naturepath-data-1
+    steps:
+      - name: Require GCP_SA_KEY
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          if [[ -z "${GCP_SA_KEY}" ]]; then
+            echo "::error::Missing repo secret GCP_SA_KEY. Use local fallback:"
+            echo "  ./scripts/phase6_post_consent_cutover_remote.sh"
+            echo "  ./scripts/phase6_post_consent_cutover_remote.sh --dry-run"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run cutover on naturepath-data-1
+        run: |
+          set -euo pipefail
+          chmod +x scripts/phase6_post_consent_cutover_remote.sh
+          ARGS=()
+          if [[ "${{ inputs.sync_code }}" == "true" ]]; then
+            ARGS+=(--sync-code)
+          fi
+          if [[ "${{ inputs.mode }}" == "dry-run" ]]; then
+            ARGS+=(--dry-run)
+          fi
+          ./scripts/phase6_post_consent_cutover_remote.sh "${ARGS[@]}"

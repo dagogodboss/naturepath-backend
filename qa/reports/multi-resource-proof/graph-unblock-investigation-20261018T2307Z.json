@@ -1,0 +1,73 @@
+{
+  "kind": "phase6_graph_unblock_investigation",
+  "generated_at": "2026-10-18T23:07:30.317758+00:00",
+  "gcp_project": "project-990664b0-1bae-4746-88d",
+  "host": "naturepath-data-1",
+  "unblock_path_without_human_accept": false,
+  "app_only": {
+    "client_id": "daf7c7db-7a14-4b8b-8209-58b168d34683",
+    "tenant_id": "bbefcd77-2f78-4240-85f3-41dcf671c9bf",
+    "token_status": 200,
+    "jwt_roles": [],
+    "clients_calendarView_status": 403,
+    "clients_calendarView_error": "ErrorAccessDenied"
+  },
+  "secrets": {
+    "microsoft-client-secret": "present (Secret Manager); client_credentials OK for daf7c7db",
+    "clients_refresh_token_secret": "absent",
+    "nichole_refresh_token_secret": "absent (only encrypted Mongo fields)"
+  },
+  "mongo": {
+    "natural_path_staging": {
+      "nichole_0ae88711": {
+        "has_refresh_token": true,
+        "last_sync_status": "error",
+        "mailbox": "nmoore@thenaturalpathla.com"
+      },
+      "clients_9fba4c5f": {
+        "has_refresh_token": false,
+        "oauth_pending": true,
+        "is_active": false,
+        "mailbox": "Clients@thenaturalpathla.com"
+      }
+    },
+    "natural_path": {
+      "nichole_0ae88711": {
+        "has_refresh_token": true,
+        "last_sync_status": "ok",
+        "note": "stale ok; refresh now fails against current app secret"
+      },
+      "clients_a5d43af5": {
+        "has_refresh_token": false,
+        "oauth_pending": true,
+        "is_active": false
+      }
+    }
+  },
+  "delegated_probe": {
+    "nichole_refresh_with_daf7c7db_secret": {
+      "status": 401,
+      "aad": "AADSTS7000215",
+      "refresh_token_bound_app": "c6ad9756-b891-4226-b38b-1944a2a05926",
+      "meaning": "Stored Nichole refresh tokens were issued to the previous Entra app; current microsoft-client-secret is for daf7c7db and cannot redeem them. No Calendars.Read.Shared path is reachable today."
+    },
+    "c6ad9756_client_credentials_with_current_secret": {
+      "status": 401,
+      "meaning": "Old app secret is not in Secret Manager; cannot revive legacy delegated tokens."
+    }
+  },
+  "code": {
+    "category_sync_supports_delegated": true,
+    "delegated_reads": "/me/calendar/calendarView only (not Clients@ UPN)",
+    "app_only_reads": "/users/{upn}/calendar/calendarView when auth_mode=application or OUTLOOK_APP_ONLY_SYNC_ENABLED",
+    "wire_shared_mailbox_delegated": "not implemented; blocked anyway by missing viable refresh token"
+  },
+  "entra_cli": {
+    "az": "not installed on ops Mac",
+    "admin_consent_grant_from_this_account": false,
+    "reason": "No Azure CLI / no Global Administrator session; cannot Grant admin consent programmatically"
+  },
+  "staging_cutover_ran": false,
+  "prod_multi_resource_scheduling": "unset on traffic revision natural-path-api-00021-hv8",
+  "remaining_human_action": "Entra Global Administrator Accept Calendars.Read (Application) for daf7c7db-7a14-4b8b-8209-58b168d34683, then trigger phase6-post-consent-cutover workflow or remote script"
+}
