@@ -6,7 +6,7 @@ import base64
 import hashlib
 from datetime import datetime, time, timedelta, timezone
 from typing import Any, Dict, List
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
@@ -82,6 +82,7 @@ def event_to_busy_interval(event: Dict[str, Any], clinic_timezone: str) -> Dict[
 
 class MicrosoftGraphClient:
     scopes = "openid profile email offline_access User.Read Calendars.Read"
+    app_scopes = "https://graph.microsoft.com/.default"
 
     def __init__(
         self,
@@ -124,6 +125,39 @@ class MicrosoftGraphClient:
             {"grant_type": "refresh_token", "refresh_token": refresh_token, "scope": self.scopes}
         )
 
+    async def client_credentials_token(self) -> Dict[str, Any]:
+        """Application-only token (requires Calendars.Read application permission + admin consent)."""
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                f"{self.authority}/token",
+                data={
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "grant_type": "client_credentials",
+                    "scope": self.app_scopes,
+                },
+            )
+        response.raise_for_status()
+        return response.json()
+
+    async def request_device_code(self) -> Dict[str, Any]:
+        """Start OAuth 2.0 device authorization grant (human completes at microsoft.com/devicelogin)."""
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                f"{self.authority}/devicecode",
+                data={"client_id": self.client_id, "scope": self.scopes},
+            )
+        response.raise_for_status()
+        return response.json()
+
+    async def poll_device_code(self, device_code: str) -> Dict[str, Any]:
+        return await self._token_request(
+            {
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                "device_code": device_code,
+            }
+        )
+
     async def get_me(self, access_token: str) -> Dict[str, Any]:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.get(
@@ -133,41 +167,34 @@ class MicrosoftGraphClient:
         response.raise_for_status()
         return response.json()
 
-    async def list_calendar_view(
+    _CALENDAR_VIEW_SELECT = (
+        "id,start,end,showAs,isCancelled,categories,subject,lastModifiedDateTime"
+    )
+
+    def _calendar_view_params(self, *, start: datetime, end: datetime) -> Dict[str, Any]:
+        return {
+            "startDateTime": start.astimezone(timezone.utc).isoformat(),
+            "endDateTime": end.astimezone(timezone.utc).isoformat(),
+            "$select": self._CALENDAR_VIEW_SELECT,
+            "$top": "250",
+        }
+
+    async def _paginate_calendar_view(
         self,
         access_token: str,
+        start_urls: tuple[str, ...],
         *,
         start: datetime,
         end: datetime,
     ) -> List[Dict[str, Any]]:
-        """
-        Load busy intervals from the signed-in mailbox calendar.
-
-        Prefer /me/calendar/calendarView (default calendar). Fall back to
-        /me/calendarView when tenants still expose only the shorthand path.
-        """
-        params = {
-            "startDateTime": start.astimezone(timezone.utc).isoformat(),
-            "endDateTime": end.astimezone(timezone.utc).isoformat(),
-            # categories/subject enable Phase 2 multi-resource classify; unused
-            # by legacy event_to_busy_intervals when MULTI_RESOURCE_SCHEDULING is off.
-            "$select": (
-                "id,start,end,showAs,isCancelled,categories,subject,"
-                "lastModifiedDateTime"
-            ),
-            "$top": "250",
-        }
+        params = self._calendar_view_params(start=start, end=end)
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Prefer": 'outlook.timezone="UTC"',
         }
-        candidates = (
-            f"{GRAPH_BASE}/me/calendar/calendarView",
-            f"{GRAPH_BASE}/me/calendarView",
-        )
         last_error: Exception | None = None
         async with httpx.AsyncClient(timeout=30) as client:
-            for start_url in candidates:
+            for start_url in start_urls:
                 url: str | None = start_url
                 page_params: Dict[str, Any] | None = dict(params)
                 events: List[Dict[str, Any]] = []
@@ -178,7 +205,7 @@ class MicrosoftGraphClient:
                             params=page_params,
                             headers=headers,
                         )
-                        if response.status_code == 404 and start_url == candidates[0]:
+                        if response.status_code == 404 and start_url == start_urls[0]:
                             last_error = httpx.HTTPStatusError(
                                 f"Client error '404 Not Found' for url '{response.url}'",
                                 request=response.request,
@@ -200,6 +227,49 @@ class MicrosoftGraphClient:
         if last_error:
             raise last_error
         return []
+
+    async def list_calendar_view(
+        self,
+        access_token: str,
+        *,
+        start: datetime,
+        end: datetime,
+    ) -> List[Dict[str, Any]]:
+        """
+        Load busy intervals from the signed-in mailbox calendar.
+
+        Prefer /me/calendar/calendarView (default calendar). Fall back to
+        /me/calendarView when tenants still expose only the shorthand path.
+        """
+        return await self._paginate_calendar_view(
+            access_token,
+            (
+                f"{GRAPH_BASE}/me/calendar/calendarView",
+                f"{GRAPH_BASE}/me/calendarView",
+            ),
+            start=start,
+            end=end,
+        )
+
+    async def list_user_calendar_view(
+        self,
+        access_token: str,
+        user_principal_name: str,
+        *,
+        start: datetime,
+        end: datetime,
+    ) -> List[Dict[str, Any]]:
+        """Application permission path: read a mailbox calendar by UPN."""
+        upn = quote(user_principal_name.strip(), safe="@.")
+        return await self._paginate_calendar_view(
+            access_token,
+            (
+                f"{GRAPH_BASE}/users/{upn}/calendar/calendarView",
+                f"{GRAPH_BASE}/users/{upn}/calendarView",
+            ),
+            start=start,
+            end=end,
+        )
 
     async def create_subscription(
         self,

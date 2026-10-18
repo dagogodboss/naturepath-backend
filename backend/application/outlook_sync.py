@@ -49,19 +49,45 @@ async def _mark_sync_error(db: Any, connection_id: str, exc: Exception) -> None:
     )
 
 
+def _connection_uses_app_only(connection: Dict[str, Any]) -> bool:
+    if str(connection.get("auth_mode") or "").lower() == "application":
+        return True
+    return bool(settings.outlook_app_only_sync_enabled) and bool(
+        connection.get("mailbox_email") or connection.get("microsoft_email")
+    )
+
+
 async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[str, Any]:
     now = datetime.now(timezone.utc)
     connection_id = connection["connection_id"]
     client = graph_client()
     cipher = OutlookTokenCipher(settings.jwt_secret_key)
+    next_refresh: str | None = None
     try:
-        refresh_token = cipher.decrypt(connection["refresh_token_encrypted"])
-        token = await client.refresh(refresh_token)
-        access_token = token["access_token"]
-        next_refresh = token.get("refresh_token") or refresh_token
         start = now - timedelta(days=1)
         end = now + timedelta(days=180)
-        events = await client.list_calendar_view(access_token, start=start, end=end)
+        if _connection_uses_app_only(connection):
+            mailbox = (
+                connection.get("mailbox_email") or connection.get("microsoft_email") or ""
+            ).strip()
+            if not mailbox:
+                raise OutlookSyncError(
+                    "Application calendar sync requires mailbox_email on the connection.",
+                    status_code=502,
+                )
+            token = await client.client_credentials_token()
+            access_token = token["access_token"]
+            events = await client.list_user_calendar_view(
+                access_token, mailbox, start=start, end=end
+            )
+        else:
+            refresh_token = cipher.decrypt(connection["refresh_token_encrypted"])
+            token = await client.refresh(refresh_token)
+            access_token = token["access_token"]
+            next_refresh = token.get("refresh_token") or refresh_token
+            events = await client.list_calendar_view(access_token, start=start, end=end)
+    except OutlookSyncError:
+        raise
     except httpx.HTTPStatusError as exc:
         await _mark_sync_error(db, connection_id, exc)
         status = exc.response.status_code if exc.response is not None else 502
@@ -72,6 +98,12 @@ async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[s
                 status_code=502,
             ) from exc
         if status in {401, 403}:
+            if _connection_uses_app_only(connection):
+                raise OutlookSyncError(
+                    "Application calendar access denied. Entra admin must grant "
+                    "Calendars.Read (application) admin consent for this app.",
+                    status_code=502,
+                ) from exc
             raise OutlookSyncError(
                 "Outlook calendar access expired or was revoked. Reconnect Outlook.",
                 status_code=401,
@@ -119,18 +151,18 @@ async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[s
     await db.outlook_calendar_events.delete_many({"connection_id": connection_id})
     if intervals:
         await db.outlook_calendar_events.insert_many(intervals)
+    sync_patch: Dict[str, Any] = {
+        "last_synced_at": now.isoformat(),
+        "last_sync_status": "ok",
+        "last_sync_error": None,
+        "event_count": len(intervals),
+        "updated_at": now.isoformat(),
+    }
+    if next_refresh is not None:
+        sync_patch["refresh_token_encrypted"] = cipher.encrypt(next_refresh)
     await db.outlook_calendar_connections.update_one(
         {"connection_id": connection_id},
-        {
-            "$set": {
-                "refresh_token_encrypted": cipher.encrypt(next_refresh),
-                "last_synced_at": now.isoformat(),
-                "last_sync_status": "ok",
-                "last_sync_error": None,
-                "event_count": len(intervals),
-                "updated_at": now.isoformat(),
-            }
-        },
+        {"$set": sync_patch},
     )
     result: Dict[str, Any] = {
         "status": "ok",

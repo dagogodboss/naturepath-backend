@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
@@ -32,8 +33,14 @@ from domain.entities.models import (
     generate_id,
 )
 from domain.multi_resource_defaults import build_locked_outlook_connection_templates
+from application.outlook_device_oauth import (
+    DeviceCodeFlowError,
+    poll_device_code_for_connection,
+    start_device_code_for_connection,
+)
+from application.outlook_sync import OutlookSyncError, sync_outlook_connection
 from infrastructure.database import get_database
-from presentation.dependencies import get_current_admin_or_practitioner
+from presentation.dependencies import get_current_admin, get_current_admin_or_practitioner
 
 router = APIRouter(tags=["Admin Scheduling"])
 
@@ -41,6 +48,11 @@ router = APIRouter(tags=["Admin Scheduling"])
 def _require_multi_resource_scheduling() -> None:
     """Hide unfinished Phase 4 APIs when the feature flag is off."""
     if not settings.multi_resource_scheduling:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+
+def _require_outlook_device_code_oauth() -> None:
+    if not settings.outlook_device_code_oauth_enabled:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
 
@@ -88,6 +100,10 @@ class OutlookConnectionSettingsUpdate(BaseModel):
     mailbox_email: Optional[str] = Field(
         default=None,
         description="Display label for admin UI; does not re-OAuth",
+    )
+    auth_mode: Optional[str] = Field(
+        default=None,
+        description="delegated (default) or application for Entra app-only calendar sync",
     )
 
 
@@ -566,6 +582,7 @@ def _outlook_connection_public(doc: dict) -> dict:
         "last_sync_error": doc.get("last_sync_error"),
         "is_active": bool(doc.get("is_active", True)),
         "practitioner_id": doc.get("practitioner_id"),
+        "auth_mode": doc.get("auth_mode") or "delegated",
         "category_map_count": len(doc.get("category_maps") or []),
     }
 
@@ -585,6 +602,76 @@ async def list_outlook_connections(
         )
     )
     return {"items": items}
+
+
+@router.post("/outlook/connections/{connection_id}/device-code/start", response_model=dict)
+async def start_outlook_device_code(
+    connection_id: str,
+    _admin: dict = Depends(get_current_admin),
+    db=Depends(get_database),
+):
+    """
+    Start Microsoft device-code OAuth for a mailbox connection (ops cutover).
+
+    Human completes sign-in at verification_uri with user_code. Does not require
+    MULTI_RESOURCE_SCHEDULING; gated by OUTLOOK_DEVICE_CODE_OAUTH_ENABLED.
+    """
+    _require_outlook_device_code_oauth()
+    conn = await db.outlook_calendar_connections.find_one(
+        {"connection_id": connection_id}, {"_id": 0}
+    )
+    if not conn:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+    try:
+        return await start_device_code_for_connection(db, conn)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_REQUEST,
+            detail="Microsoft device-code request failed",
+        ) from exc
+
+
+@router.post("/outlook/connections/{connection_id}/device-code/poll", response_model=dict)
+async def poll_outlook_device_code(
+    connection_id: str,
+    _admin: dict = Depends(get_current_admin),
+    db=Depends(get_database),
+):
+    """Poll device-code flow once; returns pending, connected, or expired."""
+    _require_outlook_device_code_oauth()
+    conn = await db.outlook_calendar_connections.find_one(
+        {"connection_id": connection_id}, {"_id": 0}
+    )
+    if not conn:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+    try:
+        return await poll_device_code_for_connection(
+            db, conn, user_id=_admin.get("user_id")
+        )
+    except DeviceCodeFlowError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/outlook/connections/{connection_id}/sync", response_model=dict)
+async def admin_sync_outlook_connection(
+    connection_id: str,
+    _admin: dict = Depends(get_current_admin),
+    db=Depends(get_database),
+):
+    """Trigger Outlook sync for any connection by id (ops)."""
+    _require_outlook_device_code_oauth()
+    conn = await db.outlook_calendar_connections.find_one(
+        {"connection_id": connection_id, "is_active": True}, {"_id": 0}
+    )
+    if not conn or not conn.get("refresh_token_encrypted"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Connection not found or missing OAuth tokens",
+        )
+    try:
+        return await sync_outlook_connection(db, conn)
+    except OutlookSyncError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.get("/outlook/locked-connection-templates", response_model=dict)
@@ -670,6 +757,14 @@ async def patch_outlook_connection_settings(
     if "mailbox_email" in fields_set:
         email = (body.mailbox_email or "").strip()
         patch["mailbox_email"] = email or None
+    if "auth_mode" in fields_set:
+        mode = (body.auth_mode or "").strip().lower()
+        if mode and mode not in {"delegated", "application"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="auth_mode must be delegated or application",
+            )
+        patch["auth_mode"] = mode or "delegated"
 
     if not patch:
         raise HTTPException(

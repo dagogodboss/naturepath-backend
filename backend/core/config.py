@@ -199,6 +199,13 @@ class Settings(BaseSettings):
     # Phase 6 prove). Outlook category sync also gated on this flag.
     multi_resource_scheduling: bool = False
 
+    # Ops-only Outlook device-code connect (admin API). Off in prod until cutover.
+    outlook_device_code_oauth_enabled: bool = False
+
+    # Application (client_credentials) calendar sync for mailbox connections with
+    # auth_mode=application. Requires Entra Calendars.Read application permission.
+    outlook_app_only_sync_enabled: bool = False
+
     class Config:
         # Package .env first, then repo backend/.env (Atlas URLs often live there).
         _pkg_root = os.path.dirname(os.path.dirname(__file__))

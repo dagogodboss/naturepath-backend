@@ -1,7 +1,6 @@
 """
 Practitioners API Routes
 """
-import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -27,7 +26,7 @@ from presentation.dependencies import (
 from core.rbac import Permission, has_permission
 from core.config import settings
 from infrastructure.database import get_database
-from infrastructure.external.microsoft_graph import OutlookTokenCipher
+from application.outlook_oauth_store import persist_outlook_oauth_tokens
 from application.outlook_sync import OutlookSyncError, graph_client, sync_outlook_connection
 from domain.entities import generate_id
 
@@ -115,9 +114,6 @@ async def outlook_callback(
         "connection_id": connection_id,
         "practitioner_id": claims["practitioner_id"],
         "user_id": claims["sub"],
-        "microsoft_user_id": profile.get("id"),
-        "microsoft_email": profile.get("mail") or profile.get("userPrincipalName"),
-        "refresh_token_encrypted": OutlookTokenCipher(settings.jwt_secret_key).encrypt(refresh_token),
         "is_active": True,
         "updated_at": now,
     }
@@ -126,32 +122,18 @@ async def outlook_callback(
         {"$set": connection, "$setOnInsert": {"created_at": now}},
         upsert=True,
     )
-
-    if settings.microsoft_graph_webhook_url:
-        client_state = secrets.token_urlsafe(32)
-        try:
-            subscription = await client.create_subscription(
-                token["access_token"],
-                notification_url=settings.microsoft_graph_webhook_url,
-                expiration=datetime.now(timezone.utc) + timedelta(days=3),
-                client_state=client_state,
-            )
-            await db.outlook_calendar_connections.update_one(
-                {"connection_id": connection_id},
-                {"$set": {
-                    "subscription_id": subscription.get("id"),
-                    "subscription_expires_at": subscription.get("expirationDateTime"),
-                    "subscription_client_state": client_state,
-                }},
-            )
-        except Exception as exc:
-            await db.outlook_calendar_connections.update_one(
-                {"connection_id": connection_id},
-                {"$set": {"subscription_error": str(exc)}},
-            )
-
-    from workers.outlook_calendar_worker import sync_outlook_connection_task
-    sync_outlook_connection_task.delay(connection_id)
+    connection = await db.outlook_calendar_connections.find_one(
+        {"connection_id": connection_id}, {"_id": 0}
+    )
+    await persist_outlook_oauth_tokens(
+        db,
+        connection=connection,
+        refresh_token=refresh_token,
+        access_token=token["access_token"],
+        profile=profile,
+        user_id=claims["sub"],
+        activate_pending=True,
+    )
     target = f"{settings.public_app_url.rstrip('/')}/availability?outlook=connected"
     return RedirectResponse(target, status_code=302)
 
