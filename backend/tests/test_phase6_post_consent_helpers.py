@@ -1,7 +1,6 @@
 """Unit tests for post-consent cutover helpers."""
 
 from scripts.phase6_post_consent_helpers import (
-    EXIT_CONSENT_BLOCKER,
     evaluate_mailbox_probes,
     qa_artifact_name,
     staging_env_gaps,

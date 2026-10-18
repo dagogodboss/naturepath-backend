@@ -571,8 +571,57 @@ async def test_flag_true_explain_uses_real_explainer():
     assert result["phase"] == "explain"
     assert result["available"] is True
     assert result["reasons"] == []
+    assert result["sync_stale"] is False
     assert result["review_queue_open_count"] == 1
     assert result["resource_id"] == "r1"
+
+
+@pytest.mark.asyncio
+async def test_flag_true_explain_sync_stale_fail_closed():
+    db = _db(
+        services=[
+            {
+                "service_id": "s1",
+                "duration_minutes": 30,
+                "prep_minutes": 0,
+                "recovery_minutes": 15,
+                "required_resource_id": "r1",
+            }
+        ],
+        resources=[
+            {
+                "resource_id": "r1",
+                "name": "Nichole",
+                "weekly_hours": [
+                    {
+                        "day_of_week": 1,
+                        "start_time": "09:00",
+                        "end_time": "17:00",
+                        "is_available": True,
+                    }
+                ],
+            }
+        ],
+        connections=[
+            {
+                "connection_id": "c-stale",
+                "authoritative_for_resource_ids": ["r1"],
+                "last_sync_status": "error",
+                "last_synced_at": "2026-10-01T12:00:00+00:00",
+            }
+        ],
+    )
+    with patch.object(routes.settings, "multi_resource_scheduling", True):
+        result = await routes.explain_availability(
+            service_id="s1",
+            date="2026-10-20",
+            start="10:00",
+            ctx=CTX,
+            db=db,
+        )
+    assert result["sync_stale"] is True
+    assert result["available"] is False
+    assert any(r["code"] == "SYNC_STALE" for r in result["reasons"])
 
 
 @pytest.mark.asyncio

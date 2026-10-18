@@ -932,6 +932,7 @@ async def explain_availability(
         "reasons": explained["reasons"],
         "open_windows": explained.get("open_windows"),
         "free_intervals": explained.get("free_intervals"),
+        "sync_stale": bool(stale),
         "review_queue_open_count": open_count,
         "phase": "explain",
     }
