@@ -1,0 +1,42 @@
+{
+  "kind": "phase6_graph_app_only_diagnosis",
+  "generated_at": "2026-10-18T23:02:51Z",
+  "dry_run_generated_at": "2026-10-18T23:02:35.857572+00:00",
+  "verdict": "entra_admin_consent_required",
+  "exit_hint": 10,
+  "diagnosis": {
+    "client_id": "daf7c7db-7a14-4b8b-8209-58b168d34683",
+    "tenant_id": "bbefcd77-2f78-4240-85f3-41dcf671c9bf",
+    "scope": "https://graph.microsoft.com/.default",
+    "token_acquired": true,
+    "jwt_appid_matches_client_id": true,
+    "jwt_tid_matches_tenant": true,
+    "jwt_roles": [],
+    "jwt_scp": null,
+    "calendarView_status": 403,
+    "calendarView_error_code": "ErrorAccessDenied",
+    "secret_present": true,
+    "wrong_client_or_secret": false,
+    "wrong_scope": false,
+    "token_cache_issue": false,
+    "root_cause": "App registration has no consented Application role Calendars.Read in the JWT (roles empty). Entra admin must Add Application permission Calendars.Read and Grant admin consent (or Accept adminconsent URL).",
+    "fixable_in_code_config_secrets": "none \u2014 Cloud Run prod revision has correct MICROSOFT_CLIENT_ID/TENANT_ID and microsoft-client-secret bound; probe uses same."
+  },
+  "prod_flag": {
+    "traffic_revision": "natural-path-api-00021-hv8",
+    "MULTI_RESOURCE_SCHEDULING": "ABSENT (defaults false)",
+    "flipped": false
+  },
+  "frontend": {
+    "host": "https://thenaturalpathla.com",
+    "bundle": "assets/index-B9eXOYOa.js",
+    "has_SYNC_STALE": true,
+    "commit_50beccf_message": "Show an amber sync-stale banner on admin availability explain.",
+    "live": true
+  },
+  "human_action_remaining": {
+    "who": "Entra Global Administrator",
+    "url": "https://login.microsoftonline.com/bbefcd77-2f78-4240-85f3-41dcf671c9bf/adminconsent?client_id=daf7c7db-7a14-4b8b-8209-58b168d34683",
+    "or_portal": "Azure Portal \u2192 Entra ID \u2192 App registrations \u2192 daf7c7db-\u2026 \u2192 API permissions \u2192 Microsoft Graph \u2192 Application permissions \u2192 Calendars.Read \u2192 Grant admin consent"
+  }
+}

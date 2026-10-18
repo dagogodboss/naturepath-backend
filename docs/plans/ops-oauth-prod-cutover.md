@@ -9,12 +9,12 @@
 | Check | Result |
 |-------|--------|
 | Last dry-run | `phase6_post_consent_cutover --dry-run` on **naturepath-data-1** |
-| Artifact time | `2026-10-18T18:54:01Z` |
+| Artifact time | `2026-10-18T23:02:35Z` |
 | Exit | **10** (`entra_admin_consent_required`) |
-| JWT `roles` | **empty** (no `Calendars.Read`) |
-| Clients@ `calendarView` | **403 Forbidden** |
+| JWT `roles` | **empty** (no `Calendars.Read`) — client/secret/tenant/scope verified OK |
+| Clients@ `calendarView` | **403** `ErrorAccessDenied` |
 | Staging cutover / prod flag | **not run** |
-| Artifact | `qa/reports/multi-resource-proof/post-consent-cutover-staging-20261018.json` (+ `-vpc.json`) |
+| Artifact | `qa/reports/multi-resource-proof/post-consent-cutover-staging-20261018T2302Z-vpc.json` + `graph-app-only-diagnosis-20261018T2302Z.json` |
 
 **Ask (Entra Global Administrator):** Accept **Calendars.Read** (Application) admin consent for app `daf7c7db-7a14-4b8b-8209-58b168d34683` / tenant `bbefcd77-2f78-4240-85f3-41dcf671c9bf`.
 
