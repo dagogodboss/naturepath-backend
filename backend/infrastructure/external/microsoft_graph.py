@@ -167,8 +167,11 @@ class MicrosoftGraphClient:
         response.raise_for_status()
         return response.json()
 
+    # calendarView does not support $select on lastModifiedDateTime / createdDateTime
+    # (Microsoft Graph docs). Keep the field list minimal for busy classification +
+    # admin review preview; never select body/attendees/attachments.
     _CALENDAR_VIEW_SELECT = (
-        "id,start,end,showAs,isCancelled,categories,subject,lastModifiedDateTime"
+        "id,start,end,showAs,isCancelled,categories,subject"
     )
 
     def _calendar_view_params(self, *, start: datetime, end: datetime) -> Dict[str, Any]:

@@ -350,6 +350,9 @@ def test_list_calendar_view_select_includes_categories():
     params = mock_http.get.await_args.kwargs["params"]
     assert "categories" in params["$select"]
     assert "subject" in params["$select"]
+    # calendarView rejects these in $select (Graph contract).
+    assert "lastModifiedDateTime" not in params["$select"]
+    assert "createdDateTime" not in params["$select"]
 
 
 def test_sync_outlook_skips_resource_path_when_flag_false():

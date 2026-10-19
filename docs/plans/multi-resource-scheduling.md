@@ -12,8 +12,8 @@
 | Phases 1–5 code | **In tree** behind `MULTI_RESOURCE_SCHEDULING` (default **false**; staging **true**) |
 | Prod flag | **Off / unset** — do **not** flip until Entra Accept + staging real prove + Jonathan sign-off |
 | Discovery≠Salt | **Synthetic** staging API prove only (`discovery-neq-salt-staging-20261018c.json`). **Not** production-proved; **not** a cutover gate by itself |
-| Outlook sync | **Blocked** on Entra Application **Calendars.Read** admin consent ([#8](https://github.com/dagogodboss/naturepath/issues/8)); delegated Clients@ token unavailable |
-| Fail-closed on stale sync | **Intent** in this plan; customer paths still have gaps tracked in [#9](https://github.com/dagogodboss/naturepath/issues/9) (A1+) — not claimed fixed |
+| Outlook sync | **Blocked** on Entra Application **Calendars.Read** admin consent ([#8](https://github.com/dagogodboss/naturepath/issues/8)); delegated Clients@ token unavailable. Mailbox least-privilege (Clients@ + Nichole only) **required** same day as Accept — see [ops-oauth-prod-cutover.md](./ops-oauth-prod-cutover.md) |
+| [#9](https://github.com/dagogodboss/naturepath/issues/9) engineering slices 1–4 | **Complete** (A/B/C/D+B4). Jonathan Accept outreach is **human-only** when ops chooses — agents do not contact Jonathan |
 | Goal complete | **No** |
 
 ### Locked decisions (Jonathan 2026-10-18)

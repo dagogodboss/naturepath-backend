@@ -4,9 +4,13 @@
 
 **GCP project:** `project-990664b0-1bae-4746-88d` only. **Do not change DNS.**
 
-## HARD GATE — Jonathan / Entra Accept deferred (2026-10-19)
+## Engineering gate (#9) — closed; Accept still human-only (2026-10-19)
 
-**Do not send the adminconsent link to Jonathan (or any staff) until [naturepath#9](https://github.com/dagogodboss/naturepath/issues/9) slices 1–4 are complete** (A1–A6 done on `8b34fcf`; B1–B3 in progress; C1–C5 UI; D hardened on `5f2c512`; B4 consent/runbook). Entra Accept / Jonathan auth ask is **DEFERRED**. Cutover workflow must **not** be presented as “ready for Jonathan” yet. No Entra polls, no prod flag flip while this gate is open. See also [ops-entra-consent-request.md](./ops-entra-consent-request.md).
+[naturepath#9](https://github.com/dagogodboss/naturepath/issues/9) slices **1–4 are complete** (A1–A6 `8b34fcf`; B1–B3 `31d0c0a`/`04b2111`; C1–C5 FE `307fde3` / BE `c997ea9`; D `5f2c512` + B4 this slice). The prior “DEFERRED until #9” framing for *engineering readiness* is **closed**.
+
+**Jonathan / Entra Accept** remains a **human** action when ops chooses to send [ops-entra-consent-request.md](./ops-entra-consent-request.md). **Agents must not** email, Slack, or message Jonathan; must not run Entra poll loops; must not flip prod `MULTI_RESOURCE_SCHEDULING`.
+
+Phase 6 still needs: (1) Accept + mailbox least-privilege, (2) staging real Outlook prove. See [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8).
 
 ## Blocker (2026-10-18) — no silent unblock path
 
@@ -24,31 +28,71 @@
 
 **Verdict:** There is **no** path to working Outlook→resource busy sync without a human Accept (Entra Application **Calendars.Read** admin consent). Delegated `/me` remains a theoretical alternate; Clients@ has **no** usable delegated token and legacy secrets are gone — **app-only after Entra Accept is the primary unblock** ([#8](https://github.com/dagogodboss/naturepath/issues/8)).
 
-**Ask (Entra Global Administrator):** Accept **Calendars.Read** (Application) admin consent for app `daf7c7db-7a14-4b8b-8209-58b168d34683` / tenant `bbefcd77-2f78-4240-85f3-41dcf671c9bf`.
+**Ask (Entra Global Administrator):** Accept **Calendars.Read** (Application) admin consent for app `daf7c7db-7a14-4b8b-8209-58b168d34683` / tenant `bbefcd77-2f78-4240-85f3-41dcf671c9bf`, **and** mailbox least-privilege (below) the same day.
 
 Admin consent URL:
 
 `https://login.microsoftonline.com/bbefcd77-2f78-4240-85f3-41dcf671c9bf/adminconsent?client_id=daf7c7db-7a14-4b8b-8209-58b168d34683`
 
-Outreach draft: [ops-entra-consent-request.md](./ops-entra-consent-request.md). Tracking: [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8).
+Outreach draft (human send only): [ops-entra-consent-request.md](./ops-entra-consent-request.md). Tracking: [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8).
 
 **Do not** start 15m/3h poll loops. Re-probe only after admin reports Accept (or optional single dry-run).
 
-## Mailbox least-privilege (required before cutover)
+## Mailbox least-privilege (REQUIRED before cutover)
 
-App-only `Calendars.Read` must **not** be left as unrestricted tenant-wide calendar access.
+App-only `Calendars.Read` must **not** be left as unrestricted tenant-wide calendar access. This is a **hard cutover prerequisite**, not “optional later,” and is **not** already done.
 
 | Requirement | Status |
 |-------------|--------|
-| Intended mailboxes only: `Clients@thenaturalpathla.com`, `nmoore@thenaturalpathla.com` | **Required** via Exchange application access policy / application RBAC — see [Microsoft docs](https://learn.microsoft.com/en-us/Exchange/permissions-exo/application-rbac) |
-| Verify allowed mailboxes succeed AND excluded mailboxes fail Graph `calendarView` | **Required** before enabling prod flag |
-| Document retained Graph fields / retention | Required (subjects currently selected — minimise per [#9](https://github.com/dagogodboss/naturepath/issues/9) B4) |
+| Intended mailboxes only: `Clients@thenaturalpathla.com`, `nmoore@thenaturalpathla.com` | **REQUIRED** via Exchange application access policy / application RBAC — see [limit mailbox access](https://learn.microsoft.com/en-us/graph/auth-limit-mailbox-access) and [application RBAC](https://learn.microsoft.com/en-us/Exchange/permissions-exo/application-rbac) |
+| Verify allowed mailboxes succeed **AND** excluded mailboxes fail Graph `calendarView` | **REQUIRED** before enabling prod flag (and before treating staging sync as cutover-ready) |
+| Document retained Graph fields / retention | Done below (§ Graph field retention) |
 
-This is **not** “optional later” and is **not** already done. Adding a scoped RBAC grant does not by itself narrow an existing unscoped grant — remove or replace broad grants deliberately.
+Permissions are **additive**: adding a scoped RBAC grant does not by itself narrow an existing unscoped grant — remove or replace broad grants deliberately.
 
-## One-button cutover (after Accept)
+### Cutover checklist (mailbox scope)
 
-**Preferred (zero-spam):** after Accept, comment on [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8) then run:
+1. After Accept, confirm JWT `roles` includes `Calendars.Read`.
+2. Apply Exchange application access policy / RBAC so the app can reach **only** Clients@ + Nichole.
+3. Probe: Clients@ and Nichole `calendarView` → **200**; at least one other tenant mailbox → **403**/denied.
+4. Only then run staging `phase6_post_consent_cutover` (full, not dry-run).
+
+## Calendars.Read vs Calendars.ReadBasic
+
+| Permission | Role in this project |
+|------------|----------------------|
+| **`Calendars.Read` (Application)** | **Requested for cutover** on app `daf7c7db-…` — matches [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8), adminconsent URL, and consent draft. |
+| `Calendars.ReadBasic` | Graph documents this as least-privilege for some `calendarView` reads. We **do not** claim it sufficient for our sync until a live staging probe proves Application `Calendars.ReadBasic` returns **`categories`** (required for Salt/Discovery classification) plus our other `$select` fields under mailbox-restricted app-only auth. |
+
+**Why we stay on `Calendars.Read` for the ask:** capacity classification keys off Outlook **category names**. Until ReadBasic is verified end-to-end with our `$select` and Exchange restriction, requesting Basic would risk Accept → sync that cannot classify. Downgrade to ReadBasic is a **post-Accept follow-up**, not a consent-draft change.
+
+Delegated `Calendars.Read` / device-code remains a theoretical fallback only; Clients@ has no usable refresh token and legacy secrets are gone — app-only after Accept is primary.
+
+## Graph field retention / data minimisation (B4)
+
+`MicrosoftGraphClient.list_calendar_view` `$select`:
+
+`id,start,end,showAs,isCancelled,categories,subject`
+
+| Field | Used for | Retained where | Notes |
+|-------|----------|----------------|-------|
+| `id` | Dedupe / event linkage | `resource_busy_intervals.event_id`, review queue | Required |
+| `start` / `end` | Busy intervals | Busy rows only (times) | Required for capacity |
+| `showAs` / `isCancelled` | Busy vs free / skip | Busy rows | Required |
+| `categories` | Salt vs Discovery vs unmapped | Busy `category_name`; review payload | **Never** use subject for capacity |
+| `subject` | Admin review preview only | `review_queue` payload (`subject`) when unmapped/review | **Not** written to busy intervals; **not** used for booking capacity |
+
+**Removed from `$select`:** `lastModifiedDateTime` — Graph `calendarView` docs state `createdDateTime` / `lastModifiedDateTime` **do not support `$select`**; we do not need them for sync. Do not re-add.
+
+**Visibility:** review-queue subject is admin-facing only. Customer booking APIs do not expose Outlook subjects.
+
+**Retention / revocation:** busy intervals are replaced on successful sync generations; review items remain until ops closes/deletes them. On consent revocation or mailbox-policy deny: stop sync, leave prior complete snapshot per Slice 2 rules; purge review payloads / busy rows only under explicit ops wipe (do not auto-delete on flag off).
+
+**Minimisation stance:** do not add `body`, attendees, attachments, or location to `$select`. Subject stays only while review UX needs a human-readable hint for unmapped events; capacity remains category-only.
+
+## One-button cutover (after Accept + mailbox scope)
+
+**Preferred (zero-spam):** after Accept + least-privilege verified, comment on [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8) then run:
 
 ```bash
 # GitHub Actions (needs repo secret GCP_SA_KEY with IAP SSH to naturepath-data-1)
@@ -72,7 +116,7 @@ Dry-run still exits **10** when Entra consent is missing (Graph 403 / empty `rol
 
 ### Staging cutover order (script)
 
-1. Validate Graph app-only probes for both mailboxes  
+1. Validate Graph app-only probes for both mailboxes (after least-privilege)  
 2. Ensure staging env (`MULTI_RESOURCE_SCHEDULING`, `OUTLOOK_APP_ONLY_SYNC_ENABLED`)  
 3. Patch connections → `auth_mode=application`  
 4. Sync both calendars  
