@@ -71,12 +71,18 @@ secrets, and grants the Cloud Run runtime service account
 
 ```bash
 ./02-deploy-backend.sh
+# staging:
+./02-deploy-backend-staging.sh
 ```
 
 - Source deploy uses `backend/backend/Dockerfile` (now honors `$PORT`).
 - Injects secrets via `--set-secrets` and non-secret config via `--set-env-vars`
   (`APP_ENV=production`, `DEBUG=false`, `DB_NAME`, `CORS_ALLOWED_ORIGINS`,
   `GOOGLE_OAUTH_CLIENT_ID`, `SENDER_EMAIL`, Revel subdomain).
+- After a successful deploy, scripts call `gcloud run services update-traffic
+  --to-latest` so **100% traffic always moves to the new ready revision**.
+  Do **not** pass `--no-traffic` on normal deploys (that pins traffic to the
+  previous revision). For a canary-only revision, set `CLOUD_RUN_NO_TRAFFIC=1`.
 - Prints the service URL; check `…/api/health`.
 - Set `CORS_ALLOWED_ORIGINS` to the live frontend URL(s) before production traffic.
 - Set `SENDER_EMAIL` to a Resend-verified domain mailbox (not `onboarding@resend.dev`).

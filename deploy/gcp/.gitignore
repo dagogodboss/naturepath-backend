@@ -1,0 +1,6 @@
+# Local secrets — never commit. Use config.env.example as the template.
+config.env
+project-naturalpath-*.json
+*-sa.json
+**/gcs-sa.json
+firebase-hosting-deploy.json
