@@ -41,15 +41,39 @@ from presentation.dependencies import get_current_admin, get_current_admin_or_pr
 router = APIRouter(tags=["Admin Scheduling"])
 
 
+# Explicit feature-off payload (#9 C5). Distinct from resource/connection 404s so
+# the admin UI does not treat "missing target" as "feature disabled".
+MULTI_RESOURCE_SCHEDULING_DISABLED = {
+    "code": "MULTI_RESOURCE_SCHEDULING_DISABLED",
+    "message": "Multi-resource scheduling is not enabled",
+}
+
+
 def _require_multi_resource_scheduling() -> None:
     """Hide unfinished Phase 4 APIs when the feature flag is off."""
     if not settings.multi_resource_scheduling:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=MULTI_RESOURCE_SCHEDULING_DISABLED,
+        )
 
 
 def _require_outlook_device_code_oauth() -> None:
     if not settings.outlook_device_code_oauth_enabled:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+
+def _reject_unknown_schedule_impact(impact: dict) -> None:
+    """Refuse save when booking impact could not be computed (#9 C2)."""
+    if impact.get("impact_unknown"):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "SCHEDULE_IMPACT_UNKNOWN",
+                "message": impact.get("message")
+                or "Unable to compute schedule-change impact; save blocked.",
+            },
+        )
 
 
 def _connection_auth_mode(conn: dict) -> str:
@@ -284,6 +308,8 @@ async def update_resource(
             "saved": False,
         }
 
+    _reject_unknown_schedule_impact(impact)
+
     patch["updated_at"] = _utc_now()
     await db.resources.update_one({"resource_id": resource_id}, {"$set": patch})
     updated = await db.resources.find_one({"resource_id": resource_id}, {"_id": 0})
@@ -429,6 +455,8 @@ async def patch_service_scheduling(
             "schedule_change_impact": impact,
             "saved": False,
         }
+
+    _reject_unknown_schedule_impact(impact)
 
     patch["updated_at"] = _utc_now()
     await db.services.update_one({"service_id": service_id}, {"$set": patch})
@@ -871,6 +899,29 @@ async def put_outlook_category_maps(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
 
     maps = [m.model_dump() for m in body.category_maps]
+    # Validate existing resource IDs + reject duplicate/conflicting categories (#9 C4).
+    seen_categories: set[str] = set()
+    for entry in maps:
+        cat = str(entry.get("category_name") or "").strip()
+        if not cat:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="category_name is required for each category map",
+            )
+        cat_key = cat.casefold()
+        if cat_key in seen_categories:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Duplicate Outlook category mapping: {cat}",
+            )
+        seen_categories.add(cat_key)
+        for rid in entry.get("resource_ids") or []:
+            resource = await db.resources.find_one({"resource_id": rid}, {"_id": 0})
+            if not resource:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Unknown resource_id in category map '{cat}': {rid}",
+                )
     # Empty list is allowed (clears maps) — sync will fail-closed until remapped.
     await db.outlook_calendar_connections.update_one(
         {"connection_id": connection_id},

@@ -1002,3 +1002,93 @@ async def test_flag_true_resource_patch_enqueues_schedule_change_review():
     assert len(db._review_queue_list) == 1
     assert db._review_queue_list[0]["type"] == "schedule_change_impact"
     assert db._review_queue_list[0]["booking_id"] == "b1"
+
+
+@pytest.mark.asyncio
+async def test_flag_false_returns_explicit_feature_disabled_code():
+    """#9 C5 — feature off is distinct from missing resource/connection."""
+    db = _db()
+    with patch.object(routes.settings, "multi_resource_scheduling", False):
+        with pytest.raises(HTTPException) as exc:
+            await routes.list_resources(ctx=CTX, db=db)
+    assert exc.value.status_code == 404
+    detail = exc.value.detail
+    assert isinstance(detail, dict)
+    assert detail.get("code") == "MULTI_RESOURCE_SCHEDULING_DISABLED"
+
+
+@pytest.mark.asyncio
+async def test_put_category_maps_rejects_unknown_resource_and_duplicates():
+    db = _db(
+        resources=[{"resource_id": "r1", "name": "Salt"}],
+        connections=[
+            {
+                "connection_id": "c1",
+                "mailbox_email": "clients@example.com",
+                "category_maps": [],
+                "auth_mode": "application",
+            }
+        ],
+    )
+    from domain.entities.models import OutlookCategoryMap
+
+    with patch.object(routes.settings, "multi_resource_scheduling", True):
+        with pytest.raises(HTTPException) as exc_unknown:
+            await routes.put_outlook_category_maps(
+                "c1",
+                routes.CategoryMapsPut(
+                    category_maps=[
+                        OutlookCategoryMap(category_name="Salt", resource_ids=["missing"])
+                    ]
+                ),
+                ctx=CTX,
+                db=db,
+            )
+        assert exc_unknown.value.status_code == 422
+
+        with pytest.raises(HTTPException) as exc_dup:
+            await routes.put_outlook_category_maps(
+                "c1",
+                routes.CategoryMapsPut(
+                    category_maps=[
+                        OutlookCategoryMap(category_name="Salt", resource_ids=["r1"]),
+                        OutlookCategoryMap(category_name="salt", resource_ids=["r1"]),
+                    ]
+                ),
+                ctx=CTX,
+                db=db,
+            )
+        assert exc_dup.value.status_code == 422
+        assert "Duplicate" in str(exc_dup.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_update_resource_blocks_save_when_impact_unknown():
+    db = _db(
+        resources=[
+            {
+                "resource_id": "r1",
+                "name": "Salt",
+                "weekly_hours": [],
+            }
+        ],
+    )
+
+    class _BoomBookings:
+        def find(self, *a, **k):
+            raise RuntimeError("db down")
+
+    db.bookings = _BoomBookings()
+
+    with patch.object(routes.settings, "multi_resource_scheduling", True):
+        with pytest.raises(HTTPException) as exc:
+            await routes.update_resource(
+                "r1",
+                routes.ResourceUpdate(last_start_time="16:00"),
+                preview=False,
+                enqueue_reviews=True,
+                ctx=CTX,
+                db=db,
+            )
+    assert exc.value.status_code == 503
+    assert exc.value.detail.get("code") == "SCHEDULE_IMPACT_UNKNOWN"

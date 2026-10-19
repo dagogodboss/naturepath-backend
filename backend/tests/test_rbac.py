@@ -29,3 +29,11 @@ def test_user_level_grant_in_mongo_requires_runtime_load():
         {"role": "customer", "user_id": "nonexistent-user-id"},
         Permission.USER_ROLE_MANAGE,
     )
+
+
+def test_manager_lacks_scheduling_admin_gate_permissions():
+    """#9 C5 — ordinary manager is not admin_or_practitioner for scheduling APIs."""
+    assert not has_permission("manager", Permission.USER_ROLE_MANAGE)
+    assert not has_permission("manager", Permission.PRACTITIONER_PROFILE_MANAGE)
+    assert has_permission("admin", Permission.USER_ROLE_MANAGE)
+    assert has_permission("practitioner", Permission.PRACTITIONER_PROFILE_MANAGE)

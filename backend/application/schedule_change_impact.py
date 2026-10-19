@@ -204,7 +204,15 @@ async def compute_resource_schedule_impact(
     bookings_col = getattr(db, "bookings", None)
     items: list[dict[str, Any]] = []
     if bookings_col is None:
-        return {"resource_id": resource_id, "affected_count": 0, "items": items}
+        # Missing collection is unknown impact, not "zero bookings affected" (#9 C2).
+        return {
+            "resource_id": resource_id,
+            "affected_count": None,
+            "items": items,
+            "impact_unknown": True,
+            "message": "Unable to load confirmed bookings; schedule impact is unknown.",
+            "phase": "schedule_change_preview",
+        }
 
     try:
         rows = await bookings_col.find(
@@ -213,7 +221,14 @@ async def compute_resource_schedule_impact(
         ).to_list(length=2000)
     except Exception:
         logger.exception("Failed to load bookings for resource %s", resource_id)
-        rows = []
+        return {
+            "resource_id": resource_id,
+            "affected_count": None,
+            "items": items,
+            "impact_unknown": True,
+            "message": "Unable to load confirmed bookings; schedule impact is unknown.",
+            "phase": "schedule_change_preview",
+        }
 
     future = _future_confirmed(rows)
     service_ids = [str(b.get("service_id") or "") for b in future]
@@ -241,6 +256,7 @@ async def compute_resource_schedule_impact(
         "resource_id": resource_id,
         "affected_count": len(items),
         "items": items,
+        "impact_unknown": False,
         "phase": "schedule_change_preview",
     }
 
@@ -256,7 +272,14 @@ async def compute_service_scheduling_impact(
     bookings_col = getattr(db, "bookings", None)
     items: list[dict[str, Any]] = []
     if bookings_col is None:
-        return {"service_id": service_id, "affected_count": 0, "items": items}
+        return {
+            "service_id": service_id,
+            "affected_count": None,
+            "items": items,
+            "impact_unknown": True,
+            "message": "Unable to load confirmed bookings; schedule impact is unknown.",
+            "phase": "schedule_change_preview",
+        }
 
     try:
         rows = await bookings_col.find(
@@ -265,7 +288,14 @@ async def compute_service_scheduling_impact(
         ).to_list(length=2000)
     except Exception:
         logger.exception("Failed to load bookings for service %s", service_id)
-        rows = []
+        return {
+            "service_id": service_id,
+            "affected_count": None,
+            "items": items,
+            "impact_unknown": True,
+            "message": "Unable to load confirmed bookings; schedule impact is unknown.",
+            "phase": "schedule_change_preview",
+        }
 
     future = _future_confirmed(rows)
     resource_ids = set()
@@ -304,6 +334,7 @@ async def compute_service_scheduling_impact(
         "service_id": service_id,
         "affected_count": len(items),
         "items": items,
+        "impact_unknown": False,
         "phase": "schedule_change_preview",
     }
 

@@ -64,3 +64,28 @@ def test_booking_still_fits_returns_none():
         )
         is None
     )
+
+
+import pytest
+from application.schedule_change_impact import compute_resource_schedule_impact
+
+
+class _FailingBookings:
+    def find(self, *a, **k):
+        raise RuntimeError("lookup failed")
+
+
+@pytest.mark.asyncio
+async def test_resource_impact_unknown_when_booking_lookup_fails():
+    class DB:
+        bookings = _FailingBookings()
+
+    impact = await compute_resource_schedule_impact(
+        DB(),
+        resource_id="r1",
+        existing_resource={"resource_id": "r1", "weekly_hours": []},
+        proposed_patch={"last_start_time": "16:00"},
+    )
+    assert impact["impact_unknown"] is True
+    assert impact["affected_count"] is None
+    assert impact["items"] == []
