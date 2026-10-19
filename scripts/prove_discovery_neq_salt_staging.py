@@ -31,16 +31,14 @@ from application.multi_resource_booking import occupied_times_for_session  # noq
 from application.use_cases.booking_use_case import BookingUseCase  # noqa: E402
 from core.config import settings  # noqa: E402
 from domain.entities.models import generate_id  # noqa: E402
-from infrastructure.repositories.mongo_booking_repository import MongoBookingRepository  # noqa: E402
-from infrastructure.repositories.mongo_event_repository import MongoEventRepository  # noqa: E402
-from infrastructure.repositories.mongo_payment_repository import MongoPaymentRepository  # noqa: E402
-from infrastructure.repositories.mongo_practitioner_repository import (  # noqa: E402
-    MongoPractitionerRepository,
-)
-from infrastructure.repositories.mongo_service_repository import MongoServiceRepository  # noqa: E402
-from infrastructure.repositories.mongo_user_repository import MongoUserRepository  # noqa: E402
-from infrastructure.repositories.mongo_availability_slot_repository import (  # noqa: E402
+from infrastructure.repositories.mongo_repositories import (  # noqa: E402
     MongoAvailabilitySlotRepository,
+    MongoBookingRepository,
+    MongoEventRepository,
+    MongoPaymentRepository,
+    MongoPractitionerRepository,
+    MongoServiceRepository,
+    MongoUserRepository,
 )
 from scripts.phase6_post_consent_helpers import (  # noqa: E402
     is_synthetic_busy_source,
@@ -70,12 +68,32 @@ async def _find_service_id(db: Any, *, discovery: bool) -> Optional[str]:
     return doc.get("service_id") if doc else None
 
 
-async def _nichole_resource_id(db: Any) -> Optional[str]:
-    doc = await db.resources.find_one(
+async def _nichole_resource_id(
+    db: Any, *, discovery_service_id: Optional[str] = None
+) -> Optional[str]:
+    """
+    Resolve Nichole / practitioner resource for synthetic busy injection.
+
+    Staging seeds historically omit ``kind`` on resources — prefer Discovery's
+    ``required_resource_id``, then name match, then kind=practitioner.
+    """
+    if discovery_service_id:
+        svc = await db.services.find_one(
+            {"service_id": discovery_service_id},
+            {"required_resource_id": 1},
+        )
+        rid = (svc or {}).get("required_resource_id")
+        if rid:
+            return str(rid)
+
+    for query in (
+        {"active": True, "name": {"$regex": "nichole", "$options": "i"}},
         {"kind": "practitioner", "active": True},
-        {"resource_id": 1, "name": 1},
-    )
-    return doc.get("resource_id") if doc else None
+    ):
+        doc = await db.resources.find_one(query, {"resource_id": 1, "name": 1})
+        if doc and doc.get("resource_id"):
+            return str(doc["resource_id"])
+    return None
 
 
 def _build_use_case(db: Any) -> BookingUseCase:
@@ -105,9 +123,9 @@ async def prove(
             "hint": "Set MULTI_RESOURCE_SCHEDULING=true",
         }
 
-    nichole_rid = await _nichole_resource_id(db)
     discovery_id = await _find_service_id(db, discovery=True)
     salt_id = await _find_service_id(db, discovery=False)
+    nichole_rid = await _nichole_resource_id(db, discovery_service_id=discovery_id)
 
     prove_mode = "real_outlook_busy" if use_real_busy_only else "synthetic_allowed"
     report: dict[str, Any] = {
