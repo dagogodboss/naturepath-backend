@@ -4,15 +4,13 @@
 
 **GCP project:** `project-990664b0-1bae-4746-88d` only. **Do not change DNS.**
 
-## HARD GATE — Jonathan / Entra Accept deferred (2026-10-19)
+## HARD GATE — Accept package READY TO SEND (2026-10-19)
 
-**Do not send** the adminconsent link to Jonathan (or any staff). Microsoft / Jonathan Accept outreach remains **DEFERRED / UNSENT** until the user explicitly authorises it. B4 consent/runbook text may be prepared in-repo, but **must not** be framed as “ready to send” while [#9](https://github.com/dagogodboss/naturepath/issues/9) concurrency / acceptance work remains open.
+Engineering blockers for [#9](https://github.com/dagogodboss/naturepath/issues/9) are **cleared** (slices 1–4 + B1 race `8d89d6a`; staging `00007-wds`; synthetic prove green). Graph dry-run still **exit 10** until Entra Accept.
 
-**Agents must not** email, Slack, or message Jonathan; must not run Entra poll loops; must not flip prod `MULTI_RESOURCE_SCHEDULING`.
+**Package status:** [ops-entra-consent-request.md](./ops-entra-consent-request.md) is **READY TO SEND**. Human ops sends when ready. **Agents must not** email, Slack, or message Jonathan unless an already-approved send path the user previously used is available; must not run Entra poll loops; must not flip prod `MULTI_RESOURCE_SCHEDULING`.
 
-Phase 6 still needs: (1) engineering acceptance (including B1 overlapping-sync fix), (2) human Accept + mailbox least-privilege, (3) staging real Outlook prove. See [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8).
-
-Outreach draft (UNSENT): [ops-entra-consent-request.md](./ops-entra-consent-request.md).
+Phase 6 still needs: (1) human Accept + mailbox least-privilege, (2) staging real Outlook prove, (3) Jonathan sign-off before prod flag. See [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8).
 
 ## Blocker (2026-10-18) — no silent unblock path
 

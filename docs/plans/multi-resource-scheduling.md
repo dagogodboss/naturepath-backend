@@ -13,7 +13,7 @@
 | Prod flag | **Off / unset** — do **not** flip until Entra Accept + staging real prove + Jonathan sign-off |
 | Discovery≠Salt | **Synthetic** staging API prove only (`discovery-neq-salt-staging-20261018c.json`). **Not** production-proved; **not** a cutover gate by itself |
 | Outlook sync | **Blocked** on Entra Application **Calendars.Read** admin consent ([#8](https://github.com/dagogodboss/naturepath/issues/8)); delegated Clients@ token unavailable. Mailbox least-privilege (Clients@ + Nichole only) **required** same day as Accept — see [ops-oauth-prod-cutover.md](./ops-oauth-prod-cutover.md) |
-| [#9](https://github.com/dagogodboss/naturepath/issues/9) engineering | Slices 1–3 + B4 docs in progress; **B1 concurrent sync race** follow-up required. Jonathan / Microsoft Accept remains **DEFERRED / UNSENT** |
+| [#9](https://github.com/dagogodboss/naturepath/issues/9) engineering | Slices 1–4 done; B1 race fixed (`8d89d6a`). Accept package **READY TO SEND** ([#8](https://github.com/dagogodboss/naturepath/issues/8) / [ops-entra-consent-request.md](./ops-entra-consent-request.md)) — human sends; agents do not outreach |
 | Goal complete | **No** |
 
 ### Locked decisions (Jonathan 2026-10-18)
