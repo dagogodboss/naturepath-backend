@@ -90,49 +90,60 @@ Delegated `Calendars.Read` / device-code remains a theoretical fallback only; Cl
 
 **Minimisation stance:** do not add `body`, attendees, attachments, or location to `$select`. Subject stays only while review UX needs a human-readable hint for unmapped events; capacity remains category-only.
 
+## Zero-spam Accept signal ([#8](https://github.com/dagogodboss/naturepath/issues/8))
+
+After Entra **Accept** (+ mailbox least-privilege), comment exactly:
+
+```text
+DONE
+```
+
+on [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8). That is the only human signal — **no** 15m/3h poll loops.
+
+**Engineering then runs (primary — Secret Manager local, no IAP):**
+
+```bash
+cd /path/to/naturepath-backend   # workspace: naturepath/backend
+./scripts/phase6_post_consent_cutover_local.sh --dry-run   # expect exit 0 after Accept
+# Full staging (needs Mongo 10.40.0.x — naturepath-data-1 / VPC host):
+./scripts/phase6_post_consent_cutover_local.sh
+```
+
+GitHub Actions on `dagogodboss/naturepath` watches issue comments for `DONE` on #8 (no agent polling) and posts the engineering checklist; optional cross-repo staging dispatch needs repo secret `BACKEND_WORKFLOW_TOKEN`.
+
 ## One-button cutover (after Accept + mailbox scope)
 
 **Primary when IAP/compute TLS is broken (this laptop):** Secret Manager local path — no IAP.
 
 ```bash
-cd /path/to/naturepath-backend
+cd /path/to/naturepath-backend   # or workspace backend/
 # Graph probe only (no VPC Mongo needed):
 ./scripts/phase6_post_consent_cutover_local.sh --dry-run
 # Full staging cutover needs Mongo on 10.40.0.x — run on naturepath-data-1
 # (or any VPC host) with the same script, omitting --dry-run.
 ```
 
-**GitHub Actions** (Workload Identity → IAP → VM; no `GCP_SA_KEY` — org policy
-`iam.disableServiceAccountKeyCreation` is enforced):
+**GitHub Actions** (Workload Identity → IAP → VM; preferred when available):
 
 ```bash
 gh workflow run phase6-post-consent-cutover.yml --repo dagogodboss/naturepath-backend
 gh workflow run phase6-post-consent-cutover.yml --repo dagogodboss/naturepath-backend -f mode=dry-run
 ```
 
-WIF assets (already provisioned): pool `github-actions`, provider `github`, SA
+WIF assets (provisioned): pool `github-actions`, provider `github`, SA
 `github-actions-phase6@project-990664b0-1bae-4746-88d.iam.gserviceaccount.com`.
+Org policy `iam.disableServiceAccountKeyCreation` blocks `GCP_SA_KEY` fallback.
 
-If an org-policy exception ever allows a key (fallback only):
-
-```bash
-gcloud iam service-accounts keys create /tmp/phase6-gha.json \
-  --iam-account=github-actions-phase6@project-990664b0-1bae-4746-88d.iam.gserviceaccount.com \
-  --project=project-990664b0-1bae-4746-88d
-gh secret set GCP_SA_KEY --repo dagogodboss/naturepath-backend < /tmp/phase6-gha.json
-rm -f /tmp/phase6-gha.json
-# then switch the workflow auth step to credentials_json: ${{ secrets.GCP_SA_KEY }}
-```
-
-**IAP remote** (when compute/IAP works on the laptop):
+**IAP SSH remote** (no GH secret required if your `gcloud` user can SSH):
 
 ```bash
 cd /path/to/naturepath-backend
 ./scripts/phase6_post_consent_cutover_remote.sh --sync-code
+# or probe only:
 ./scripts/phase6_post_consent_cutover_remote.sh --dry-run
 ```
 
-VM checkout path: `~/np-oauth/backend` on **naturepath-data-1**.
+VM checkout path used by the remote runner: `~/np-oauth/backend` on **naturepath-data-1**.
 
 Dry-run still exits **10** when Entra consent is missing (Graph 403 / empty `roles`).
 
