@@ -7,6 +7,9 @@ from scripts.phase6_post_consent_helpers import (
     validate_prod_gate,
     busy_intervals_assertion,
     decode_jwt_roles,
+    is_synthetic_busy_source,
+    prod_cutover_steps,
+    real_outlook_busy_assertion,
 )
 
 
@@ -66,3 +69,37 @@ def test_qa_artifact_name_stable_phase():
 
 def test_decode_jwt_roles_empty_for_garbage():
     assert decode_jwt_roles("not-a-jwt") == []
+
+
+def test_is_synthetic_busy_source():
+    assert is_synthetic_busy_source("staging_prove_synthetic") is True
+    assert is_synthetic_busy_source("outlook") is False
+    assert is_synthetic_busy_source("booking") is False
+
+
+def test_real_outlook_busy_assertion_rejects_empty_and_synthetic_only():
+    ok_empty, _ = real_outlook_busy_assertion([], require_non_empty=True)
+    assert ok_empty is False
+    ok_synth, msg = real_outlook_busy_assertion(
+        [{"source": "staging_prove_synthetic", "start_time": "15:00"}],
+        require_non_empty=True,
+    )
+    assert ok_synth is False
+    assert "synthetic" in msg.lower()
+    ok_real, detail = real_outlook_busy_assertion(
+        [
+            {"source": "outlook", "start_time": "15:00", "end_time": "15:45"},
+            {"source": "staging_prove_synthetic", "start_time": "16:00"},
+        ],
+        require_non_empty=True,
+    )
+    assert ok_real is True
+    assert "real_busy_count=1" in detail
+
+
+def test_prod_cutover_steps_enable_flag_last():
+    steps = prod_cutover_steps()
+    assert steps[0] == "validate"
+    assert steps[-1] == "enable_flag"
+    assert steps.index("prove_real_busy") < steps.index("enable_flag")
+    assert steps.index("sync") < steps.index("prove_real_busy")

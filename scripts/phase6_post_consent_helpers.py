@@ -147,3 +147,60 @@ def busy_intervals_assertion(
             "Discovery≠Salt prove may still fail without real busy."
         )
     return False, "resource_busy_intervals empty after sync (expected Outlook busy data)."
+
+
+# Sources that must never satisfy a "real Outlook busy" gate.
+SYNTHETIC_BUSY_SOURCES: frozenset[str] = frozenset(
+    {
+        "staging_prove_synthetic",
+        "synthetic_prove",
+        "prove_synthetic",
+    }
+)
+
+
+def is_synthetic_busy_source(source: Any) -> bool:
+    text = str(source or "").strip().lower()
+    if not text:
+        return False
+    if text in SYNTHETIC_BUSY_SOURCES:
+        return True
+    return "synthetic" in text
+
+
+def real_outlook_busy_assertion(
+    intervals: Sequence[Mapping[str, Any]],
+    *,
+    require_non_empty: bool = True,
+) -> tuple[bool, str]:
+    """
+    Pass only when at least one interval looks like real Outlook/sync busy.
+
+    Rejects empty sets (unless require_non_empty=False) and any set that is
+    exclusively synthetic prove injects.
+    """
+    rows = list(intervals)
+    if not rows:
+        if require_non_empty:
+            return False, "no busy intervals on prove date (need real Outlook busy)"
+        return True, "no busy intervals (allowed)"
+
+    real_rows = [r for r in rows if not is_synthetic_busy_source(r.get("source"))]
+    synthetic_rows = [r for r in rows if is_synthetic_busy_source(r.get("source"))]
+    if not real_rows:
+        return False, (
+            f"only synthetic busy present ({len(synthetic_rows)}); "
+            "refusing real-Outlook prove gate"
+        )
+    return True, f"real_busy_count={len(real_rows)} synthetic_busy_count={len(synthetic_rows)}"
+
+
+def prod_cutover_steps() -> tuple[str, ...]:
+    """Documented order for run_prod_phase (flag enable is always last)."""
+    return (
+        "validate",
+        "patch_auth_mode",
+        "sync",
+        "prove_real_busy",
+        "enable_flag",
+    )

@@ -42,6 +42,10 @@ from infrastructure.repositories.mongo_user_repository import MongoUserRepositor
 from infrastructure.repositories.mongo_availability_slot_repository import (  # noqa: E402
     MongoAvailabilitySlotRepository,
 )
+from scripts.phase6_post_consent_helpers import (  # noqa: E402
+    is_synthetic_busy_source,
+    real_outlook_busy_assertion,
+)
 
 
 def _utc_now_iso() -> str:
@@ -105,11 +109,13 @@ async def prove(
     discovery_id = await _find_service_id(db, discovery=True)
     salt_id = await _find_service_id(db, discovery=False)
 
+    prove_mode = "real_outlook_busy" if use_real_busy_only else "synthetic_allowed"
     report: dict[str, Any] = {
         "kind": "discovery_neq_salt_staging_prove",
         "generated_at": _utc_now_iso(),
         "db_name": settings.db_name,
         "date": date_str,
+        "prove_mode": prove_mode,
         "nichole_resource_id": nichole_rid,
         "discovery_service_id": discovery_id,
         "salt_service_id": salt_id,
@@ -124,20 +130,12 @@ async def prove(
     injected = False
     if inject_synthetic and not use_real_busy_only:
         discovery_svc = await db.services.find_one({"service_id": discovery_id})
-        prep = int(discovery_svc.get("prep_minutes") or 0)
-        session = int(
-            discovery_svc.get("customer_duration_minutes")
-            or discovery_svc.get("duration_minutes")
-            or 30
-        )
-        recovery = int(discovery_svc.get("recovery_minutes") or 15)
-        occupied = occupied_times_for_session(
-            date_str=date_str,
-            start_time="15:00",
-            prep_minutes=prep,
-            session_minutes=session,
-            recovery_minutes=recovery,
-        )
+        if not discovery_svc:
+            report["ok"] = False
+            report["error"] = "discovery_service_missing"
+            return report
+        # occupied_times_for_session(service, start_time) — not kwargs for prep/session.
+        occupied = occupied_times_for_session(discovery_svc, "15:00")
         synthetic_id = generate_id()
         doc = {
             "interval_id": synthetic_id,
@@ -158,7 +156,7 @@ async def prove(
             "occupied": occupied,
         }
 
-    real_busy = await db.resource_busy_intervals.find(
+    busy_docs = await db.resource_busy_intervals.find(
         {
             "resource_id": str(nichole_rid),
             "date": date_str,
@@ -171,8 +169,43 @@ async def prove(
             "category_name": b.get("category_name"),
             "source": b.get("source"),
         }
-        for b in real_busy
+        for b in busy_docs
     ]
+
+    if use_real_busy_only:
+        # Exclude any leftover synthetic rows from the gate (should not be present).
+        candidates = [
+            b for b in busy_docs if not is_synthetic_busy_source(b.get("source"))
+        ]
+        busy_ok, busy_detail = real_outlook_busy_assertion(
+            candidates,
+            require_non_empty=True,
+        )
+        report["real_outlook_busy_assertion"] = {"ok": busy_ok, "detail": busy_detail}
+        if not busy_ok:
+            report["ok"] = False
+            report["error"] = "real_outlook_busy_required"
+            report["injected_synthetic"] = injected
+            if synthetic_id:
+                await db.resource_busy_intervals.delete_one({"interval_id": synthetic_id})
+                report["synthetic_cleaned_up"] = True
+            return report
+        covers_1500 = any(
+            str(b.get("start_time") or "") <= "15:00" < str(b.get("end_time") or "99:99")
+            for b in candidates
+        )
+        report["checks_precondition"] = {
+            "nichole_real_busy_covers_15_00": covers_1500,
+        }
+        if not covers_1500:
+            report["ok"] = False
+            report["error"] = "no_real_nichole_busy_covering_15_00"
+            report["hint"] = (
+                "Create/tag a real Outlook Discovery (or practitioner) busy covering "
+                "15:00 on the prove date, sync, then re-run with --real-busy-only."
+            )
+            report["injected_synthetic"] = injected
+            return report
 
     use_case = _build_use_case(db)
     discovery_slots = await use_case.get_service_available_slots(discovery_id, date_str)
@@ -191,6 +224,10 @@ async def prove(
         and report["checks"]["salt_15_00_offered"]
     )
     report["injected_synthetic"] = injected
+    if use_real_busy_only and injected:
+        # Should be unreachable; defend against mis-wiring.
+        report["ok"] = False
+        report["error"] = "synthetic_injected_during_real_busy_only"
 
     if synthetic_id:
         await db.resource_busy_intervals.delete_one({"interval_id": synthetic_id})

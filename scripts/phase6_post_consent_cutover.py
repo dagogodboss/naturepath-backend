@@ -51,6 +51,7 @@ from scripts.phase6_post_consent_helpers import (  # noqa: E402
     busy_intervals_assertion,
     decode_jwt_roles,
     evaluate_mailbox_probes,
+    prod_cutover_steps,
     qa_artifact_name,
     staging_env_gaps,
     validate_prod_gate,
@@ -486,39 +487,79 @@ async def run_staging_phase(args: argparse.Namespace, report: dict[str, Any]) ->
         client.close()
 
 
-async def run_prod_phase(args: argparse.Namespace, report: dict[str, Any]) -> bool:
-    report["prod"] = {"enabled": True}
-    updates = {"MULTI_RESOURCE_SCHEDULING": "true"}
-    if not args.skip_env_update:
-        upd = ensure_cloud_run_env(
-            PROD_SERVICE,
-            project=args.gcp_project,
-            region=args.gcp_region,
-            updates=updates,
-            dry_run=False,
-        )
-        report["prod_env_update"] = upd
-        if not upd.get("ok"):
-            report["ok"] = False
-            return False
-    else:
-        report["prod_env_manual"] = (
-            "After sign-off only: gcloud run services update natural-path-api "
+async def _rollback_prod_flag(
+    args: argparse.Namespace,
+    report: dict[str, Any],
+    *,
+    reason: str,
+) -> None:
+    """Never leave MULTI_RESOURCE_SCHEDULING=true if prove/sync failed after enable."""
+    report["prod_flag_rollback"] = {
+        "reason": reason,
+        "attempted": True,
+    }
+    if args.skip_env_update or args.skip_gcloud:
+        report["prod_flag_rollback"]["action"] = "manual_required"
+        report["prod_flag_rollback"]["gcloud_command"] = (
+            f"gcloud run services update {PROD_SERVICE} "
             f"--project {args.gcp_project} --region {args.gcp_region} "
-            "--update-env-vars MULTI_RESOURCE_SCHEDULING=true"
+            "--update-env-vars MULTI_RESOURCE_SCHEDULING=false"
         )
+        report["prod_flag_rollback"]["ok"] = False
+        return
+    rollback = ensure_cloud_run_env(
+        PROD_SERVICE,
+        project=args.gcp_project,
+        region=args.gcp_region,
+        updates={"MULTI_RESOURCE_SCHEDULING": "false"},
+        dry_run=False,
+    )
+    report["prod_flag_rollback"].update(rollback)
+
+
+async def run_prod_phase(args: argparse.Namespace, report: dict[str, Any]) -> bool:
+    """
+    Prod order (flag LAST): validate → patch auth_mode → sync → prove → enable flag.
+
+    Never enable MULTI_RESOURCE_SCHEDULING before real Outlook prove succeeds.
+    If the flag was enabled and a post-enable check fails, roll it back immediately.
+    """
+    report["prod"] = {
+        "enabled": True,
+        "cutover_steps": list(prod_cutover_steps()),
+    }
+    flag_enabled = False
 
     client = AsyncIOMotorClient(settings.mongo_url)
     db = client[args.prod_db_name]
     try:
+        # 1) validate — connection rows must exist before mutations
+        missing: list[str] = []
+        for label, cid in PROD_CONNECTION_IDS.items():
+            doc = await db.outlook_calendar_connections.find_one({"connection_id": cid})
+            if not doc:
+                missing.append(f"{label}:{cid}")
+        report["prod_validate"] = {
+            "ok": not missing,
+            "missing_connections": missing,
+            "connection_ids": dict(PROD_CONNECTION_IDS),
+        }
+        if missing:
+            report["ok"] = False
+            report["error"] = "prod_connections_missing"
+            return False
+
+        # 2) patch auth_mode
         patches = []
-        syncs = []
         for cid in PROD_CONNECTION_IDS.values():
             patches.append(await patch_auth_mode_mongo(db, cid, dry_run=False))
         report["prod_auth_mode_patches"] = patches
         if any(not p.get("ok") for p in patches):
             report["ok"] = False
             return False
+
+        # 3) sync
+        syncs = []
         for cid in PROD_CONNECTION_IDS.values():
             syncs.append(await sync_connection(db, cid, dry_run=False))
         report["prod_syncs"] = syncs
@@ -526,6 +567,27 @@ async def run_prod_phase(args: argparse.Namespace, report: dict[str, Any]) -> bo
             report["ok"] = False
             return False
 
+        busy_counts: dict[str, int] = {}
+        for s in syncs:
+            for rid, cnt in (s.get("resource_busy_intervals_by_resource") or {}).items():
+                busy_counts[rid] = int(cnt)
+            busy_counts[s["connection_id"]] = int(
+                s.get("resource_busy_intervals_by_connection") or 0
+            )
+        busy_ok, busy_msg = busy_intervals_assertion(
+            busy_counts,
+            allow_empty=args.allow_empty_busy,
+        )
+        report["prod_busy_assertion"] = {
+            "ok": busy_ok,
+            "detail": busy_msg,
+            "counts": busy_counts,
+        }
+        if not busy_ok:
+            report["ok"] = False
+            return False
+
+        # 4) prove with real Outlook busy only (local flag for in-process prove)
         from scripts.prove_discovery_neq_salt_staging import prove  # noqa: WPS433
 
         settings.multi_resource_scheduling = True
@@ -536,8 +598,54 @@ async def run_prod_phase(args: argparse.Namespace, report: dict[str, Any]) -> bo
             use_real_busy_only=True,
         )
         report["prod_discovery_neq_salt_prove"] = prove_report
-        report["ok"] = bool(prove_report.get("ok"))
-        return report["ok"]
+        if not prove_report.get("ok"):
+            report["ok"] = False
+            report["error"] = "prod_real_busy_prove_failed"
+            return False
+
+        # 5) enable Cloud Run flag LAST — only after prove passed
+        updates = {"MULTI_RESOURCE_SCHEDULING": "true"}
+        if not args.skip_env_update:
+            upd = ensure_cloud_run_env(
+                PROD_SERVICE,
+                project=args.gcp_project,
+                region=args.gcp_region,
+                updates=updates,
+                dry_run=False,
+            )
+            report["prod_env_update"] = upd
+            if not upd.get("ok"):
+                report["ok"] = False
+                report["error"] = "prod_flag_enable_failed"
+                return False
+            flag_enabled = True
+        else:
+            report["prod_env_manual"] = (
+                "After sign-off only (prove already passed in this run): "
+                f"gcloud run services update {PROD_SERVICE} "
+                f"--project {args.gcp_project} --region {args.gcp_region} "
+                "--update-env-vars MULTI_RESOURCE_SCHEDULING=true"
+            )
+
+        # Post-enable sanity: re-read prove artifact ok; roll back if somehow false
+        if flag_enabled and not prove_report.get("ok"):
+            await _rollback_prod_flag(
+                args,
+                report,
+                reason="prove_report_not_ok_after_flag_enable",
+            )
+            report["ok"] = False
+            return False
+
+        report["ok"] = True
+        report["prod_flag_enabled"] = flag_enabled or args.skip_env_update
+        return True
+    except Exception as exc:
+        report["ok"] = False
+        report["error"] = str(exc)[:500]
+        if flag_enabled:
+            await _rollback_prod_flag(args, report, reason=f"exception:{type(exc).__name__}")
+        return False
     finally:
         client.close()
 

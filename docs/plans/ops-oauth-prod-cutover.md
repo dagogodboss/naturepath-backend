@@ -18,7 +18,7 @@
 | Staging cutover / prod flag | **not run** |
 | Artifact | `qa/reports/multi-resource-proof/graph-unblock-investigation-20261018T2307Z.json` |
 
-**Verdict:** There is **no** path to working Outlook→resource busy sync without a human Accept (Entra Application **Calendars.Read** admin consent, or mailbox device-code/browser consent). Category sync already supports delegated `/me` tokens; Clients@ still needs app-only or a fresh Clients@ (or shared) token we do not have.
+**Verdict:** There is **no** path to working Outlook→resource busy sync without a human Accept (Entra Application **Calendars.Read** admin consent). Delegated `/me` remains a theoretical alternate; Clients@ has **no** usable delegated token and legacy secrets are gone — **app-only after Entra Accept is the primary unblock** ([#8](https://github.com/dagogodboss/naturepath/issues/8)).
 
 **Ask (Entra Global Administrator):** Accept **Calendars.Read** (Application) admin consent for app `daf7c7db-7a14-4b8b-8209-58b168d34683` / tenant `bbefcd77-2f78-4240-85f3-41dcf671c9bf`.
 
@@ -29,6 +29,18 @@ Admin consent URL:
 Outreach draft: [ops-entra-consent-request.md](./ops-entra-consent-request.md). Tracking: [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8).
 
 **Do not** start 15m/3h poll loops. Re-probe only after admin reports Accept (or optional single dry-run).
+
+## Mailbox least-privilege (required before cutover)
+
+App-only `Calendars.Read` must **not** be left as unrestricted tenant-wide calendar access.
+
+| Requirement | Status |
+|-------------|--------|
+| Intended mailboxes only: `Clients@thenaturalpathla.com`, `nmoore@thenaturalpathla.com` | **Required** via Exchange application access policy / application RBAC — see [Microsoft docs](https://learn.microsoft.com/en-us/Exchange/permissions-exo/application-rbac) |
+| Verify allowed mailboxes succeed AND excluded mailboxes fail Graph `calendarView` | **Required** before enabling prod flag |
+| Document retained Graph fields / retention | Required (subjects currently selected — minimise per [#9](https://github.com/dagogodboss/naturepath/issues/9) B4) |
+
+This is **not** “optional later” and is **not** already done. Adding a scoped RBAC grant does not by itself narrow an existing unscoped grant — remove or replace broad grants deliberately.
 
 ## One-button cutover (after Accept)
 
@@ -52,16 +64,40 @@ cd /path/to/naturepath-backend
 
 VM checkout path used by the remote runner: `~/np-oauth/backend` on **naturepath-data-1**.
 
-**Prod** (optional, only after staging P1–P8 + Jonathan sign-off — not wired into the workflow button):
+Dry-run still exits **10** when Entra consent is missing (Graph 403 / empty `roles`).
+
+### Staging cutover order (script)
+
+1. Validate Graph app-only probes for both mailboxes  
+2. Ensure staging env (`MULTI_RESOURCE_SCHEDULING`, `OUTLOOK_APP_ONLY_SYNC_ENABLED`)  
+3. Patch connections → `auth_mode=application`  
+4. Sync both calendars  
+5. Assert non-empty / real Outlook busy (or explicit `--allow-empty-busy`)  
+6. Discovery≠Salt prove with **`--real-busy-only`** (no synthetic inject)
+
+### Prod cutover order (script — after staging real prove + Jonathan sign-off)
+
+**Never** enable the flag first. Order in `run_prod_phase`:
+
+1. Validate prod gate flags (`--prod --i-understand-prod`) + connection rows  
+2. Patch `auth_mode=application`  
+3. Sync both mailboxes  
+4. **Real Outlook** Discovery≠Salt prove  
+5. Enable `MULTI_RESOURCE_SCHEDULING=true` on `natural-path-api` **last**  
+6. On prove/sync failure: **do not** enable the flag; if a later verification fails after enable, roll back with `MULTI_RESOURCE_SCHEDULING=false` (or unset) immediately — **do not** delete `resources` / `resource_busy_intervals`
 
 ```bash
-# on naturepath-data-1 inside ~/np-oauth/backend
+# on naturepath-data-1 inside ~/np-oauth/backend — only after staging P1–P8 real prove + sign-off
 PYTHONPATH=backend python3 -m scripts.phase6_post_consent_cutover \
   --prod --i-understand-prod \
   --report-dir ../qa/reports/multi-resource-proof
 ```
 
-**Do not** enable prod `MULTI_RESOURCE_SCHEDULING` until that gate passes.
+**Do not** enable prod `MULTI_RESOURCE_SCHEDULING` until that gate passes. Synthetic staging artifacts are **not** sufficient.
+
+## Phase 0 visibility (B3)
+
+Prefer staff **shared Clients@ calendar** alongside Nichole ([#9 comment](https://github.com/dagogodboss/naturepath/issues/9#issuecomment-6262033979)). Do not duplicate Salt onto Nichole as capacity; mystery busy stays blocked.
 
 ## Flags today
 
@@ -70,4 +106,15 @@ PYTHONPATH=backend python3 -m scripts.phase6_post_consent_cutover \
 | `natural-path-api-staging` | **true** | absent / false until cutover | Rev `00006-2kf` has `MICROSOFT_CLIENT_ID`/`TENANT_ID`; cutover sets app-only=true |
 | `natural-path-api` (prod traffic) | **unset** on `natural-path-api-00021-hv8` | unset | Keep off |
 
-See root doc for device-code alternate, connection IDs, and rollback.
+## Connection IDs (reference)
+
+| Env | Clients@ | Nichole |
+|-----|----------|---------|
+| Staging | `9fba4c5f-38e7-4a69-888c-3f84627ed3ea` | `0ae88711-4e79-42b4-831f-141705d6ca9c` |
+| Prod | `a5d43af5-0f20-4871-8d79-5af254b1e936` | `0ae88711-4e79-42b4-831f-141705d6ca9c` |
+
+## Rollback
+
+- Staging or prod: set `MULTI_RESOURCE_SCHEDULING=false` (or unset) → legacy booking path.  
+- Do **not** delete multi-resource collections on rollback.  
+- App-only sync can stay enabled while the booking flag is off.

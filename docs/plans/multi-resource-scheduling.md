@@ -1,9 +1,20 @@
 # Implementation Plan: Multi-resource scheduling & admin availability
 
-**Status:** Phase 0 — **LOCKED** (2026-10-18 Message 3). Phases **1–5 implemented behind `MULTI_RESOURCE_SCHEDULING`** (default false). Phase **6 blocked on staging ops** — [checklist](./phase-6-migrate-prove.md#staging-ops-checklist-phase-6-unblock).  
+**Status:** Phase 0 — **LOCKED** (2026-10-18 Message 3). Phases **1–5 implemented behind `MULTI_RESOURCE_SCHEDULING`** (default false). Phase **6 blocked on Entra app-only `Calendars.Read` (Application) admin consent** ([#8](https://github.com/dagogodboss/naturepath/issues/8)) plus staging **real Outlook** prove — [checklist](./phase-6-migrate-prove.md#staging-ops-checklist-phase-6-unblock).  
 **Business:** Jonathan Moore / The Natural Path LA, Youngsville LA, `America/Chicago`  
 **Companion canvas:** [multi-resource-scheduling.canvas.tsx](/Users/mac/.cursor/projects/Users-mac-naturepath/canvases/multi-resource-scheduling.canvas.tsx)  
 **Goal title:** Multi-resource scheduling & admin availability *(arm via CreateGoal — see § Goal objective)*
+
+### Truth table (2026-10-19 — do not overstate)
+
+| Claim | Reality |
+|-------|---------|
+| Phases 1–5 code | **In tree** behind `MULTI_RESOURCE_SCHEDULING` (default **false**; staging **true**) |
+| Prod flag | **Off / unset** — do **not** flip until Entra Accept + staging real prove + Jonathan sign-off |
+| Discovery≠Salt | **Synthetic** staging API prove only (`discovery-neq-salt-staging-20261018c.json`). **Not** production-proved; **not** a cutover gate by itself |
+| Outlook sync | **Blocked** on Entra Application **Calendars.Read** admin consent ([#8](https://github.com/dagogodboss/naturepath/issues/8)); delegated Clients@ token unavailable |
+| Fail-closed on stale sync | **Intent** in this plan; customer paths still have gaps tracked in [#9](https://github.com/dagogodboss/naturepath/issues/9) (A1+) — not claimed fixed |
+| Goal complete | **No** |
 
 ### Locked decisions (Jonathan 2026-10-18)
 
@@ -13,7 +24,8 @@
 - **Holidays:** Flexible (sometimes open); **never** Thanksgiving or Christmas; default block both resources; admin can open other holidays.
 - **Staff access (intent):** Nichole and Kristin can add/remove/edit/see all bookings; likes flagging for review.
 - **Salt Outlook source:** **Clients@thenaturalpathla.com** only (not Nichole’s calendar for Salt).
-- **Salt window:** M–F starts **10:30am–5:00pm**; last start **5:00pm** (room busy until **6:00pm**).
+- **Two-mailbox capacity (Phase 0 + [#9 comment](https://github.com/dagogodboss/naturepath/issues/9#issuecomment-6262033979)):** Clients@ authoritative for Salt room; Nichole authoritative for practitioner. Seeing Salt must **not** consume Nichole capacity. **Prefer** staff view of the **shared Clients@ calendar** alongside Nichole’s (no occupancy from copies). If staff still need Salt copies inside Nichole’s calendar, those copies must be explicitly visibility-only — do **not** ignore all unknown busy to “fix” copies.
+- **Salt window:** M–F starts **10:30am–5:00pm**; last start **5:00pm** (room busy until **6:00pm**). Engine uses a **15-minute** candidate grid today; Phase 0 “anytime” means any free start in that grid within the window (reconcile if product later requires finer granularity).
 - **Q7:** **B — Outlook/office priority** for what the app shows free; phone add/move in Outlook updates availability. Safer nuance: busy sync drives slots; conflicting app rows get flag/defined cancel path (not silent payment rewrite).
 - **Mystery Outlook:** Keep blocked until labeled.
 
@@ -65,27 +77,29 @@ Key code today: `booking_use_case._candidate_slots_for_practitioner`, `outlook_s
 
 ---
 
-## Architecture changes (planned — not implemented)
+## Architecture (Phases 1–5 — implemented behind flag)
+
+Phase 0 is **locked**. Scaffold + runtime paths for Phases **1–5** are **in tree** behind `MULTI_RESOURCE_SCHEDULING` (default **false**). Staging may run with the flag **true**; **production remains flag-off**. Remaining work is integrity/UI hardening ([#9](https://github.com/dagogodboss/naturepath/issues/9)), Entra consent ([#8](https://github.com/dagogodboss/naturepath/issues/8)), and Phase 6 **real** prove — not greenfield implementation.
 
 ### Data model (Phase 1)
 
-**Design:** [phase-1-data-model.md](./phase-1-data-model.md) — drafted; **do not implement until Phase 0 answers are locked**.
+**Design:** [phase-1-data-model.md](./phase-1-data-model.md) — scaffold + seed/backfill landed; runtime booking/Outlook use these collections when the flag is on.
 
 - **`resources`**: `resource_id`, `type` (`practitioner` | `room`), `name`, `weekly_hours[]`, `timezone`, `active`, optional `linked_practitioner_user_id`.
-- **`services`**: add `required_resource_id` (or resource type + assignment), `customer_duration_minutes`, `prep_minutes`, `recovery_minutes`, optional `service_hours` narrower than resource, `booking_window` / `min_notice`, flags (e.g. `no_mondays`).
-- **`outlook_mailbox_connections`**: per mailbox; `authoritative_for_resource_ids[]`, `visibility_only`, category **name** → `resource_id` map, sync status/error timestamps.
-- **`resource_busy_intervals`**: from sync + app bookings; source (`outlook` | `booking` | `manual`); `authoritative`; exclude visibility copies from occupancy queries.
-- **`bookings`**: store `resource_id` (+ optional secondary resources later); customer start/end vs occupied start/end.
+- **`services`**: `required_resource_id`, `customer_duration_minutes` / `duration_minutes`, `prep_minutes`, `recovery_minutes`, optional narrower hours, `booking_window` / `min_notice`, flags (e.g. `no_mondays`).
+- **`outlook_calendar_connections`**: per mailbox; `authoritative_for_resource_ids[]`, `visibility_only`, category **name** → `resource_id` map, `auth_mode`, sync status/error timestamps.
+- **`resource_busy_intervals`**: from sync + app bookings; source (`outlook` | `booking` | `manual` | …); `authoritative`; exclude visibility copies from occupancy queries.
+- **`bookings`**: store `resource_id`; customer start/end vs occupied start/end.
 - **`review_queue`**: unmapped categories, sync races, conflicts needing admin attention.
 
 ### Slot engine (Phase 3)
 
-- Generate candidates from **required resource hours** ∩ free occupied intervals.
-- At confirm: recheck resource + fail closed if sync required and unhealthy; atomic reserve.
+- Generate candidates from **required resource hours** ∩ free occupied intervals (wired when flag on).
+- At confirm: recheck resource; strengthen fail-closed / atomic reserve per [#9](https://github.com/dagogodboss/naturepath/issues/9) A1–A3 (not claimed complete).
 
 ### Admin API / UI (Phases 4–5)
 
-- Four sections under Scheduling & Availability; schedule-change preview; “Why unavailable?” explainer.
+- Four sections under Scheduling & Availability; schedule-change preview; “Why unavailable?” explainer (behind flag). Connection-mode staff clarity tracked in [#9](https://github.com/dagogodboss/naturepath/issues/9#issuecomment-6262127156).
 
 ---
 
@@ -113,7 +127,7 @@ No Discovery/consults on Mondays; clients Tue–Fri from 10:30am; finish by 5:45
 | Salt | Salt room | Does not require Nichole |
 | Business closure | Both | Holiday / clinic closed |
 | Unclassified busy (Nichole auth calendar) | Nichole + review flag | Room stays free |
-| Staff visibility copy | No occupancy | Mark mailbox/event as visibility-only |
+| Staff visibility copy | No occupancy | Prefer shared Clients@ calendar in Outlook; if copies exist on Nichole, mark event/mailbox visibility-only — never treat as Nichole capacity |
 
 **Locked:** Graph category **names**, not colors/titles. Colors may later decorate admin appointment cards only.
 
@@ -243,13 +257,13 @@ No Discovery/consults on Mondays; clients Tue–Fri from 10:30am; finish by 5:45
 ## Success criteria
 
 - [x] Phase 0 Jonathan answers recorded (Message 3 locked 2026-10-18)
-- [ ] Data model supports N practitioners / N rooms
-- [ ] Outlook category names drive resource busy intervals
-- [ ] Unmapped / race items appear in admin review
-- [ ] Fail closed on sync failure
-- [ ] Admin can configure all four sections without code
-- [ ] “Why unavailable?” works for a blocked slot
-- [ ] Production: Discovery at 3pm does **not** block Salt at 3pm (America/Chicago)
+- [x] Data model scaffold supports N practitioners / N rooms (flag-gated; staging seeded)
+- [ ] Outlook category names drive **live** resource busy intervals (blocked on Entra [#8](https://github.com/dagogodboss/naturepath/issues/8))
+- [ ] Unmapped / race items appear in admin review (with real sync)
+- [ ] Fail closed on sync failure (intent; [#9](https://github.com/dagogodboss/naturepath/issues/9) A1 still open)
+- [x] Admin four-section shell behind flag (staging); polish + connection-mode UX remaining
+- [x] “Why unavailable?” explainer behind flag (staging)
+- [ ] **Production** (America/Chicago): Discovery at 3pm does **not** block Salt at 3pm — requires real Outlook busy prove, **not** synthetic-only artifacts
 
 ---
 

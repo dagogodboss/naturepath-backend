@@ -1,10 +1,23 @@
 # Phase 6 — Migrate production + prove Salt ≠ Discovery
 
-**Status:** Runbook + **staging ops checklist** (below); P1–P5 **implemented behind flag** (default false). **Staging API live** with seed, service attach, booking backfill applied, Nichole connection templates patched; **Discovery≠Salt proved on staging API** (synthetic busy); **admin JWT smoke passed**; **prod API** revision **natural-path-api-00021-hv8** with flag **unset/false**; **prod Mongo `natural_path` data prep applied** (seed, 7 services, 2 bookings + resource_busy, Outlook templates + Clients@ placeholder) — see `qa/reports/multi-resource-proof/prod-migrate-20261018f.json`; **blocked on Nichole Graph re-consent**, **Clients@ OAuth**, prod flag flip, and manual P1–P8.  
+**Status:** Runbook + **staging ops checklist** (below); P1–P5 **implemented behind flag** (default false). **Staging API live** with seed, service attach, booking backfill, Outlook connection templates / Clients@ placeholder; **admin JWT smoke passed**; **prod API** revision **natural-path-api-00021-hv8** with flag **unset/false**; **prod Mongo `natural_path` data prep applied** — see `qa/reports/multi-resource-proof/prod-migrate-20261018f.json`.  
+**Primary unblock:** Entra admin consent for Application **`Calendars.Read`** ([naturepath#8](https://github.com/dagogodboss/naturepath/issues/8)) so app-only Graph can read **Clients@** + Nichole calendars. Delegated Clients@ OAuth is **not** the preferred path (legacy tokens unusable).  
 **Timezone:** America/Chicago.  
 **GCP:** project-990664b0-1bae-4746-88d only.
 
-**STOP:** Do **not** enable `MULTI_RESOURCE_SCHEDULING` in **production**, deploy for cutover, commit/push for cutover, or mark the Goal complete until staging P1–P8 pass and Jonathan sign-off. Local/agent work stays flag-off unless ops runs staging checklist step 6.
+**STOP:** Do **not** enable `MULTI_RESOURCE_SCHEDULING` in **production**, deploy for cutover, or mark the Goal complete until Entra Accept + staging **real Outlook** Discovery≠Salt prove + Jonathan sign-off. Synthetic prove artifacts are **not** that gate. Local/agent work stays flag-off unless ops runs staging checklist step 6.
+
+### Prove artifacts — synthetic vs real (do not conflate)
+
+| Artifact / claim | Mode | Counts as cutover / Goal gate? |
+|------------------|------|--------------------------------|
+| `prove_multi_resource_slots.py` | In-process **synthetic** busy | **No** — unit/scaffold only |
+| `discovery-neq-salt-staging-20261018c.json` | Staging API + **synthetic** Nichole busy (`source=staging_prove_synthetic`) | **No** — engine wiring smoke only |
+| `post-consent-cutover-*-*.json` dry-run exit **10** | Graph probe; Entra still denied | **No** — consent still required |
+| Post-consent cutover with `INJECT_SYNTHETIC_BUSY=0` / `--real-busy-only` | **Real** Outlook→`resource_busy_intervals` | **Yes** for staging gate (after Accept) |
+| Prod flag on + live CT book | Real calendars in production | **Yes** for Goal complete |
+
+**Do not** write “Discovery≠Salt proved” without saying **synthetic** or **real Outlook**.
 
 ### Staging snapshot (2026-10-18, automatable ops)
 
@@ -19,18 +32,19 @@
 | Booking backfill | **Applied** — 2/2 updated, 0 anomalies → `qa/reports/multi-resource-proof/booking-backfill-apply-20261018b.json` |
 | Nichole Outlook row | `connection_id` **0ae88711-4e79-42b4-831f-141705d6ca9c** — locked maps applied; **sync failed 2026-10-18** (Graph token refresh **400**) → `qa/reports/multi-resource-proof/outlook-sync-nichole-20261018c.json`; `resource_busy_intervals` for Nichole still **0** until re-consent + successful sync |
 | Clients@ Outlook row | **Placeholder** `connection_id` **9fba4c5f-38e7-4a69-888c-3f84627ed3ea** — maps prefilled, `is_active=false`, `oauth_pending=true`; real OAuth must supply refresh token |
-| Discovery ≠ Salt prove (staging API) | **Pass** — 2026-10-21 CT, synthetic Nichole Discovery busy 15:00–15:45; Discovery slots exclude 15:00, Salt still offers 15:00 → `qa/reports/multi-resource-proof/discovery-neq-salt-staging-20261018c.json` |
-| Admin API smoke (JWT) | **Pass** — minted access JWT for staging **owner** (same pattern as tests; no password invented); `GET /api/admin/resources` **200** (Dr. Nichole + Salt room) → `qa/reports/multi-resource-proof/admin-smoke-20261018c.json` |
+| Discovery ≠ Salt prove (staging API) | **Synthetic pass only** — 2026-10-21 CT, injected Nichole Discovery busy 15:00–15:45; Discovery excludes 15:00, Salt still offers 15:00 → `qa/reports/multi-resource-proof/discovery-neq-salt-staging-20261018c.json`. **Real Outlook busy prove still outstanding.** |
+| Admin API smoke (JWT) | **Pass** — minted access JWT for staging **owner**; `GET /api/admin/resources` **200** → `qa/reports/multi-resource-proof/admin-smoke-20261018c.json` (smoke ≠ Goal complete) |
 | VPC ops helper | `backend/scripts/phase6_vm_staging_ops.py` on **naturepath-data-1** (Mongo + staging API; no secrets in output) |
 | Progress artifact | `qa/reports/multi-resource-proof/staging-progress-20261018c.json` |
+| Graph app-only probe | **Blocked** — exit **10** / 403 Clients@ (`post-consent-cutover-staging-20261018*.json`) until Entra Accept |
 
-**Human OAuth still required (brief):**
+**Human / Entra still required (order matters):**
 
-1. **Nichole** — **Re-consent required on staging** (sync errors: token refresh 400). After OAuth, run sync (practitioner **POST** `/api/practitioners/outlook/sync` or VM helper) and confirm `resource_busy_intervals` populate + category maps in `/admin/scheduling`.
-2. **Clients@thenaturalpathla.com** — Practitioner (or admin) completes Microsoft delegated consent for that mailbox on **staging** callback URL; on success either activate placeholder **9fba4c5f-…** or merge into OAuth-created row and delete duplicate. Confirm Salt Session / Salt / Business Closure maps match `GET …/outlook/locked-connection-templates`.
-3. **Entra** — Staging redirect `https://natural-path-api-staging-30255322344.us-central1.run.app/api/practitioners/outlook/callback` registered if missing.
-4. **Admin JWT** — Resources list **done** (artifact above). Still capture locked templates + review queue JSON when convenient.
-5. **Manual P1–P8** — Automated core + staging API synthetic prove **done**; remaining: real Outlook-tagged busy, live booking at 15:00, Monday rule, P5 review queue, etc. (America/Chicago).
+1. **Entra Global Admin — primary** — Accept Application **`Calendars.Read`** for app `daf7c7db-…` ([#8](https://github.com/dagogodboss/naturepath/issues/8), [ops-entra-consent-request.md](./ops-entra-consent-request.md)). Then restrict the app to **Clients@** + Nichole mailboxes (Exchange application access policy / RBAC) — **required before cutover**, not “optional later.”
+2. **App-only sync** — After Accept, run `phase6_post_consent_cutover` on staging (probe → auth_mode application → sync → **real-busy** Discovery≠Salt). Prefer shared Clients@ calendar for Salt visibility ([#9 comment](https://github.com/dagogodboss/naturepath/issues/9#issuecomment-6262033979)).
+3. **Delegated fallback (only if app-only blocked)** — Nichole / Clients@ device-code or browser consent; legacy refresh tokens are **not** recoverable. Staging redirect must stay registered if using delegated.
+4. **Admin JWT** — Resources list **done**. Still capture locked templates + review queue JSON when convenient.
+5. **Manual P1–P8** — Synthetic engine prove **done**; remaining: **real** Outlook-tagged busy, live booking at 15:00, Monday rule, P5 review queue, etc. (America/Chicago).
 
 Ops helper (VM Mongo, same path as seed): `python -m scripts.apply_locked_outlook_connection_templates --report-json …`
 
@@ -132,7 +146,7 @@ PYTHONPATH=backend pytest backend/tests/test_multi_resource* -q
 
 **Staging manual (America/Chicago):**
 
-1. With Nichole busy for Discovery at **15:00** (book or Outlook-tagged busy), confirm Salt still offers **15:00**. *(Synthetic busy + API slots: **pass** 2026-10-21 — artifact `discovery-neq-salt-staging-20261018c.json`; repeat with Outlook after Nichole re-consent.)*
+1. With Nichole busy for Discovery at **15:00** from **real Outlook** (or a tagged live event — **not** `staging_prove_synthetic`), confirm Salt still offers **15:00**. *(Synthetic API prove already passed 2026-10-21 — `discovery-neq-salt-staging-20261018c.json` — that is **not** this step.)*
 2. Book Salt at **15:00**; confirm Discovery still offers other Nichole-free times same day.
 3. **Monday:** no Discovery slots; Salt may still show Mon–Fri window.
 
@@ -182,11 +196,11 @@ Local Mongo from laptop is **not** reachable (private IP); use VM helper or stag
 | Admin scheduling API + UI shell | `scheduling_admin_routes.py`, `SchedulingAdmin.jsx` | 404 when flag false |
 | Inventory + cutover order | this doc (§ Inventory / Cutover order) | Docs + staging checklist above |
 
-**Explicitly not done:** Clients@ OAuth (human), Nichole Graph re-consent + successful sync, staging manual P1–P8 (real calendar/bookings), production **flag enable**, prod seed/backfill, prod P1–P8, Goal complete.
+**Explicitly not done:** Entra Application **Calendars.Read** Accept + mailbox least-privilege scope, successful **app-only** sync of Clients@ + Nichole, staging **real Outlook** Discovery≠Salt, staging manual P1–P8, production **flag enable**, prod P1–P8, Goal complete. (Prod Mongo seed/backfill already applied with flag off.)
 
-**Staging automatable ops done (2026-10-18):** separate Cloud Run service, flag **on** staging only, seed/indexes/service attach, **booking backfill apply**, Nichole connection template PATCH + Clients@ placeholder, **Discovery≠Salt API prove**, **admin resources smoke**, **prod deploy flag-off** (revision **00020-j5l**).
+**Staging automatable ops done (2026-10-18):** separate Cloud Run service, flag **on** staging only, seed/indexes/service attach, **booking backfill apply**, Nichole connection template PATCH + Clients@ placeholder, **synthetic** Discovery≠Salt API prove, **admin resources smoke**, **prod deploy flag-off**.
 
-**Goal status:** Phase 6 **blocked on staging ops** — **do not** mark the multi-resource Goal complete.
+**Goal status:** Phase 6 **blocked on Entra + real Outlook prove** — **do not** mark the multi-resource Goal complete.
 
 ### Prove command (local)
 
