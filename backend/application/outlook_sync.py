@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 import httpx
 
@@ -18,6 +18,9 @@ from infrastructure.external.microsoft_graph import (
     OutlookTokenCipher,
     event_to_busy_intervals,
 )
+
+# Test seam: awaited after final prepublication ownership read (Codex B1 window).
+_legacy_pre_publish_hook: Optional[Callable[..., Awaitable[None]]] = None
 
 
 class OutlookSyncError(Exception):
@@ -160,10 +163,10 @@ async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[s
             }
 
     publish_generation = multi_resource_meta.get("active_busy_generation")
-    if (
-        settings.multi_resource_scheduling
-        and publish_generation is not None
-    ):
+    fenced_legacy = (
+        settings.multi_resource_scheduling and publish_generation is not None
+    )
+    if fenced_legacy:
         # Generation-fence publication: re-check ownership immediately before
         # any legacy/success writes (Codex: fence must not be an earlier read).
         active_now = await _read_active_busy_generation(db, connection_id)
@@ -177,10 +180,13 @@ async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[s
                 "review_item_count": 0,
                 "sync_conflict_review_count": 0,
             }
+        # Codex B1 window: after ownership read, before legacy mutation.
+        if _legacy_pre_publish_hook is not None:
+            await _legacy_pre_publish_hook(
+                connection_id=connection_id,
+                publish_generation=int(publish_generation),
+            )
 
-    await db.outlook_calendar_events.delete_many({"connection_id": connection_id})
-    if intervals:
-        await db.outlook_calendar_events.insert_many(intervals)
     sync_patch: Dict[str, Any] = {
         "last_synced_at": now.isoformat(),
         "last_sync_status": "ok",
@@ -191,42 +197,72 @@ async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[s
     if next_refresh is not None:
         sync_patch["refresh_token_encrypted"] = cipher.encrypt(next_refresh)
 
-    # Fence success metadata on active_busy_generation so an older sync cannot
-    # overwrite a newer winner's freshness after publication began.
-    publish_filter: Dict[str, Any] = {"connection_id": connection_id}
-    if (
-        settings.multi_resource_scheduling
-        and publish_generation is not None
-    ):
-        publish_filter["active_busy_generation"] = int(publish_generation)
+    if fenced_legacy:
+        # Insert-then-CAS-then-delete-old so a delayed loser cannot wipe the
+        # winner's practitioner-calendar events after the ownership read
+        # (issue #9 B1 compatibility publication).
+        gen = int(publish_generation)
+        tagged = []
+        for interval in intervals:
+            row = dict(interval)
+            row["sync_generation"] = gen
+            tagged.append(row)
+        if tagged:
+            await db.outlook_calendar_events.insert_many(tagged)
 
-    publish_result = await db.outlook_calendar_connections.update_one(
-        publish_filter,
-        {"$set": sync_patch},
-    )
-    try:
-        published = int(getattr(publish_result, "modified_count", 0) or 0) > 0
-        matched = int(getattr(publish_result, "matched_count", 0) or 0) > 0
-    except (TypeError, ValueError):
-        # Unit-test doubles without UpdateResult fields — treat as published.
-        published = True
-        matched = True
-
-    if (
-        settings.multi_resource_scheduling
-        and publish_generation is not None
-        and not published
-        and not matched
-    ):
-        return {
-            "status": "skipped_stale_generation",
-            "event_count": 0,
-            "last_synced_at": connection.get("last_synced_at"),
-            "skipped_stale_generation": True,
-            "resource_interval_count": 0,
-            "review_item_count": 0,
-            "sync_conflict_review_count": 0,
+        publish_filter: Dict[str, Any] = {
+            "connection_id": connection_id,
+            "active_busy_generation": gen,
         }
+        publish_result = await db.outlook_calendar_connections.update_one(
+            publish_filter,
+            {
+                "$set": {
+                    **sync_patch,
+                    "active_legacy_generation": gen,
+                }
+            },
+        )
+        try:
+            published = int(getattr(publish_result, "modified_count", 0) or 0) > 0
+            matched = int(getattr(publish_result, "matched_count", 0) or 0) > 0
+        except (TypeError, ValueError):
+            published = True
+            matched = True
+
+        if not published and not matched:
+            await db.outlook_calendar_events.delete_many(
+                {
+                    "connection_id": connection_id,
+                    "sync_generation": gen,
+                }
+            )
+            return {
+                "status": "skipped_stale_generation",
+                "event_count": 0,
+                "last_synced_at": connection.get("last_synced_at"),
+                "skipped_stale_generation": True,
+                "resource_interval_count": 0,
+                "review_item_count": 0,
+                "sync_conflict_review_count": 0,
+            }
+
+        # Winner: drop prior legacy generations (including untagged rows).
+        await db.outlook_calendar_events.delete_many(
+            {
+                "connection_id": connection_id,
+                "sync_generation": {"$ne": gen},
+            }
+        )
+    else:
+        # Flag-off / no generation: legacy delete-then-insert path.
+        await db.outlook_calendar_events.delete_many({"connection_id": connection_id})
+        if intervals:
+            await db.outlook_calendar_events.insert_many(intervals)
+        await db.outlook_calendar_connections.update_one(
+            {"connection_id": connection_id},
+            {"$set": sync_patch},
+        )
 
     result: Dict[str, Any] = {
         "status": "ok",

@@ -4,13 +4,19 @@ Atomic per-resource occupancy reservations (issue #9 A2/A3).
 Lock identity is (resource_id, date, occupied_start, occupied_end), not
 practitioner/date/session-start. Pending holds expire with the slot lock TTL;
 confirmed occupancy has no expiry.
+
+Concurrency (Codex A2 follow-up):
+- Optional per-(resource_id, date) lease serializes acquire when the locks
+  collection is available.
+- Durable fencing: an acknowledged or confirmed winner is never pruned by a
+  delayed inserter, even if the delayed row has a smaller reservation_id.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence
 
 from application.multi_resource_slots import minutes_from_hhmm
 from domain.entities.models import generate_id, utc_now
@@ -20,6 +26,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_HOLD_SECONDS = 300
 RESERVATION_PENDING = "pending"
 RESERVATION_CONFIRMED = "confirmed"
+DAY_LOCK_TTL_SECONDS = 15
+
+# Test seam: awaited after conflict precheck and before insert (Codex A2 window).
+_pre_insert_hook: Optional[Callable[..., Awaitable[None]]] = None
 
 
 def intervals_overlap(a0: int, a1: int, b0: int, b1: int) -> bool:
@@ -63,6 +73,13 @@ def reservation_is_active(
         return True
     clock = _as_utc(now or datetime.now(timezone.utc))
     return _as_utc(expires) > clock
+
+
+def reservation_is_fenced(row: Mapping[str, Any]) -> bool:
+    """Acknowledged or confirmed rows must not be revoked by a peer insert."""
+    if str(row.get("status") or "").lower() == RESERVATION_CONFIRMED:
+        return True
+    return bool(row.get("acknowledged"))
 
 
 def row_overlaps_occupied(
@@ -131,6 +148,109 @@ async def find_overlapping_reservations(
     return out
 
 
+async def _acquire_day_lock(
+    db: Any,
+    *,
+    resource_id: str,
+    date_str: str,
+    holder: str,
+    now: datetime,
+) -> Optional[str]:
+    """
+    Exclusive lease on (resource_id, date). Returns holder token, or None when
+    the locks collection is unavailable (unit-test fakes).
+    """
+    locks = getattr(db, "resource_reservation_locks", None)
+    if locks is None or not hasattr(locks, "find_one_and_update"):
+        return None
+
+    lock_id = f"{resource_id}:{date_str}"
+    expires = (_as_utc(now) + timedelta(seconds=DAY_LOCK_TTL_SECONDS)).isoformat()
+    now_iso = _as_utc(now).isoformat()
+
+    for _ in range(40):
+        try:
+            await locks.insert_one(
+                {
+                    "_id": lock_id,
+                    "resource_id": resource_id,
+                    "date": date_str,
+                    "holder": holder,
+                    "expires_at": expires,
+                }
+            )
+            return holder
+        except Exception:
+            # Duplicate key or fake without duplicate errors — try steal/recheck.
+            pass
+
+        try:
+            from pymongo import ReturnDocument
+
+            stolen = await locks.find_one_and_update(
+                {
+                    "_id": lock_id,
+                    "expires_at": {"$lt": now_iso},
+                },
+                {
+                    "$set": {
+                        "holder": holder,
+                        "expires_at": expires,
+                        "resource_id": resource_id,
+                        "date": date_str,
+                    }
+                },
+                return_document=ReturnDocument.AFTER,
+            )
+            if stolen and str(stolen.get("holder") or "") == holder:
+                return holder
+        except Exception:
+            logger.debug("resource day lock steal failed for %s", lock_id, exc_info=True)
+
+        await asyncio.sleep(0.005)
+
+    raise ValueError("Selected time is no longer available")
+
+
+async def _release_day_lock(
+    db: Any,
+    *,
+    resource_id: str,
+    date_str: str,
+    holder: str,
+) -> None:
+    locks = getattr(db, "resource_reservation_locks", None)
+    if locks is None:
+        return
+    lock_id = f"{resource_id}:{date_str}"
+    try:
+        await locks.delete_one({"_id": lock_id, "holder": holder})
+    except Exception:
+        logger.debug("resource day lock release failed for %s", lock_id, exc_info=True)
+
+
+async def _acknowledge_reservation(
+    col: Any,
+    *,
+    reservation_id: str,
+    clock_utc: datetime,
+) -> Dict[str, Any]:
+    """Durable fence: mark winner acknowledged before returning success."""
+    await col.update_one(
+        {"reservation_id": reservation_id},
+        {
+            "$set": {
+                "acknowledged": True,
+                "updated_at": clock_utc.isoformat(),
+            }
+        },
+    )
+    still = await col.find_one({"reservation_id": reservation_id}, {"_id": 0})
+    if not still:
+        raise ValueError("Selected time is no longer available")
+    return still
+
+
 async def acquire_resource_reservation(
     db: Any,
     *,
@@ -145,7 +265,7 @@ async def acquire_resource_reservation(
     now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """
-    Bounded atomic-ish reserve via insert + conflict recheck.
+    Bounded atomic reserve via day-lease (when available) + insert + fenced recheck.
 
     Returns the reservation doc. Raises ValueError on conflict or DB failure.
     Idempotent for the same booking_id overlapping the same window.
@@ -162,6 +282,52 @@ async def acquire_resource_reservation(
     else:
         clock_utc = clock if isinstance(clock, datetime) else datetime.now(timezone.utc)
 
+    lock_holder = generate_id()
+    held = await _acquire_day_lock(
+        db,
+        resource_id=resource_id,
+        date_str=date_str,
+        holder=lock_holder,
+        now=clock_utc,
+    )
+    try:
+        return await _acquire_resource_reservation_locked(
+            db,
+            col=col,
+            resource_id=resource_id,
+            date_str=date_str,
+            occupied_start=occupied_start,
+            occupied_end=occupied_end,
+            booking_id=booking_id,
+            owner_user_id=owner_user_id,
+            hold_seconds=hold_seconds,
+            status=status,
+            clock_utc=clock_utc,
+        )
+    finally:
+        if held:
+            await _release_day_lock(
+                db,
+                resource_id=resource_id,
+                date_str=date_str,
+                holder=lock_holder,
+            )
+
+
+async def _acquire_resource_reservation_locked(
+    db: Any,
+    *,
+    col: Any,
+    resource_id: str,
+    date_str: str,
+    occupied_start: str,
+    occupied_end: str,
+    booking_id: str,
+    owner_user_id: str,
+    hold_seconds: int,
+    status: str,
+    clock_utc: datetime,
+) -> Dict[str, Any]:
     # Move/refresh own row first (idempotent re-lock, confirm, or reschedule).
     existing_own = await col.find(
         {"booking_id": booking_id, "resource_id": resource_id},
@@ -169,7 +335,6 @@ async def acquire_resource_reservation(
     ).to_list(length=20)
     if existing_own:
         primary = existing_own[0]
-        # Drop duplicate own rows if any (should not happen).
         for extra in existing_own[1:]:
             try:
                 await col.delete_many({"reservation_id": extra.get("reservation_id")})
@@ -191,8 +356,6 @@ async def acquire_resource_reservation(
             ).isoformat()
         else:
             patch["expires_at"] = None
-        # Conflict-check before committing the move so a failed move keeps the
-        # prior window when update is skipped — load prior, check, then set.
         prior = dict(primary)
         await col.update_one(
             {"reservation_id": primary["reservation_id"]},
@@ -208,7 +371,6 @@ async def acquire_resource_reservation(
             now=clock_utc,
         )
         if conflicts:
-            # Restore prior reservation window (failed move retains old hold).
             restore = {
                 "occupied_start": prior.get("occupied_start"),
                 "occupied_end": prior.get("occupied_end"),
@@ -222,9 +384,11 @@ async def acquire_resource_reservation(
                 {"$set": restore},
             )
             raise ValueError("Selected time is no longer available")
-        refreshed = dict(primary)
-        refreshed.update(patch)
-        return refreshed
+        return await _acknowledge_reservation(
+            col,
+            reservation_id=str(primary["reservation_id"]),
+            clock_utc=clock_utc,
+        )
 
     conflicts = await find_overlapping_reservations(
         db,
@@ -238,6 +402,14 @@ async def acquire_resource_reservation(
     if conflicts:
         raise ValueError("Selected time is no longer available")
 
+    # Codex A2 barrier window: after precheck, before insert.
+    if _pre_insert_hook is not None:
+        await _pre_insert_hook(
+            booking_id=booking_id,
+            resource_id=resource_id,
+            date_str=date_str,
+        )
+
     reservation_id = generate_id()
     doc: Dict[str, Any] = {
         "reservation_id": reservation_id,
@@ -248,6 +420,7 @@ async def acquire_resource_reservation(
         "booking_id": booking_id,
         "owner_user_id": owner_user_id,
         "status": status,
+        "acknowledged": False,
         "expires_at": (
             (clock_utc + timedelta(seconds=int(hold_seconds))).isoformat()
             if status == RESERVATION_PENDING
@@ -259,15 +432,12 @@ async def acquire_resource_reservation(
     try:
         await col.insert_one(dict(doc))
     except Exception:
-        # Unique booking race or missing insert_one on fake — fall back to update.
         logger.exception("resource reservation insert failed for %s", booking_id)
         raise ValueError("Selected time is no longer available") from None
 
-    # Double-check under concurrency (issue #9 A2 real-Mongo).
-    # Lexicographically smallest reservation_id wins. A single yield+recheck is
-    # not enough: each contender can briefly observe only its own insert and
-    # both return success. Retry until the overlapping set is stable, prune
-    # losers, and confirm our row still exists before returning.
+    # Fenced conflict resolution (issue #9 A2). Confirmed/acknowledged peers
+    # always win; delayed inserters must not revoke them. Among unfenced
+    # pending peers, lexicographically smallest reservation_id wins.
     my_key = str(reservation_id)
     for attempt in range(8):
         await asyncio.sleep(0 if attempt == 0 else 0.002)
@@ -281,10 +451,49 @@ async def acquire_resource_reservation(
             and row_overlaps_occupied(row, occupied_start, occupied_end)
         ]
         if not any(str(r.get("reservation_id") or "") == my_key for r in overlapping):
-            # Peer winner already pruned us.
             raise ValueError("Selected time is no longer available")
 
-        winner_id = min(str(r.get("reservation_id") or "") for r in overlapping)
+        fenced_others = [
+            row
+            for row in overlapping
+            if str(row.get("reservation_id") or "") != my_key
+            and reservation_is_fenced(row)
+        ]
+        if fenced_others:
+            try:
+                await col.delete_many({"reservation_id": reservation_id})
+            except Exception:
+                logger.exception(
+                    "Failed to roll back reservation %s", reservation_id
+                )
+            raise ValueError("Selected time is no longer available")
+
+        # Confirmed insert for this booking is itself a fence — treat as winner.
+        if str(status).lower() == RESERVATION_CONFIRMED:
+            for row in overlapping:
+                other_id = str(row.get("reservation_id") or "")
+                if (
+                    other_id
+                    and other_id != my_key
+                    and not reservation_is_fenced(row)
+                ):
+                    try:
+                        await col.delete_many({"reservation_id": other_id})
+                    except Exception:
+                        logger.exception(
+                            "Failed to prune losing reservation %s", other_id
+                        )
+            return await _acknowledge_reservation(
+                col, reservation_id=reservation_id, clock_utc=clock_utc
+            )
+
+        unfenced = [
+            row
+            for row in overlapping
+            if not reservation_is_fenced(row)
+            or str(row.get("reservation_id") or "") == my_key
+        ]
+        winner_id = min(str(r.get("reservation_id") or "") for r in unfenced)
         if my_key != winner_id:
             try:
                 await col.delete_many({"reservation_id": reservation_id})
@@ -296,15 +505,18 @@ async def acquire_resource_reservation(
 
         for row in overlapping:
             other_id = str(row.get("reservation_id") or "")
-            if other_id and other_id != winner_id:
-                try:
-                    await col.delete_many({"reservation_id": other_id})
-                except Exception:
-                    logger.exception(
-                        "Failed to prune losing reservation %s", other_id
-                    )
+            if not other_id or other_id == winner_id:
+                continue
+            if reservation_is_fenced(row):
+                # Should be unreachable (fenced_others handled above).
+                continue
+            try:
+                await col.delete_many({"reservation_id": other_id})
+            except Exception:
+                logger.exception(
+                    "Failed to prune losing reservation %s", other_id
+                )
 
-        # Re-read: done only when no overlapping peers remain.
         day_rows = await _load_resource_day_rows(
             col, resource_id=resource_id, date_str=date_str
         )
@@ -316,12 +528,10 @@ async def acquire_resource_reservation(
             and str(row.get("reservation_id") or "") != my_key
         ]
         if not peers:
-            still_mine = await col.find_one(
-                {"reservation_id": reservation_id}, {"_id": 0}
+            return await _acknowledge_reservation(
+                col, reservation_id=reservation_id, clock_utc=clock_utc
             )
-            if not still_mine:
-                raise ValueError("Selected time is no longer available")
-            return doc
+        # Peer appeared — if fenced, we lose on next loop; else continue.
 
     try:
         await col.delete_many({"reservation_id": reservation_id})
@@ -346,6 +556,7 @@ async def promote_reservation_confirmed(
         {
             "$set": {
                 "status": RESERVATION_CONFIRMED,
+                "acknowledged": True,
                 "expires_at": None,
                 "updated_at": utc_now().isoformat(),
             }

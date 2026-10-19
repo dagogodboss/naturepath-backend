@@ -148,6 +148,161 @@ async def test_a2_real_mongo_exactly_one_overlapping_reservation_winner(real_db)
     ).to_list(20)
     assert len(remaining) == 1
     assert remaining[0]["booking_id"] == wins[0][1]
+    assert remaining[0].get("acknowledged") is True
+
+
+@pytest.mark.asyncio
+async def test_a2_real_mongo_delayed_inserter_cannot_revoke_acknowledged_winner(
+    real_db,
+):
+    """
+    Codex A2 window: pause B after precheck before insert; A acquires and
+    returns; resume B with a smaller reservation_id — A must survive.
+    """
+    import application.resource_reservation as rr
+
+    db = real_db
+    date_str = "2026-10-22"
+    a_done = asyncio.Event()
+    b_precheck_done = asyncio.Event()
+    results: Dict[str, Any] = {}
+    id_a = "zzzz-winner-a"
+    id_b = "aaaa-delayed-b"
+
+    async def pre_insert_hook(*, booking_id, resource_id, date_str):
+        if booking_id == "bk-b":
+            b_precheck_done.set()
+            await a_done.wait()
+
+    async def run_a():
+        await b_precheck_done.wait()
+        try:
+            doc = await acquire_resource_reservation(
+                db,
+                resource_id=SALT,
+                date_str=date_str,
+                occupied_start="15:00",
+                occupied_end="16:00",
+                booking_id="bk-a",
+                owner_user_id="user-a",
+            )
+            results["a"] = ("ok", doc)
+        except ValueError as exc:
+            results["a"] = ("err", str(exc))
+        finally:
+            a_done.set()
+
+    async def run_b():
+        try:
+            doc = await acquire_resource_reservation(
+                db,
+                resource_id=SALT,
+                date_str=date_str,
+                occupied_start="15:15",
+                occupied_end="16:15",
+                booking_id="bk-b",
+                owner_user_id="user-b",
+            )
+            results["b"] = ("ok", doc)
+        except ValueError as exc:
+            results["b"] = ("err", str(exc))
+
+    # Disable day-lock so the exact precheck→insert interleaving is reachable;
+    # fencing (not timing) must protect the acknowledged winner.
+    async def no_day_lock(*_a, **_k):
+        return None
+
+    # generate_id order with gather(B, A) and B paused in pre-insert hook:
+    # B lock_holder, A lock_holder, A reservation_id (larger), B reservation_id (smaller).
+    seq = iter(["lock-b", "lock-a", id_a, id_b])
+
+    def gen_id():
+        try:
+            return next(seq)
+        except StopIteration:
+            return uuid.uuid4().hex
+
+    with patch.object(rr, "_acquire_day_lock", side_effect=no_day_lock), patch.object(
+        rr, "_pre_insert_hook", pre_insert_hook
+    ), patch.object(rr, "generate_id", side_effect=gen_id):
+        await asyncio.gather(run_b(), run_a())
+
+    assert results.get("a", ("?",))[0] == "ok", results
+    assert results.get("b", ("?",))[0] == "err", results
+
+    remaining = await db.resource_reservations.find(
+        {"resource_id": SALT, "date": date_str}, {"_id": 0}
+    ).to_list(20)
+    assert len(remaining) == 1
+    assert remaining[0]["booking_id"] == "bk-a"
+    assert remaining[0].get("acknowledged") is True
+    assert remaining[0]["reservation_id"] == id_a
+
+
+@pytest.mark.asyncio
+async def test_a2_real_mongo_delayed_inserter_cannot_revoke_confirmed(
+    real_db,
+):
+    """Delayed pending insert must not prune an already-confirmed peer."""
+    import application.resource_reservation as rr
+    from application.resource_reservation import (
+        RESERVATION_CONFIRMED,
+        promote_reservation_confirmed,
+    )
+
+    db = real_db
+    date_str = "2026-10-23"
+    a_done = asyncio.Event()
+    b_precheck_done = asyncio.Event()
+
+    async def pre_insert_hook(*, booking_id, resource_id, date_str):
+        if booking_id == "bk-b":
+            b_precheck_done.set()
+            await a_done.wait()
+
+    async def no_day_lock(*_a, **_k):
+        return None
+
+    async def run_a():
+        await b_precheck_done.wait()
+        await acquire_resource_reservation(
+            db,
+            resource_id=SALT,
+            date_str=date_str,
+            occupied_start="15:00",
+            occupied_end="16:00",
+            booking_id="bk-a",
+            owner_user_id="user-a",
+            status=RESERVATION_CONFIRMED,
+        )
+        await promote_reservation_confirmed(
+            db, booking_id="bk-a", resource_id=SALT
+        )
+        a_done.set()
+
+    async def run_b():
+        with pytest.raises(ValueError, match="no longer available"):
+            await acquire_resource_reservation(
+                db,
+                resource_id=SALT,
+                date_str=date_str,
+                occupied_start="15:15",
+                occupied_end="16:15",
+                booking_id="bk-b",
+                owner_user_id="user-b",
+            )
+
+    with patch.object(rr, "_acquire_day_lock", side_effect=no_day_lock), patch.object(
+        rr, "_pre_insert_hook", pre_insert_hook
+    ):
+        await asyncio.gather(run_b(), run_a())
+
+    remaining = await db.resource_reservations.find(
+        {"resource_id": SALT, "date": date_str}, {"_id": 0}
+    ).to_list(20)
+    assert len(remaining) == 1
+    assert remaining[0]["booking_id"] == "bk-a"
+    assert remaining[0]["status"] == RESERVATION_CONFIRMED
 
 
 @pytest.mark.asyncio
@@ -457,3 +612,109 @@ async def test_b1_real_mongo_legitimate_empty_snapshot(real_db):
 
     rows = await fetch_resource_busy(db, NICHOLE, "2026-10-20")
     assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_b1_real_mongo_delayed_legacy_publish_cannot_wipe_winner(real_db):
+    """
+    Codex B1 compatibility window: pause A after final ownership read; complete
+    B; resume A's legacy publish — winner metadata AND legacy rows must survive.
+    """
+    import application.outlook_category_sync as ocs
+    import application.outlook_sync as o_sync
+
+    db = real_db
+    connection = _nichole_connection()
+    await db.outlook_calendar_connections.insert_one(dict(connection))
+    await db.resources.insert_many(
+        [
+            {"resource_id": NICHOLE, "active": True},
+            {"resource_id": SALT, "active": True},
+        ]
+    )
+    await db.outlook_calendar_events.create_index("connection_id")
+
+    a_owned = asyncio.Event()
+    b_done = asyncio.Event()
+    results: Dict[str, Any] = {}
+
+    async def legacy_hook(*, connection_id, publish_generation):
+        # Only the older sync (gen 5) pauses in the ownership→mutate window.
+        if int(publish_generation) == 5:
+            a_owned.set()
+            await b_done.wait()
+
+    async def run_a_stale():
+        conn_doc = await db.outlook_calendar_connections.find_one(
+            {"connection_id": connection["connection_id"]}, {"_id": 0}
+        )
+        with patch.object(settings, "multi_resource_scheduling", True), patch(
+            "application.outlook_sync.graph_client"
+        ) as mock_graph_factory, patch.object(
+            ocs, "_next_sync_generation", return_value=5
+        ):
+            client = MagicMock()
+            client.client_credentials_token = AsyncMock(
+                return_value={"access_token": "t"}
+            )
+            client.list_user_calendar_view = AsyncMock(
+                return_value=[
+                    _graph_event(event_id="loser-a-legacy", categories=["Discovery"])
+                ]
+            )
+            mock_graph_factory.return_value = client
+            results["a"] = await sync_outlook_connection(db, conn_doc)
+
+    async def run_b_winner():
+        await a_owned.wait()
+        conn_doc = await db.outlook_calendar_connections.find_one(
+            {"connection_id": connection["connection_id"]}, {"_id": 0}
+        )
+        with patch.object(settings, "multi_resource_scheduling", True), patch(
+            "application.outlook_sync.graph_client"
+        ) as mock_graph_factory, patch.object(
+            ocs, "_next_sync_generation", return_value=20
+        ):
+            client = MagicMock()
+            client.client_credentials_token = AsyncMock(
+                return_value={"access_token": "t"}
+            )
+            client.list_user_calendar_view = AsyncMock(
+                return_value=[
+                    _graph_event(event_id="winner-b-legacy", categories=["Discovery"])
+                ]
+            )
+            mock_graph_factory.return_value = client
+            results["b"] = await sync_outlook_connection(db, conn_doc)
+        b_done.set()
+
+    with patch.object(o_sync, "_legacy_pre_publish_hook", legacy_hook):
+        await asyncio.gather(run_a_stale(), run_b_winner())
+
+    assert results["b"].get("status") == "ok"
+    assert results["a"].get("status") == "skipped_stale_generation"
+
+    refreshed = await db.outlook_calendar_connections.find_one(
+        {"connection_id": connection["connection_id"]}
+    )
+    assert int(refreshed["active_busy_generation"]) == 20
+    assert refreshed.get("last_sync_status") == "ok"
+    assert int(refreshed.get("active_legacy_generation") or 0) == 20
+
+    legacy = await db.outlook_calendar_events.find(
+        {"connection_id": connection["connection_id"]}, {"_id": 0}
+    ).to_list(50)
+    legacy_ids = {r.get("event_id") or r.get("outlook_event_id") for r in legacy}
+    # event_to_busy_intervals may not keep event_id — also accept sync_generation.
+    gens = {int(r["sync_generation"]) for r in legacy if r.get("sync_generation") is not None}
+    assert gens == {20}, f"legacy gens={gens} rows={legacy}"
+    assert not any(
+        (r.get("event_id") == "loser-a-legacy")
+        or (r.get("sync_generation") == 5)
+        for r in legacy
+    )
+    busy = await db.resource_busy_intervals.find(
+        {"connection_id": connection["connection_id"], "source": "outlook"},
+        {"_id": 0},
+    ).to_list(20)
+    assert {r.get("event_id") for r in busy} == {"winner-b-legacy"}
