@@ -317,6 +317,18 @@ def test_persist_refuses_wipe_when_config_invalid():
     assert db.resource_busy_intervals.deleted is False
 
 
+def _assert_calendar_view_select(select: str) -> None:
+    """B4: calendarView $select must stay on the allowlist (no lastModifiedDateTime)."""
+    fields = [f.strip() for f in select.split(",") if f.strip()]
+    assert fields == list(MicrosoftGraphClient._CALENDAR_VIEW_SELECT_FIELDS)
+    assert "categories" in fields
+    assert "subject" in fields
+    assert "lastModifiedDateTime" not in fields
+    assert "createdDateTime" not in fields
+    assert "body" not in fields
+    assert "lastModifiedDateTime" not in MicrosoftGraphClient._CALENDAR_VIEW_SELECT
+
+
 def test_list_calendar_view_select_includes_categories():
     client = MicrosoftGraphClient(
         client_id="id",
@@ -348,11 +360,51 @@ def test_list_calendar_view_select_includes_categories():
         asyncio.run(client.list_calendar_view("token", start=start, end=end))
 
     params = mock_http.get.await_args.kwargs["params"]
-    assert "categories" in params["$select"]
-    assert "subject" in params["$select"]
-    # calendarView rejects these in $select (Graph contract).
-    assert "lastModifiedDateTime" not in params["$select"]
-    assert "createdDateTime" not in params["$select"]
+    _assert_calendar_view_select(params["$select"])
+
+
+def test_list_user_calendar_view_select_excludes_last_modified():
+    """App-only Clients@ path (phase6 probe) must use the same $select allowlist."""
+    client = MicrosoftGraphClient(
+        client_id="id",
+        client_secret="secret",
+        tenant_id="common",
+        redirect_uri="https://example.com/callback",
+    )
+    start = datetime(2026, 10, 15, tzinfo=timezone.utc)
+    end = datetime(2026, 10, 16, tzinfo=timezone.utc)
+
+    import httpx
+
+    ok = httpx.Response(
+        200,
+        request=httpx.Request(
+            "GET",
+            "https://graph.microsoft.com/v1.0/users/Clients@thenaturalpathla.com/calendar/calendarView",
+        ),
+        json={"value": []},
+    )
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(return_value=ok)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=None)
+
+    with patch(
+        "infrastructure.external.microsoft_graph.httpx.AsyncClient",
+        return_value=mock_http,
+    ):
+        asyncio.run(
+            client.list_user_calendar_view(
+                "token",
+                "Clients@thenaturalpathla.com",
+                start=start,
+                end=end,
+            )
+        )
+
+    params = mock_http.get.await_args.kwargs["params"]
+    _assert_calendar_view_select(params["$select"])
+    assert "lastModifiedDateTime" not in str(mock_http.get.await_args)
 
 
 def test_sync_outlook_skips_resource_path_when_flag_false():
