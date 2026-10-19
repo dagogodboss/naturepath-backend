@@ -148,6 +148,70 @@ def busy_intervals_for_slot_engine(
     return out
 
 
+async def _filter_busy_rows_to_active_generations(
+    db: Any,
+    resource_id: str,
+    rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Drop Outlook busy rows that are not the connection's active_busy_generation.
+
+    During overlapping syncs, multiple generations may briefly coexist. Readers
+    must not treat a superseded snapshot as capacity, and must not treat a
+    wiped winner as "fresh empty" when health metadata already advanced.
+    Non-Outlook sources (booking holds) always pass through.
+    """
+    if not rows:
+        return rows
+    try:
+        from application.resource_availability import load_authoritative_connections
+
+        connections = await load_authoritative_connections(db, resource_id)
+    except Exception:
+        logger.exception(
+            "Failed resolving active busy generations for resource %s", resource_id
+        )
+        return rows
+
+    active_by_conn: Dict[str, int] = {}
+    for conn in connections:
+        cid = str(conn.get("connection_id") or "")
+        if not cid:
+            continue
+        active = conn.get("active_busy_generation")
+        if active is None:
+            continue
+        try:
+            active_by_conn[cid] = int(active)
+        except (TypeError, ValueError):
+            continue
+    if not active_by_conn:
+        return rows
+
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        source = str(row.get("source") or "").lower()
+        if source != BusyIntervalSource.OUTLOOK.value:
+            out.append(row)
+            continue
+        cid = str(row.get("connection_id") or "")
+        if cid not in active_by_conn:
+            # Unknown connection / no active gen tracked — keep for fail-closed.
+            out.append(row)
+            continue
+        gen = row.get("sync_generation")
+        if gen is None:
+            # Legacy untagged rows: keep until an active snapshot cleans them.
+            out.append(row)
+            continue
+        try:
+            if int(gen) == active_by_conn[cid]:
+                out.append(row)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 async def fetch_resource_busy(
     db: Any,
     resource_id: str,
@@ -195,7 +259,9 @@ async def fetch_resource_busy(
                 resource_id=resource_id,
             ) from exc
         return []
-    return list(rows)
+    return await _filter_busy_rows_to_active_generations(
+        db, resource_id, list(rows)
+    )
 
 
 async def fetch_resource_reservations(

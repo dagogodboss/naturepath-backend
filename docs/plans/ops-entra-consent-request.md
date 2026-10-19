@@ -1,23 +1,23 @@
-# Entra admin consent — ready for human send (agent will not outreach)
+# Entra admin consent — DEFERRED (do not send)
 
 **Canonical copy:** keep in sync with workspace `/Users/mac/naturepath/docs/plans/ops-entra-consent-request.md`.
 
-**Date:** 2026-10-18 (reconciled 2026-10-19 Slice 4 / B4)  
-**Status:** Draft ready for a **human** to send when they choose. **Automation / agents must not email, Slack, or message Jonathan (or any staff).**  
-**Primary unblock for Phase 6:** Application **`Calendars.Read`** admin consent for app `daf7c7db-7a14-4b8b-8209-58b168d34683` ([naturepath#8](https://github.com/dagogodboss/naturepath/issues/8)).
+**Date:** 2026-10-18 (reconciled 2026-10-19)  
+**Status:** Draft — **DO NOT SEND.** Microsoft / Jonathan Accept outreach remains **DEFERRED / UNSENT** until the user explicitly says otherwise. **Automation / agents must not email, Slack, or message Jonathan (or any staff).**  
+**Primary unblock for Phase 6 (later):** Application **`Calendars.Read`** admin consent for app `daf7c7db-7a14-4b8b-8209-58b168d34683` ([naturepath#8](https://github.com/dagogodboss/naturepath/issues/8)).
 
-## #9 engineering gate — closed (slices 1–4)
+## Engineering status — do not treat as “ready to send”
 
-[naturepath#9](https://github.com/dagogodboss/naturepath/issues/9) delivery slices **1–4 are complete**. The prior “DEFERRED until #9” block on *presenting* cutover as engineering-ready is **lifted**.
+[naturepath#9](https://github.com/dagogodboss/naturepath/issues/9) slices 1–3 and most of B4 docs/code are in tree, but **B1 concurrent snapshot cleanup** had a follow-up race (overlapping syncs could wipe each other’s busy rows → fresh-but-empty). Engineering is closing that concurrency gate; **do not present cutover or this draft as ready for Jonathan.**
 
 | Slice | Scope | Status |
 |-------|--------|--------|
 | 1 | A1–A6 booking integrity | Done — backend `8b34fcf` |
-| 2 | B1–B3 Outlook / snapshots | Done — backend `31d0c0a` / `04b2111` |
+| 2 | B1–B3 Outlook / snapshots | Done with B1 race follow-up in progress / fixed on head |
 | 3 | C1–C5 admin/customer UI | Done — frontend `307fde3`, backend `c997ea9` |
-| 4 | D cutover proof + B4 least-privilege consent/runbook | D hardened on `5f2c512`; B4 closed this slice |
+| 4 | D + B4 least-privilege consent/runbook | B4 docs/select in progress; **Accept stays deferred** |
 
-**Jonathan Accept is unblocked when a human chooses to send this draft** (or grant consent in the portal). Agents still must **not** outreach, poll Entra, or flip prod `MULTI_RESOURCE_SCHEDULING`.
+Until the user explicitly authorises outreach: no Jonathan message, no Entra Accept ask, no Entra polls, no prod `MULTI_RESOURCE_SCHEDULING` flag.
 
 Tracking: [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8). Runbook: [ops-oauth-prod-cutover.md](./ops-oauth-prod-cutover.md).
 
@@ -30,7 +30,7 @@ Tracking: [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8). Ru
 | `Clients@thenaturalpathla.com` | Phase 0 locked Salt Outlook source | Target **mailbox** for app-only sync — not the consent approver |
 | `admin@gcp.thenaturalpathla.com` | GCP / Firebase support email in plan docs | Technical GCP account — use only if that is your usual Jonathan/ops inbox |
 
-**Suggested To:** Jonathan Moore (Microsoft 365 **Global Administrator** for The Natural Path LA tenant). If you do not have his direct address, forward from Nichole or your usual clinic IT contact.
+**Suggested To (when user authorises send later):** Jonathan Moore (Microsoft 365 **Global Administrator** for The Natural Path LA tenant). If you do not have his direct address, forward from Nichole or your usual clinic IT contact.
 
 ---
 
@@ -82,7 +82,7 @@ Thanks,
 - Permission to Accept: **Microsoft Graph → Application → `Calendars.Read`** (app-only). See cutover runbook § Calendars.Read vs ReadBasic — we are **not** requesting `Calendars.ReadBasic` for this cutover.
 - Last probe (`2026-10-18`): exit **10** / JWT `roles` empty / 403 on Clients@ `calendarView` — `qa/reports/multi-resource-proof/post-consent-cutover-staging-20261018.json` (also VPC twin `…-vpc.json`)
 - Tracking issue: https://github.com/dagogodboss/naturepath/issues/8
-- Consistency / integrity follow-ups: https://github.com/dagogodboss/naturepath/issues/9 (slices 1–4 engineering complete)
+- Consistency / integrity follow-ups: https://github.com/dagogodboss/naturepath/issues/9
 - Runbook: `docs/plans/ops-oauth-prod-cutover.md`
-- **Ask:** Accept **Calendars.Read** (Application) admin consent **and** mailbox least-privilege scope (Clients@ + Nichole only) — then engineering runs one staging cutover command (no DNS)
-- **Agent policy:** do not email/Slack/message Jonathan; human sends when ready
+- **Ask (when user authorises):** Accept **Calendars.Read** (Application) admin consent **and** mailbox least-privilege scope (Clients@ + Nichole only) — then engineering runs one staging cutover command (no DNS)
+- **Agent policy:** do not email/Slack/message Jonathan; draft stays **UNSENT** until user says otherwise

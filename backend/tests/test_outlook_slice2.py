@@ -307,6 +307,348 @@ async def test_b1_older_sync_cannot_overwrite_newer_generation():
     assert not any(r.get("event_id") == "stale" for r in busy.rows)
 
 
+@pytest.mark.asyncio
+async def test_b1_cleanup_query_is_strictly_older_not_ne():
+    """Winner cleanup must use $lt (never $ne) so concurrent newer gens survive."""
+    db, busy, connections = _db_for_persist(prior_busy=[])
+    with patch(
+        "application.outlook_category_sync._next_sync_generation",
+        return_value=50,
+    ):
+        await persist_resource_busy_from_events(
+            db,
+            NICHOLE_CONNECTION,
+            [_graph_event(categories=["Discovery"], event_id="win")],
+            clinic_timezone="America/Chicago",
+        )
+
+    assert busy.delete_queries, "expected cleanup delete_many"
+    cleanup = busy.delete_queries[-1]
+    or_clauses = cleanup.get("$or") or []
+    assert any(
+        isinstance(c.get("sync_generation"), dict) and "$lt" in c["sync_generation"]
+        for c in or_clauses
+    ), cleanup
+    assert not any(
+        isinstance(c.get("sync_generation"), dict) and "$ne" in c["sync_generation"]
+        for c in or_clauses
+    ), cleanup
+
+
+@pytest.mark.asyncio
+async def test_b1_codex_race_a_cleanup_after_b_claim_preserves_newer():
+    """
+    Codex #9 failure sequence (static interleaving, not a prod incident):
+      1) Sync A inserts gen 1 and claims
+      2) Sync B inserts gen 2 and claims
+      3) A's late cleanup must not delete B's rows
+      4) Busy must not end empty while looking 'fresh'
+    """
+    db, busy, connections = _db_for_persist(prior_busy=[])
+
+    with patch(
+        "application.outlook_category_sync._next_sync_generation",
+        return_value=1,
+    ):
+        result_a = await persist_resource_busy_from_events(
+            db,
+            NICHOLE_CONNECTION,
+            [_graph_event(categories=["Discovery"], event_id="sync-a")],
+            clinic_timezone="America/Chicago",
+        )
+    assert result_a.get("skipped_stale_generation") is False
+    assert connections.doc["active_busy_generation"] == 1
+    assert any(r.get("event_id") == "sync-a" for r in busy.rows)
+
+    with patch(
+        "application.outlook_category_sync._next_sync_generation",
+        return_value=2,
+    ):
+        result_b = await persist_resource_busy_from_events(
+            db,
+            NICHOLE_CONNECTION,
+            [_graph_event(categories=["Discovery"], event_id="sync-b")],
+            clinic_timezone="America/Chicago",
+        )
+    assert result_b.get("skipped_stale_generation") is False
+    assert connections.doc["active_busy_generation"] == 2
+    assert any(r.get("event_id") == "sync-b" for r in busy.rows)
+    assert not any(r.get("event_id") == "sync-a" for r in busy.rows)
+
+    # Late stale A: claim fails / re-check loses — must discard only self, keep B.
+    with patch(
+        "application.outlook_category_sync._next_sync_generation",
+        return_value=1,
+    ):
+        late_a = await persist_resource_busy_from_events(
+            db,
+            NICHOLE_CONNECTION,
+            [_graph_event(categories=["Discovery"], event_id="sync-a-late")],
+            clinic_timezone="America/Chicago",
+        )
+    assert late_a.get("skipped_stale_generation") is True
+    assert connections.doc["active_busy_generation"] == 2
+    assert any(r.get("event_id") == "sync-b" for r in busy.rows)
+    assert not any(r.get("event_id") == "sync-a-late" for r in busy.rows)
+    assert busy.rows, "must not leave fresh-but-empty busy after overlapping syncs"
+
+
+@pytest.mark.asyncio
+async def test_b1_codex_race_b_cleanup_after_a_cleanup_preserves_newer():
+    """
+    Alternate ordering: both gens coexist, then A-style $ne cleanup is no longer
+    used — older-only cleanup + re-check leaves gen 2 intact.
+    """
+    prior = [
+        {
+            "resource_id": NICHOLE,
+            "date": "2026-10-20",
+            "start_time": "15:00",
+            "end_time": "16:00",
+            "connection_id": "conn-nichole",
+            "source": "outlook",
+            "event_id": "gen1",
+            "sync_generation": 1,
+        },
+        {
+            "resource_id": NICHOLE,
+            "date": "2026-10-20",
+            "start_time": "15:00",
+            "end_time": "16:00",
+            "connection_id": "conn-nichole",
+            "source": "outlook",
+            "event_id": "gen2",
+            "sync_generation": 2,
+        },
+    ]
+    db, busy, connections = _db_for_persist(prior_busy=prior)
+    connections.doc["active_busy_generation"] = 2
+
+    # Stale A attempts cleanup path via persist(gen=1) — must skip, keep gen2.
+    with patch(
+        "application.outlook_category_sync._next_sync_generation",
+        return_value=1,
+    ):
+        result = await persist_resource_busy_from_events(
+            db,
+            NICHOLE_CONNECTION,
+            [_graph_event(categories=["Discovery"], event_id="stale-a")],
+            clinic_timezone="America/Chicago",
+        )
+    assert result.get("skipped_stale_generation") is True
+    assert any(r.get("event_id") == "gen2" for r in busy.rows)
+    assert busy.rows
+
+    # Winner B re-syncs empty calendar (legitimate empty) — still generation-consistent.
+    with patch(
+        "application.outlook_category_sync._next_sync_generation",
+        return_value=3,
+    ):
+        empty = await persist_resource_busy_from_events(
+            db,
+            NICHOLE_CONNECTION,
+            [],
+            clinic_timezone="America/Chicago",
+        )
+    assert empty.get("skipped_stale_generation") is False
+    assert empty.get("resource_interval_count") == 0
+    assert connections.doc["active_busy_generation"] == 3
+    assert not any(
+        r.get("source") == "outlook" and r.get("connection_id") == "conn-nichole"
+        for r in busy.rows
+    )
+
+
+@pytest.mark.asyncio
+async def test_b1_barrier_interleaved_claims_both_cleanup_orderings():
+    """
+    Barrier-controlled overlap: A and B both insert+claim; whichever cleans
+    first must leave the newer generation's busy intact.
+    """
+    import application.outlook_category_sync as ocs
+
+    db, busy, connections = _db_for_persist(prior_busy=[])
+    a_claimed = asyncio.Event()
+    b_finished = asyncio.Event()
+    gen_for_task: dict[int, int] = {}
+    original_claim = ocs._claim_busy_sync_generation
+    original_next = ocs._next_sync_generation
+
+    def next_for_task():
+        task_id = id(asyncio.current_task())
+        return gen_for_task[task_id]
+
+    async def claim_with_barrier(db_arg, connection_id, generation):
+        if generation == 20:
+            await a_claimed.wait()
+        won = await original_claim(db_arg, connection_id, generation)
+        if generation == 10:
+            a_claimed.set()
+            # Pause after claim so B can claim+cleanup before A re-checks.
+            await b_finished.wait()
+        return won
+
+    async def run_a():
+        gen_for_task[id(asyncio.current_task())] = 10
+        return await persist_resource_busy_from_events(
+            db,
+            NICHOLE_CONNECTION,
+            [_graph_event(categories=["Discovery"], event_id="barrier-a")],
+            clinic_timezone="America/Chicago",
+        )
+
+    async def run_b():
+        gen_for_task[id(asyncio.current_task())] = 20
+        result = await persist_resource_busy_from_events(
+            db,
+            NICHOLE_CONNECTION,
+            [_graph_event(categories=["Discovery"], event_id="barrier-b")],
+            clinic_timezone="America/Chicago",
+        )
+        b_finished.set()
+        return result
+
+    with patch.object(ocs, "_next_sync_generation", side_effect=next_for_task), patch.object(
+        ocs, "_claim_busy_sync_generation", side_effect=claim_with_barrier
+    ):
+        result_a, result_b = await asyncio.gather(run_a(), run_b())
+
+    assert result_b.get("skipped_stale_generation") is False
+    assert result_a.get("skipped_stale_generation") is True
+    assert connections.doc["active_busy_generation"] == 20
+    assert any(r.get("event_id") == "barrier-b" for r in busy.rows)
+    assert not any(r.get("event_id") == "barrier-a" for r in busy.rows)
+    assert busy.rows, "overlapping syncs must not wipe all busy rows"
+
+
+@pytest.mark.asyncio
+async def test_b1_stale_sync_completion_does_not_publish_ok_freshness():
+    from application.outlook_sync import sync_outlook_connection
+    from core.config import settings
+
+    connection = {
+        **NICHOLE_CONNECTION,
+        "practitioner_id": "pract-1",
+        "auth_mode": "application",
+        "mailbox_email": "nmoore@thenaturalpathla.com",
+        "last_synced_at": "2026-10-18T00:00:00+00:00",
+        "last_sync_status": "ok",
+    }
+    db, busy, connections = _db_for_persist(connection=connection)
+    connections.doc["active_busy_generation"] = 99
+    connections.doc["last_synced_at"] = "2026-10-18T00:00:00+00:00"
+
+    class _Events:
+        def __init__(self):
+            self.deleted = False
+            self.inserted = False
+
+        async def delete_many(self, *_a, **_k):
+            self.deleted = True
+
+        async def insert_many(self, *_a, **_k):
+            self.inserted = True
+
+    events_col = _Events()
+    db.outlook_calendar_events = events_col
+
+    with patch.object(settings, "multi_resource_scheduling", True), patch(
+        "application.outlook_sync.graph_client"
+    ) as mock_graph_factory, patch(
+        "application.outlook_category_sync._next_sync_generation",
+        return_value=1,
+    ):
+        client = MagicMock()
+        client.client_credentials_token = AsyncMock(
+            return_value={"access_token": "t"}
+        )
+        client.list_user_calendar_view = AsyncMock(
+            return_value=[_graph_event(categories=["Discovery"], event_id="stale")]
+        )
+        mock_graph_factory.return_value = client
+        result = await sync_outlook_connection(db, connections.doc)
+
+    assert result.get("status") == "skipped_stale_generation"
+    assert result.get("skipped_stale_generation") is True
+    assert events_col.deleted is False
+    assert events_col.inserted is False
+    # Prior freshness must remain — do not advertise a losing sync as healthy.
+    assert connections.doc.get("last_synced_at") == "2026-10-18T00:00:00+00:00"
+    assert connections.doc.get("last_sync_status") != "ok" or connections.doc.get(
+        "last_synced_at"
+    ) == "2026-10-18T00:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_b1_readers_ignore_non_active_outlook_generation():
+    from application.multi_resource_booking import fetch_resource_busy
+
+    prior = [
+        {
+            "resource_id": NICHOLE,
+            "date": "2026-10-20",
+            "start_time": "15:00",
+            "end_time": "16:00",
+            "connection_id": "conn-nichole",
+            "source": "outlook",
+            "event_id": "old-gen",
+            "sync_generation": 1,
+        },
+        {
+            "resource_id": NICHOLE,
+            "date": "2026-10-20",
+            "start_time": "16:00",
+            "end_time": "17:00",
+            "connection_id": "conn-nichole",
+            "source": "outlook",
+            "event_id": "active-gen",
+            "sync_generation": 2,
+        },
+        {
+            "resource_id": NICHOLE,
+            "date": "2026-10-20",
+            "start_time": "10:00",
+            "end_time": "10:30",
+            "connection_id": "conn-nichole",
+            "source": "booking",
+            "event_id": "hold",
+            "booking_id": "bk-1",
+        },
+    ]
+    db, busy, connections = _db_for_persist(prior_busy=prior)
+    connections.doc["active_busy_generation"] = 2
+    connections.doc["authoritative_for_resource_ids"] = [NICHOLE]
+
+    class _ConnFind:
+        def find(self, *args, **kwargs):
+            class _C:
+                async def to_list(self, length=50):
+                    return [dict(connections.doc)]
+
+            return _C()
+
+    db.outlook_calendar_connections = _ConnFind()
+    # Keep busy.find working via the busy double.
+    class _BusyFind(_BusyCol):
+        def find(self, query, projection=None):
+            matched = [r for r in self.rows if self._matches(r, query)]
+
+            class _C:
+                async def to_list(self, length=500):
+                    return matched
+
+            return _C()
+
+    busy_find = _BusyFind(prior)
+    db.resource_busy_intervals = busy_find
+
+    rows = await fetch_resource_busy(db, NICHOLE, "2026-10-20")
+    ids = {r.get("event_id") for r in rows}
+    assert "active-gen" in ids
+    assert "hold" in ids
+    assert "old-gen" not in ids
+
+
 # ---- B2: mode-correct admin sync ---------------------------------------------
 
 

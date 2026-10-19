@@ -133,7 +133,7 @@ async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[s
             )
             intervals.append(interval)
 
-    multi_resource_meta: Dict[str, int] = {}
+    multi_resource_meta: Dict[str, Any] = {}
     if settings.multi_resource_scheduling:
         # Fail closed before any resource busy wipe when maps/resources missing.
         try:
@@ -147,6 +147,16 @@ async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[s
         except MultiResourceSyncConfigError as exc:
             await _mark_sync_error(db, connection_id, exc)
             raise OutlookSyncError(str(exc), status_code=502) from exc
+
+        # Stale concurrent loser must not publish legacy events or "ok" freshness
+        # while a newer sync owns the busy snapshot (issue #9 B1 follow-up).
+        if multi_resource_meta.get("skipped_stale_generation"):
+            return {
+                "status": "skipped_stale_generation",
+                "event_count": 0,
+                "last_synced_at": connection.get("last_synced_at"),
+                **multi_resource_meta,
+            }
 
     await db.outlook_calendar_events.delete_many({"connection_id": connection_id})
     if intervals:

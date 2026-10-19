@@ -1,7 +1,7 @@
 # Phase 6 — Migrate production + prove Salt ≠ Discovery
 
 **Status:** Runbook + **staging ops checklist** (below); P1–P5 **implemented behind flag** (default false). **Staging API live** with seed, service attach, booking backfill, Outlook connection templates / Clients@ placeholder; **admin JWT smoke passed**; **prod API** revision **natural-path-api-00021-hv8** with flag **unset/false**; **prod Mongo `natural_path` data prep applied** — see `qa/reports/multi-resource-proof/prod-migrate-20261018f.json`.  
-**Primary unblock:** Entra admin consent for Application **`Calendars.Read`** on app `daf7c7db-…` ([naturepath#8](https://github.com/dagogodboss/naturepath/issues/8)) **plus** Exchange mailbox least-privilege (Clients@ + Nichole only — **required**, not optional) so app-only Graph can read those calendars. [#9](https://github.com/dagogodboss/naturepath/issues/9) engineering slices 1–4 are complete; Accept remains a **human** send when ready (agents do not outreach). Delegated Clients@ OAuth is **not** the preferred path (legacy tokens unusable).  
+**Primary unblock:** Entra admin consent for Application **`Calendars.Read`** on app `daf7c7db-…` ([naturepath#8](https://github.com/dagogodboss/naturepath/issues/8)) **plus** Exchange mailbox least-privilege (Clients@ + Nichole only — **required**, not optional) so app-only Graph can read those calendars. [#9](https://github.com/dagogodboss/naturepath/issues/9) still has acceptance work (including B1 overlapping-sync cleanup); **Jonathan / Microsoft Accept stays DEFERRED / UNSENT** until the user authorises outreach. Delegated Clients@ OAuth is **not** the preferred path (legacy tokens unusable).  
 **Timezone:** America/Chicago.  
 **GCP:** project-990664b0-1bae-4746-88d only.
 

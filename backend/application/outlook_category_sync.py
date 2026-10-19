@@ -380,6 +380,53 @@ async def _maybe_await(value: Any) -> Any:
     return value
 
 
+async def _read_active_busy_generation(
+    db: Any, connection_id: str
+) -> Optional[int]:
+    connections = getattr(db, "outlook_calendar_connections", None)
+    if connections is None:
+        return None
+    find_one = getattr(connections, "find_one", None)
+    if find_one is None:
+        return None
+    doc = await _maybe_await(
+        find_one({"connection_id": connection_id}, {"active_busy_generation": 1})
+    )
+    if not isinstance(doc, Mapping):
+        return None
+    active = doc.get("active_busy_generation")
+    if active is None:
+        return None
+    try:
+        return int(active)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _discard_busy_sync_generation(
+    busy_col: Any,
+    connection_id: str,
+    generation: int,
+) -> None:
+    """Remove only this sync's inserted rows (loser / superseded self)."""
+    await busy_col.delete_many(
+        {
+            "connection_id": connection_id,
+            "source": BusyIntervalSource.OUTLOOK.value,
+            "sync_generation": generation,
+        }
+    )
+
+
+def _stale_skip_result() -> Dict[str, int]:
+    return {
+        "resource_interval_count": 0,
+        "review_item_count": 0,
+        "sync_conflict_review_count": 0,
+        "skipped_stale_generation": True,
+    }
+
+
 async def _claim_busy_sync_generation(
     db: Any,
     connection_id: str,
@@ -424,22 +471,19 @@ async def _claim_busy_sync_generation(
     if modified:
         return True
 
-    find_one = getattr(connections, "find_one", None)
-    if find_one is None:
-        return True
-    doc = await _maybe_await(
-        find_one({"connection_id": connection_id}, {"active_busy_generation": 1})
-    )
-    if not isinstance(doc, Mapping):
-        # MagicMock / missing collection in unit tests — allow replace.
-        return True
-    active = doc.get("active_busy_generation")
+    active = await _read_active_busy_generation(db, connection_id)
     if active is None:
+        # MagicMock / missing collection in unit tests — allow replace.
+        find_one = getattr(connections, "find_one", None)
+        if find_one is None:
+            return True
+        doc = await _maybe_await(
+            find_one({"connection_id": connection_id}, {"active_busy_generation": 1})
+        )
+        if not isinstance(doc, Mapping):
+            return True
         return True
-    try:
-        return int(active) <= int(generation)
-    except (TypeError, ValueError):
-        return True
+    return int(active) <= int(generation)
 
 
 async def persist_resource_busy_from_events(
@@ -449,13 +493,16 @@ async def persist_resource_busy_from_events(
     *,
     clinic_timezone: str,
     synced_at: Optional[datetime] = None,
-) -> Dict[str, int]:
+) -> Dict[str, Any]:
     """
     Classify events and fail-safe replace outlook-sourced resource busy rows.
 
     Insert (or empty classify) before deleting prior generations so a crash
-    never leaves an empty busy window. Concurrent older generations cannot
-    overwrite a newer active_busy_generation.
+    never leaves an empty busy window.
+
+    Concurrent syncs (issue #9 B1 follow-up): claim via CAS, then cleanup must
+    delete **strictly older** generations only — never `$ne` current, which can
+    wipe a newer winner and leave availability looking fresh but empty.
     """
     connection_id = str(_connection_field(connection, "connection_id") or "")
     known_ids: Optional[List[str]] = None
@@ -488,37 +535,33 @@ async def persist_resource_busy_from_events(
         row["sync_generation"] = generation
 
     # 1) Insert new snapshot first (prior generation remains readable).
+    #    Legitimate empty calendars insert nothing and still claim below.
     if built.intervals:
         await busy_col.insert_many(built.intervals)
 
     # 2) Claim generation; losers discard their insert and keep the winner.
     won = await _claim_busy_sync_generation(db, connection_id, generation)
     if not won:
-        await busy_col.delete_many(
-            {
-                "connection_id": connection_id,
-                "source": BusyIntervalSource.OUTLOOK.value,
-                "sync_generation": generation,
-            }
-        )
-        return {
-            "resource_interval_count": 0,
-            "review_item_count": 0,
-            "sync_conflict_review_count": 0,
-            "skipped_stale_generation": True,
-        }
+        await _discard_busy_sync_generation(busy_col, connection_id, generation)
+        return _stale_skip_result()
 
-    # 3) Remove superseded / legacy untagged outlook rows for this connection.
-    await busy_col.delete_many(
-        {
-            "connection_id": connection_id,
-            "source": BusyIntervalSource.OUTLOOK.value,
-            "$or": [
-                {"sync_generation": {"$ne": generation}},
-                {"sync_generation": {"$exists": False}},
-            ],
-        }
-    )
+    # 2b) Re-check: a newer sync may have claimed after our CAS succeeded.
+    active = await _read_active_busy_generation(db, connection_id)
+    if active is not None and int(active) != int(generation):
+        await _discard_busy_sync_generation(busy_col, connection_id, generation)
+        return _stale_skip_result()
+
+    # 3) Remove ONLY strictly older / legacy untagged outlook rows.
+    #    Never delete newer generations ($ne would wipe a concurrent winner).
+    older_or_untagged = {
+        "connection_id": connection_id,
+        "source": BusyIntervalSource.OUTLOOK.value,
+        "$or": [
+            {"sync_generation": {"$lt": generation}},
+            {"sync_generation": {"$exists": False}},
+        ],
+    }
+    await busy_col.delete_many(older_or_untagged)
 
     if review_col is not None:
         if built.review_items:
@@ -534,7 +577,7 @@ async def persist_resource_busy_from_events(
                     ]
                 },
                 "$or": [
-                    {"sync_generation": {"$ne": generation}},
+                    {"sync_generation": {"$lt": generation}},
                     {"sync_generation": {"$exists": False}},
                 ],
             }
@@ -549,4 +592,6 @@ async def persist_resource_busy_from_events(
         "resource_interval_count": len(built.intervals),
         "review_item_count": len(built.review_items),
         "sync_conflict_review_count": sync_conflict_review_count,
+        "active_busy_generation": generation,
+        "skipped_stale_generation": False,
     }
