@@ -339,6 +339,8 @@ class ResourceBusyInterval(BaseModel):
     show_as: str = "busy"
     is_cancelled: bool = False
     synced_at: Optional[datetime] = None
+    # Outlook sync generation for fail-safe snapshot replace (issue #9 B1).
+    sync_generation: Optional[int] = None
 
 
 class ReviewQueueItemType(str, Enum):
@@ -375,6 +377,9 @@ class OutlookCategoryMap(BaseModel):
     category_name: str
     resource_ids: List[str] = Field(default_factory=list)
     blocks_all_authoritative: Optional[bool] = None
+    # Explicit visibility-copy marker (e.g. Salt Session on Nichole's calendar).
+    # Do not infer from title/color. Occupancy stays on the authoritative mailbox.
+    visibility_only: Optional[bool] = None
 
 
 class OutlookMailboxConnectionFields(BaseModel):
@@ -387,4 +392,8 @@ class OutlookMailboxConnectionFields(BaseModel):
     linked_practitioner_id: Optional[str] = None
     authoritative_for_resource_ids: List[str] = Field(default_factory=list)
     visibility_only: bool = False
+    # Category names that are display-only on this mailbox (issue #9 B3).
+    visibility_copy_category_names: List[str] = Field(default_factory=list)
     category_maps: List[OutlookCategoryMap] = Field(default_factory=list)
+    auth_mode: Optional[str] = None
+    active_busy_generation: Optional[int] = None

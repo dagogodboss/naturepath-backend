@@ -127,7 +127,7 @@ No Discovery/consults on Mondays; clients Tue–Fri from 10:30am; finish by 5:45
 | Salt | Salt room | Does not require Nichole |
 | Business closure | Both | Holiday / clinic closed |
 | Unclassified busy (Nichole auth calendar) | Nichole + review flag | Room stays free |
-| Staff visibility copy | No occupancy | Prefer shared Clients@ calendar in Outlook; if copies exist on Nichole, mark event/mailbox visibility-only — never treat as Nichole capacity |
+| Staff visibility copy | No occupancy | Prefer shared Clients@ calendar in Outlook; if copies exist on Nichole, recognise via `visibility_copy_category_names` / category map `visibility_only` (Salt Session / Salt) — never title/color, never ignore all unknown busy (#9 B3) |
 
 **Locked:** Graph category **names**, not colors/titles. Colors may later decorate admin appointment cards only.
 

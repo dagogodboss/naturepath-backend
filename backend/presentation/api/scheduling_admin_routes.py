@@ -52,6 +52,30 @@ def _require_outlook_device_code_oauth() -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
 
+def _connection_auth_mode(conn: dict) -> str:
+    mode = str(conn.get("auth_mode") or "delegated").strip().lower()
+    return mode if mode in {"delegated", "application"} else "delegated"
+
+
+def _require_admin_outlook_sync_enabled(conn: dict) -> None:
+    """
+    Mode-correct sync gate (#9 B2).
+
+    Application (app-only) must not require device-code OAuth. Delegated sync
+    remains behind the device-code ops flag (or multi-resource admin surface).
+    """
+    if _connection_auth_mode(conn) == "application":
+        if (
+            settings.multi_resource_scheduling
+            or settings.outlook_app_only_sync_enabled
+        ):
+            return
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    if settings.outlook_device_code_oauth_enabled or settings.multi_resource_scheduling:
+        return
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -567,18 +591,36 @@ async def create_manual_busy_interval(
 def _outlook_connection_public(doc: dict) -> dict:
     """Safe summary for admin UI (no tokens)."""
     mailbox = doc.get("mailbox_email") or doc.get("microsoft_email")
+    auth_mode = _connection_auth_mode(doc)
+    # Delegated credential presence is only meaningful for individual sign-in.
+    # App-only connections must not prompt reconnect based on a leftover token.
+    has_delegated = bool(doc.get("refresh_token_encrypted")) and auth_mode == "delegated"
+    if auth_mode == "application":
+        method_label = "Connected through Microsoft administrator approval"
+        requires_reconnect = False
+    else:
+        method_label = "Connected through individual Microsoft sign-in"
+        requires_reconnect = not bool(doc.get("refresh_token_encrypted"))
     return {
         "connection_id": doc.get("connection_id"),
         "mailbox_email": mailbox,
         "microsoft_email": doc.get("microsoft_email"),
         "authoritative_for_resource_ids": doc.get("authoritative_for_resource_ids") or [],
         "visibility_only": bool(doc.get("visibility_only", False)),
+        "visibility_copy_category_names": list(
+            doc.get("visibility_copy_category_names") or []
+        ),
         "last_sync_status": doc.get("last_sync_status"),
         "last_synced_at": doc.get("last_synced_at"),
         "last_sync_error": doc.get("last_sync_error"),
         "is_active": bool(doc.get("is_active", True)),
         "practitioner_id": doc.get("practitioner_id"),
-        "auth_mode": doc.get("auth_mode") or "delegated",
+        "auth_mode": auth_mode,
+        # Staff-facing connection method (distinct from health / last sync).
+        "connection_method": auth_mode,
+        "connection_method_label": method_label,
+        "has_delegated_credentials": has_delegated,
+        "requires_individual_reconnect": requires_reconnect,
         "category_map_count": len(doc.get("category_maps") or []),
     }
 
@@ -654,12 +696,47 @@ async def admin_sync_outlook_connection(
     _admin: dict = Depends(get_current_admin),
     db=Depends(get_database),
 ):
-    """Trigger Outlook sync for any connection by id (ops)."""
-    _require_outlook_device_code_oauth()
+    """
+    Trigger Outlook sync for a connection (ops / admin).
+
+    Credential checks are mode-correct (#9 B2):
+    - auth_mode=application → app-only client credentials; no refresh token /
+      device-code OAuth required.
+    - auth_mode=delegated → requires refresh_token_encrypted (Connect Outlook).
+    """
     conn = await db.outlook_calendar_connections.find_one(
         {"connection_id": connection_id, "is_active": True}, {"_id": 0}
     )
-    if not conn or not conn.get("refresh_token_encrypted"):
+    if not conn:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Connection not found",
+        )
+    _require_admin_outlook_sync_enabled(conn)
+    mode = _connection_auth_mode(conn)
+    if mode == "application":
+        mailbox = (
+            conn.get("mailbox_email") or conn.get("microsoft_email") or ""
+        ).strip()
+        if not mailbox:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Application calendar sync requires mailbox_email on the "
+                    "connection. Ask a Microsoft 365 administrator to configure "
+                    "the mailbox mapping — individual Connect Outlook is not used."
+                ),
+            )
+        if not (settings.microsoft_client_id and settings.microsoft_client_secret):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "Application calendar sync is not configured (missing Microsoft "
+                    "app credentials). A Microsoft 365 administrator must complete "
+                    "Entra app setup and admin consent."
+                ),
+            )
+    elif not conn.get("refresh_token_encrypted"):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Connection not found or missing OAuth tokens",

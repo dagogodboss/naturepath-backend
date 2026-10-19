@@ -111,6 +111,10 @@ class Database:
         )
         await cls.db.resource_busy_intervals.create_index("booking_id")
         await cls.db.resource_busy_intervals.create_index("expires_at")
+        # Outlook fail-safe snapshot generations (issue #9 B1).
+        await cls.db.resource_busy_intervals.create_index(
+            [("connection_id", 1), ("source", 1), ("sync_generation", 1)]
+        )
         
         # Payments collection indexes
         await cls.db.payments.create_index("payment_id", unique=True)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -84,14 +85,27 @@ def test_discovery_blocks_practitioner_not_salt():
     assert mapping.review_type is None
 
 
-def test_salt_blocks_room_not_practitioner():
+def test_salt_on_clients_mailbox_blocks_room_not_practitioner():
+    """Clients@ is Salt-authoritative — Salt category occupies the room."""
+    mapping = map_event_categories_to_resource_ids(
+        _graph_event(categories=["Salt"]),
+        category_maps=CATEGORY_MAPS,
+        authoritative_for_resource_ids=[SALT],
+    )
+    assert set(mapping.resource_ids) == {SALT}
+    assert NICHOLE not in mapping.resource_ids
+    assert mapping.review_type is None
+
+
+def test_salt_mapped_on_nichole_mailbox_is_visibility_copy():
+    """Salt category on Nichole auth must not occupy Salt or Nichole (#9 B3)."""
     mapping = map_event_categories_to_resource_ids(
         _graph_event(categories=["Salt"]),
         category_maps=CATEGORY_MAPS,
         authoritative_for_resource_ids=[NICHOLE],
     )
-    assert set(mapping.resource_ids) == {SALT}
-    assert NICHOLE not in mapping.resource_ids
+    assert mapping.occupy is False
+    assert mapping.authoritative is False
     assert mapping.review_type is None
 
 
@@ -128,7 +142,7 @@ def test_salt_casefold_match():
     mapping = map_event_categories_to_resource_ids(
         _graph_event(categories=["salt"]),
         category_maps=CATEGORY_MAPS,
-        authoritative_for_resource_ids=[NICHOLE],
+        authoritative_for_resource_ids=[SALT],
     )
     assert set(mapping.resource_ids) == {SALT}
 
@@ -210,6 +224,7 @@ def test_build_documents_discovery_vs_salt_matrix():
             end="2026-10-20T10:30:00",
         ),
     ]
+    # Nichole authoritative: Salt category is a visibility copy (no interval).
     built = build_resource_busy_documents(
         events,
         AUTH_CONNECTION,
@@ -221,11 +236,25 @@ def test_build_documents_discovery_vs_salt_matrix():
         by_event.setdefault(row["event_id"], set()).add(row["resource_id"])
 
     assert by_event["disc"] == {NICHOLE}
-    assert by_event["salt"] == {SALT}
+    assert "salt" not in by_event
     assert by_event["unk"] == {NICHOLE}
     assert len(built.review_items) == 1
     assert built.review_items[0]["type"] == ReviewQueueItemType.UNMAPPED_CATEGORY.value
     assert built.review_items[0]["event_id"] == "unk"
+
+    clients_conn = {
+        "connection_id": "conn-clients",
+        "visibility_only": False,
+        "authoritative_for_resource_ids": [SALT],
+        "category_maps": CATEGORY_MAPS,
+    }
+    clients_built = build_resource_busy_documents(
+        [events[1]],
+        clients_conn,
+        clinic_timezone="America/Chicago",
+        synced_at=datetime(2026, 10, 18, tzinfo=timezone.utc),
+    )
+    assert {r["resource_id"] for r in clients_built.intervals} == {SALT}
 
 
 def test_validate_fail_closed_without_maps():
@@ -457,12 +486,14 @@ async def test_persist_enqueues_sync_conflict_for_confirmed_booking():
         def __init__(self):
             self.deleted = []
             self.inserted = []
+            self.rows = []
 
         async def delete_many(self, query):
             self.deleted.append(query)
 
         async def insert_many(self, rows):
             self.inserted.extend(rows)
+            self.rows.extend(rows)
 
     class _ReviewCol:
         def __init__(self):
@@ -550,7 +581,19 @@ async def test_persist_enqueues_sync_conflict_for_confirmed_booking():
     db.resource_busy_intervals = busy_col
     db.review_queue = review_col
     db.bookings = _BookingsCol()
+    db.outlook_calendar_connections = MagicMock()
+    db.outlook_calendar_connections.update_one = AsyncMock(
+        return_value=SimpleNamespace(matched_count=1, modified_count=1)
+    )
+    db.outlook_calendar_connections.find_one = AsyncMock(
+        return_value={"connection_id": "conn-1", "active_busy_generation": None}
+    )
 
+    clients_connection = {
+        **AUTH_CONNECTION,
+        "connection_id": "conn-clients",
+        "authoritative_for_resource_ids": [SALT],
+    }
     events = [
         _graph_event(
             event_id="salt-block",
@@ -561,7 +604,7 @@ async def test_persist_enqueues_sync_conflict_for_confirmed_booking():
     ]
     result = await persist_resource_busy_from_events(
         db,
-        AUTH_CONNECTION,
+        clients_connection,
         events,
         clinic_timezone="America/Chicago",
         synced_at=datetime(2026, 10, 18, tzinfo=timezone.utc),
