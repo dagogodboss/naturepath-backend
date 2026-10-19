@@ -718,3 +718,129 @@ async def test_b1_real_mongo_delayed_legacy_publish_cannot_wipe_winner(real_db):
         {"_id": 0},
     ).to_list(20)
     assert {r.get("event_id") for r in busy} == {"winner-b-legacy"}
+
+
+@pytest.mark.asyncio
+async def test_b1_real_mongo_delayed_legacy_cleanup_cannot_wipe_newer(real_db):
+    """
+    Codex B1 cleanup window (static interleaving at 494c821):
+
+      1) Sync A CAS-publishes legacy generation 5 successfully
+      2) A pauses BEFORE older-generation cleanup
+      3) Sync B publishes generation 20 and completes (incl. its cleanup)
+      4) A resumes cleanup — must NOT delete B's newer legacy rows/metadata
+
+    Prior `$ne` cleanup deleted gen 20 while metadata still named B healthy.
+    """
+    import application.outlook_category_sync as ocs
+    import application.outlook_sync as o_sync
+
+    db = real_db
+    connection = _nichole_connection()
+    await db.outlook_calendar_connections.insert_one(dict(connection))
+    await db.resources.insert_many(
+        [
+            {"resource_id": NICHOLE, "active": True},
+            {"resource_id": SALT, "active": True},
+        ]
+    )
+    await db.outlook_calendar_events.create_index("connection_id")
+
+    a_cas_done = asyncio.Event()
+    b_done = asyncio.Event()
+    results: Dict[str, Any] = {}
+
+    async def post_cas_hook(*, connection_id, publish_generation):
+        # Only the older sync (gen 5) pauses after successful CAS.
+        if int(publish_generation) == 5:
+            a_cas_done.set()
+            await b_done.wait()
+
+    async def run_a_cas_then_cleanup():
+        conn_doc = await db.outlook_calendar_connections.find_one(
+            {"connection_id": connection["connection_id"]}, {"_id": 0}
+        )
+        with patch.object(settings, "multi_resource_scheduling", True), patch(
+            "application.outlook_sync.graph_client"
+        ) as mock_graph_factory, patch.object(
+            ocs, "_next_sync_generation", return_value=5
+        ):
+            client = MagicMock()
+            client.client_credentials_token = AsyncMock(
+                return_value={"access_token": "t"}
+            )
+            client.list_user_calendar_view = AsyncMock(
+                return_value=[
+                    _graph_event(
+                        event_id="loser-a-cas-cleanup", categories=["Discovery"]
+                    )
+                ]
+            )
+            mock_graph_factory.return_value = client
+            results["a"] = await sync_outlook_connection(db, conn_doc)
+
+    async def run_b_winner():
+        await a_cas_done.wait()
+        # A has CAS'd gen 5; its gen-5 rows exist. B must publish 20 and finish.
+        mid = await db.outlook_calendar_connections.find_one(
+            {"connection_id": connection["connection_id"]}
+        )
+        assert int(mid.get("active_legacy_generation") or 0) == 5
+        assert int(mid["active_busy_generation"]) == 5
+
+        conn_doc = await db.outlook_calendar_connections.find_one(
+            {"connection_id": connection["connection_id"]}, {"_id": 0}
+        )
+        with patch.object(settings, "multi_resource_scheduling", True), patch(
+            "application.outlook_sync.graph_client"
+        ) as mock_graph_factory, patch.object(
+            ocs, "_next_sync_generation", return_value=20
+        ):
+            client = MagicMock()
+            client.client_credentials_token = AsyncMock(
+                return_value={"access_token": "t"}
+            )
+            client.list_user_calendar_view = AsyncMock(
+                return_value=[
+                    _graph_event(
+                        event_id="winner-b-after-a-cas", categories=["Discovery"]
+                    )
+                ]
+            )
+            mock_graph_factory.return_value = client
+            results["b"] = await sync_outlook_connection(db, conn_doc)
+        b_done.set()
+
+    with patch.object(o_sync, "_legacy_post_cas_hook", post_cas_hook):
+        await asyncio.gather(run_a_cas_then_cleanup(), run_b_winner())
+
+    assert results["b"].get("status") == "ok"
+    # A may still report ok (its CAS succeeded earlier); correctness is on rows.
+    assert results["a"].get("status") in ("ok", "skipped_stale_generation")
+
+    refreshed = await db.outlook_calendar_connections.find_one(
+        {"connection_id": connection["connection_id"]}
+    )
+    assert int(refreshed["active_busy_generation"]) == 20
+    assert refreshed.get("last_sync_status") == "ok"
+    assert int(refreshed.get("active_legacy_generation") or 0) == 20
+
+    legacy = await db.outlook_calendar_events.find(
+        {"connection_id": connection["connection_id"]}, {"_id": 0}
+    ).to_list(50)
+    gens = {
+        int(r["sync_generation"])
+        for r in legacy
+        if r.get("sync_generation") is not None
+    }
+    assert gens == {20}, f"legacy gens={gens} rows={legacy}"
+    assert not any(
+        (r.get("event_id") == "loser-a-cas-cleanup")
+        or (r.get("sync_generation") == 5)
+        for r in legacy
+    )
+    busy = await db.resource_busy_intervals.find(
+        {"connection_id": connection["connection_id"], "source": "outlook"},
+        {"_id": 0},
+    ).to_list(20)
+    assert {r.get("event_id") for r in busy} == {"winner-b-after-a-cas"}

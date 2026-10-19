@@ -344,6 +344,68 @@ async def test_b1_cleanup_query_is_strictly_older_not_ne():
 
 
 @pytest.mark.asyncio
+async def test_b1_legacy_events_cleanup_is_strictly_older_not_ne():
+    """
+    Flag-on legacy outlook_calendar_events cleanup must use $lt / untagged
+    (never $ne) so a delayed cleanup after a successful CAS cannot wipe a
+    newer generation that published in the interim (issue #9 Codex at 494c821).
+    """
+    from application.outlook_sync import sync_outlook_connection
+
+    connection = {
+        **NICHOLE_CONNECTION,
+        "practitioner_id": "pract-1",
+        "auth_mode": "application",
+        "mailbox_email": "nmoore@thenaturalpathla.com",
+    }
+    db, busy, connections = _db_for_persist(connection=connection)
+
+    class _Events:
+        def __init__(self):
+            self.delete_queries: list = []
+            self.inserted = []
+
+        async def delete_many(self, query):
+            self.delete_queries.append(query)
+
+        async def insert_many(self, rows):
+            self.inserted.append(list(rows))
+
+    events_col = _Events()
+    db.outlook_calendar_events = events_col
+
+    with patch.object(settings, "multi_resource_scheduling", True), patch(
+        "application.outlook_sync.graph_client"
+    ) as mock_graph_factory, patch(
+        "application.outlook_category_sync._next_sync_generation",
+        return_value=50,
+    ):
+        client = MagicMock()
+        client.client_credentials_token = AsyncMock(
+            return_value={"access_token": "t"}
+        )
+        client.list_user_calendar_view = AsyncMock(
+            return_value=[_graph_event(categories=["Discovery"], event_id="legacy-win")]
+        )
+        mock_graph_factory.return_value = client
+        result = await sync_outlook_connection(db, connections.doc)
+
+    assert result.get("status") == "ok"
+    assert events_col.delete_queries, "expected legacy cleanup delete_many"
+    cleanup = events_col.delete_queries[-1]
+    or_clauses = cleanup.get("$or") or []
+    assert any(
+        isinstance(c.get("sync_generation"), dict) and "$lt" in c["sync_generation"]
+        for c in or_clauses
+    ), cleanup
+    assert not any(
+        isinstance(c.get("sync_generation"), dict) and "$ne" in c["sync_generation"]
+        for c in (or_clauses + [cleanup])
+    ), cleanup
+    assert cleanup.get("connection_id") == connection["connection_id"]
+
+
+@pytest.mark.asyncio
 async def test_b1_codex_race_a_cleanup_after_b_claim_preserves_newer():
     """
     Codex #9 failure sequence (static interleaving, not a prod incident):

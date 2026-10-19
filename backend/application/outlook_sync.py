@@ -21,6 +21,9 @@ from infrastructure.external.microsoft_graph import (
 
 # Test seam: awaited after final prepublication ownership read (Codex B1 window).
 _legacy_pre_publish_hook: Optional[Callable[..., Awaitable[None]]] = None
+# Test seam: awaited after successful legacy CAS, before older-generation cleanup
+# (Codex B1: delayed cleanup must not delete newer generations).
+_legacy_post_cas_hook: Optional[Callable[..., Awaitable[None]]] = None
 
 
 class OutlookSyncError(Exception):
@@ -247,11 +250,24 @@ async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[s
                 "sync_conflict_review_count": 0,
             }
 
-        # Winner: drop prior legacy generations (including untagged rows).
+        # Codex B1: A can CAS gen N then pause; B publishes M>N and finishes.
+        # A's delayed cleanup must not delete M. Fence after CAS for that window.
+        if _legacy_post_cas_hook is not None:
+            await _legacy_post_cas_hook(
+                connection_id=connection_id,
+                publish_generation=gen,
+            )
+
+        # Drop ONLY strictly older / untagged legacy rows — never newer gens.
+        # `$ne` would wipe a concurrent winner that published after our CAS
+        # (issue #9 Codex follow-up at 494c821).
         await db.outlook_calendar_events.delete_many(
             {
                 "connection_id": connection_id,
-                "sync_generation": {"$ne": gen},
+                "$or": [
+                    {"sync_generation": {"$lt": gen}},
+                    {"sync_generation": {"$exists": False}},
+                ],
             }
         )
     else:
