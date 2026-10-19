@@ -148,31 +148,22 @@ def busy_intervals_for_slot_engine(
     return out
 
 
-async def _filter_busy_rows_to_active_generations(
+# Retries when active_busy_generation changes mid-read (issue #9 Codex follow-up).
+_BUSY_READ_MAX_ATTEMPTS = 3
+
+
+async def _load_active_busy_generations(
     db: Any,
     resource_id: str,
-    rows: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+) -> Dict[str, int]:
     """
-    Drop Outlook busy rows that are not the connection's active_busy_generation.
+    Map connection_id → active_busy_generation for authoritative connections.
 
-    During overlapping syncs, multiple generations may briefly coexist. Readers
-    must not treat a superseded snapshot as capacity, and must not treat a
-    wiped winner as "fresh empty" when health metadata already advanced.
-    Non-Outlook sources (booking holds) always pass through.
+    Raises ResourceCalendarUnavailable on connection lookup failure (fail-closed).
     """
-    if not rows:
-        return rows
-    try:
-        from application.resource_availability import load_authoritative_connections
+    from application.resource_availability import load_authoritative_connections
 
-        connections = await load_authoritative_connections(db, resource_id)
-    except Exception:
-        logger.exception(
-            "Failed resolving active busy generations for resource %s", resource_id
-        )
-        return rows
-
+    connections = await load_authoritative_connections(db, resource_id)
     active_by_conn: Dict[str, int] = {}
     for conn in connections:
         cid = str(conn.get("connection_id") or "")
@@ -185,6 +176,20 @@ async def _filter_busy_rows_to_active_generations(
             active_by_conn[cid] = int(active)
         except (TypeError, ValueError):
             continue
+    return active_by_conn
+
+
+def _filter_busy_rows_with_generations(
+    rows: List[Dict[str, Any]],
+    active_by_conn: Dict[str, int],
+) -> List[Dict[str, Any]]:
+    """
+    Drop Outlook busy rows that are not the connection's active_busy_generation.
+
+    During overlapping syncs, multiple generations may briefly coexist. Readers
+    must not treat a superseded snapshot as capacity. Non-Outlook sources
+    (booking holds) always pass through.
+    """
     if not active_by_conn:
         return rows
 
@@ -212,6 +217,26 @@ async def _filter_busy_rows_to_active_generations(
     return out
 
 
+async def _filter_busy_rows_to_active_generations(
+    db: Any,
+    resource_id: str,
+    rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Compatibility wrapper: load generations then filter (no mid-read retry)."""
+    if not rows:
+        return rows
+    try:
+        active_by_conn = await _load_active_busy_generations(db, resource_id)
+    except ResourceCalendarUnavailable:
+        raise
+    except Exception:
+        logger.exception(
+            "Failed resolving active busy generations for resource %s", resource_id
+        )
+        return rows
+    return _filter_busy_rows_with_generations(rows, active_by_conn)
+
+
 async def fetch_resource_busy(
     db: Any,
     resource_id: str,
@@ -228,6 +253,11 @@ async def fetch_resource_busy(
 
     Issue #9 A1: lookup failure must not be treated as successful-empty free.
     When fail_closed=True (default), raises ResourceCalendarUnavailable.
+
+    Issue #9 Codex follow-up: generation + rows are read consistently. If sync
+    advances active_busy_generation between the generation read and the busy
+    row fetch, retry; if still inconsistent, fail closed rather than returning
+    a false-empty result. A stable empty snapshot remains legitimate empty.
     """
     if db is None or not resource_id:
         if fail_closed:
@@ -240,28 +270,51 @@ async def fetch_resource_busy(
         if fail_closed:
             raise ResourceCalendarUnavailable(resource_id=resource_id)
         return []
-    try:
-        rows = await col.find(
-            {"resource_id": resource_id, "date": date_str},
-            {"_id": 0},
-        ).to_list(length=500)
-    except ResourceCalendarUnavailable:
-        raise
-    except Exception as exc:
-        logger.exception(
-            "Failed to load resource_busy_intervals for %s on %s",
-            resource_id,
-            date_str,
-        )
-        if fail_closed:
-            raise ResourceCalendarUnavailable(
-                "Calendar busy lookup failed; please retry shortly",
-                resource_id=resource_id,
-            ) from exc
-        return []
-    return await _filter_busy_rows_to_active_generations(
-        db, resource_id, list(rows)
-    )
+
+    last_exc: Optional[BaseException] = None
+    for attempt in range(_BUSY_READ_MAX_ATTEMPTS):
+        try:
+            gens_before = await _load_active_busy_generations(db, resource_id)
+            rows = await col.find(
+                {"resource_id": resource_id, "date": date_str},
+                {"_id": 0},
+            ).to_list(length=500)
+            gens_after = await _load_active_busy_generations(db, resource_id)
+        except ResourceCalendarUnavailable:
+            raise
+        except Exception as exc:
+            last_exc = exc
+            logger.exception(
+                "Failed to load resource_busy_intervals for %s on %s (attempt %s)",
+                resource_id,
+                date_str,
+                attempt + 1,
+            )
+            if fail_closed:
+                continue
+            return []
+
+        if gens_before != gens_after:
+            # Sync claimed a new generation mid-read — retry rather than
+            # discarding pre-claim rows and missing the winner's insert.
+            logger.info(
+                "Busy read generation changed mid-flight for %s on %s "
+                "(before=%s after=%s); retrying",
+                resource_id,
+                date_str,
+                gens_before,
+                gens_after,
+            )
+            continue
+
+        return _filter_busy_rows_with_generations(list(rows), gens_after)
+
+    if fail_closed:
+        raise ResourceCalendarUnavailable(
+            "Calendar busy lookup was inconsistent during sync; please retry shortly",
+            resource_id=resource_id,
+        ) from last_exc
+    return []
 
 
 async def fetch_resource_reservations(

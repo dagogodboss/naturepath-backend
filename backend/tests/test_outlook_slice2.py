@@ -127,6 +127,14 @@ class _ConnectionsCol:
         cid = query.get("connection_id")
         if cid and cid != self.doc.get("connection_id"):
             return SimpleNamespace(matched_count=0, modified_count=0)
+        # Generation-fenced publish: equality on active_busy_generation.
+        if (
+            "active_busy_generation" in query
+            and "$or" not in query
+            and query.get("active_busy_generation")
+            != self.doc.get("active_busy_generation")
+        ):
+            return SimpleNamespace(matched_count=0, modified_count=0)
         # Evaluate $or generation CAS filters when present.
         or_clauses = query.get("$or")
         if or_clauses is not None:
@@ -647,6 +655,254 @@ async def test_b1_readers_ignore_non_active_outlook_generation():
     assert "active-gen" in ids
     assert "hold" in ids
     assert "old-gen" not in ids
+
+
+@pytest.mark.asyncio
+async def test_b1_busy_read_retries_when_generation_changes_mid_read():
+    """
+    Codex race: fetch rows at gen A, then sync B claims before gen filter.
+    Filtering A rows against B's active gen without B's rows → false empty.
+    Reader must observe generation, fetch, re-check, and retry.
+    """
+    from application.multi_resource_booking import fetch_resource_busy
+    from application.resource_availability import ResourceCalendarUnavailable
+
+    gen1_row = {
+        "resource_id": NICHOLE,
+        "date": "2026-10-20",
+        "start_time": "15:00",
+        "end_time": "16:00",
+        "connection_id": "conn-nichole",
+        "source": "outlook",
+        "event_id": "gen1-busy",
+        "sync_generation": 1,
+    }
+    gen2_row = {
+        "resource_id": NICHOLE,
+        "date": "2026-10-20",
+        "start_time": "15:00",
+        "end_time": "16:00",
+        "connection_id": "conn-nichole",
+        "source": "outlook",
+        "event_id": "gen2-busy",
+        "sync_generation": 2,
+    }
+
+    class _FlipConnections:
+        def __init__(self):
+            self.doc = {
+                "connection_id": "conn-nichole",
+                "authoritative_for_resource_ids": [NICHOLE],
+                "active_busy_generation": 1,
+                "visibility_only": False,
+            }
+            self._gen_reads = 0
+
+        def find(self, *args, **kwargs):
+            outer = self
+
+            class _C:
+                async def to_list(self, length=50):
+                    outer._gen_reads += 1
+                    # After first gens_before + mid find, flip to gen 2 so the
+                    # first attempt sees before=1 / after=2 and retries.
+                    if outer._gen_reads >= 2:
+                        outer.doc["active_busy_generation"] = 2
+                    return [dict(outer.doc)]
+
+            return _C()
+
+    class _FlipBusy:
+        def __init__(self):
+            self.rows = [dict(gen1_row)]
+            self.finds = 0
+
+        def find(self, query, projection=None):
+            outer = self
+
+            class _C:
+                async def to_list(self, length=500):
+                    outer.finds += 1
+                    # First fetch returns only gen1; after retry, gen2 is present.
+                    if outer.finds == 1:
+                        return [dict(gen1_row)]
+                    return [dict(gen2_row)]
+
+            return _C()
+
+    db = MagicMock()
+    conns = _FlipConnections()
+    busy = _FlipBusy()
+    db.outlook_calendar_connections = conns
+    db.resource_busy_intervals = busy
+
+    rows = await fetch_resource_busy(db, NICHOLE, "2026-10-20")
+    ids = {r.get("event_id") for r in rows}
+    assert "gen2-busy" in ids
+    assert "gen1-busy" not in ids
+    assert busy.finds >= 2
+
+
+@pytest.mark.asyncio
+async def test_b1_busy_read_fail_closed_on_persistent_generation_churn():
+    from application.multi_resource_booking import fetch_resource_busy
+    from application.resource_availability import ResourceCalendarUnavailable
+
+    class _ChurnConnections:
+        def __init__(self):
+            self.n = 0
+
+        def find(self, *args, **kwargs):
+            outer = self
+
+            class _C:
+                async def to_list(self, length=50):
+                    outer.n += 1
+                    return [
+                        {
+                            "connection_id": "conn-nichole",
+                            "authoritative_for_resource_ids": [NICHOLE],
+                            "active_busy_generation": outer.n,
+                            "visibility_only": False,
+                        }
+                    ]
+
+            return _C()
+
+    class _Busy:
+        def find(self, *a, **k):
+            class _C:
+                async def to_list(self, length=500):
+                    return []
+
+            return _C()
+
+    db = MagicMock()
+    db.outlook_calendar_connections = _ChurnConnections()
+    db.resource_busy_intervals = _Busy()
+
+    with pytest.raises(ResourceCalendarUnavailable, match="inconsistent"):
+        await fetch_resource_busy(db, NICHOLE, "2026-10-20")
+
+
+@pytest.mark.asyncio
+async def test_b1_busy_read_stable_empty_snapshot_is_legitimate_empty():
+    """Legitimate empty active generation must not raise unavailable."""
+    from application.multi_resource_booking import fetch_resource_busy
+
+    class _ConnFind:
+        def find(self, *args, **kwargs):
+            class _C:
+                async def to_list(self, length=50):
+                    return [
+                        {
+                            "connection_id": "conn-nichole",
+                            "authoritative_for_resource_ids": [NICHOLE],
+                            "active_busy_generation": 5,
+                            "visibility_only": False,
+                        }
+                    ]
+
+            return _C()
+
+    class _Busy:
+        def find(self, *a, **k):
+            class _C:
+                async def to_list(self, length=500):
+                    # Stale gen-4 row only — active gen 5 is legitimately empty.
+                    return [
+                        {
+                            "resource_id": NICHOLE,
+                            "date": "2026-10-20",
+                            "connection_id": "conn-nichole",
+                            "source": "outlook",
+                            "event_id": "stale",
+                            "sync_generation": 4,
+                        }
+                    ]
+
+            return _C()
+
+    db = MagicMock()
+    db.outlook_calendar_connections = _ConnFind()
+    db.resource_busy_intervals = _Busy()
+    rows = await fetch_resource_busy(db, NICHOLE, "2026-10-20")
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_b1_stale_completion_after_newer_success_is_generation_fenced():
+    """
+    Codex race: A passes early ownership recheck, B wins and publishes ok,
+    then A must not overwrite success metadata / claim status=ok.
+    """
+    from application.outlook_sync import sync_outlook_connection
+    from core.config import settings
+
+    connection = {
+        **NICHOLE_CONNECTION,
+        "practitioner_id": "pract-1",
+        "auth_mode": "application",
+        "mailbox_email": "nmoore@thenaturalpathla.com",
+        "last_synced_at": "2026-10-19T08:00:00+00:00",
+        "last_sync_status": "ok",
+    }
+    db, busy, connections = _db_for_persist(connection=connection)
+    # No prior generation so A can claim gen 10; B then advances to 11.
+    connections.doc.pop("active_busy_generation", None)
+    connections.doc["last_synced_at"] = "2026-10-19T08:00:00+00:00"
+    winner_synced_at = "2026-10-19T09:00:00+00:00"
+
+    class _Events:
+        def __init__(self):
+            self.delete_count = 0
+            self.insert_count = 0
+
+        async def delete_many(self, *_a, **_k):
+            self.delete_count += 1
+
+        async def insert_many(self, *_a, **_k):
+            self.insert_count += 1
+
+    events_col = _Events()
+    db.outlook_calendar_events = events_col
+
+    original_persist = persist_resource_busy_from_events
+
+    async def persist_then_b_wins(*args, **kwargs):
+        # A claims gen 10 successfully; before sync publishes, B becomes winner.
+        with patch(
+            "application.outlook_category_sync._next_sync_generation",
+            return_value=10,
+        ):
+            result = await original_persist(*args, **kwargs)
+        assert result.get("skipped_stale_generation") is False
+        connections.doc["active_busy_generation"] = 11
+        connections.doc["last_synced_at"] = winner_synced_at
+        connections.doc["last_sync_status"] = "ok"
+        return result
+
+    with patch.object(settings, "multi_resource_scheduling", True), patch(
+        "application.outlook_sync.graph_client"
+    ) as mock_graph_factory, patch(
+        "application.outlook_sync.persist_resource_busy_from_events",
+        side_effect=persist_then_b_wins,
+    ):
+        client = MagicMock()
+        client.client_credentials_token = AsyncMock(
+            return_value={"access_token": "t"}
+        )
+        client.list_user_calendar_view = AsyncMock(
+            return_value=[_graph_event(categories=["Discovery"], event_id="loser-a")]
+        )
+        mock_graph_factory.return_value = client
+        result = await sync_outlook_connection(db, connections.doc)
+
+    assert result.get("status") == "skipped_stale_generation"
+    assert result.get("skipped_stale_generation") is True
+    # Winner's freshness must remain — loser must not publish ok over it.
+    assert connections.doc.get("last_synced_at") == winner_synced_at
+    assert connections.doc.get("active_busy_generation") == 11
 
 
 # ---- B2: mode-correct admin sync ---------------------------------------------

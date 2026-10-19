@@ -3,7 +3,8 @@
 **Canonical copy:** keep in sync with workspace `/Users/mac/naturepath/docs/plans/ops-entra-consent-request.md` and `naturepath-backend` `docs/plans/ops-entra-consent-request.md`.
 
 **Date:** 2026-10-19  
-**Status:** **READY TO SEND** — engineering blockers cleared. Human (ops) sends when ready. **Automation / agents must not email, Slack, or message Jonathan (or any staff)** unless an already-approved send path the user previously used is available; prefer this package + [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8).  
+**Status:** **READY TO SEND** — engineering blockers cleared. Human (ops) sends when ready.  
+**Preferred channel: WhatsApp first** (Jonathan preference). Email/SMTP only if WhatsApp is unavailable. **Automation / agents must not email, Slack, or WhatsApp Jonathan** unless an already-approved send path with a reachable WhatsApp Business / Twilio WhatsApp sender + Jonathan’s number is configured; otherwise document the gap on [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8) and do not spam more email.  
 **Primary unblock for Phase 6:** Application **`Calendars.Read`** admin consent for app `daf7c7db-7a14-4b8b-8209-58b168d34683` **plus** Exchange mailbox least-privilege (Clients@ + Nichole only).
 
 ## Engineering status — cleared (2026-10-19)
@@ -29,13 +30,35 @@ Tracking: [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8). Ru
 | `Clients@thenaturalpathla.com` | Phase 0 locked Salt Outlook source | Target **mailbox** for app-only sync — not the consent approver |
 | `admin@gcp.thenaturalpathla.com` | GCP / Firebase support email in plan docs | Technical GCP account — use only if that is your usual Jonathan/ops inbox |
 
-**Suggested To:** Jonathan Moore (Microsoft 365 **Global Administrator** for The Natural Path LA tenant). If you do not have his direct address, forward from Nichole or your usual clinic IT contact.
+**Suggested To:** Jonathan Moore (Microsoft 365 **Global Administrator** for The Natural Path LA tenant). Prefer WhatsApp to his clinic number when known; otherwise email `JonathanMoore@TNPY.onmicrosoft.com` / `jmoore11709@icloud.com` (already used once via clinic SMTP) or forward from Nichole.
+
+### WhatsApp send path (preferred next time)
+
+1. **Sender:** clinic WhatsApp Business (Meta) via Composio `whatsapp` toolkit, or Twilio WhatsApp (`whatsapp:+E.164` from number) — **not** personal WhatsApp.
+2. **Required secrets / config (none of these are wired for Jonathan today):**
+   - Composio WhatsApp Business connection **active**, **or** `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / WhatsApp-capable `TWILIO_PHONE_NUMBER`
+   - Jonathan’s E.164 mobile (repo has **no** phone on file)
+3. **Message:** short Accept ask — adminconsent URL + Application `Calendars.Read` + mailbox least-privilege (Clients@ + Nichole). Same substance as the email body below; keep under WhatsApp length limits; include the one-click URL.
+4. **If not sendable:** leave a note on #8; do **not** re-send email unless explicitly asked.
 
 ---
 
 ## Copy-paste Accept package
 
-### Subject
+### WhatsApp (preferred — concise)
+
+```
+Hi Jonathan — need ~2 min Microsoft admin consent for Natural Path Salt scheduling.
+
+1) Accept Calendars.Read (Application) here:
+https://login.microsoftonline.com/bbefcd77-2f78-4240-85f3-41dcf671c9bf/adminconsent?client_id=daf7c7db-7a14-4b8b-8209-58b168d34683
+
+2) Same day: limit the app to Clients@thenaturalpathla.com + nmoore@thenaturalpathla.com only (Exchange app access policy).
+
+Reply when done — we’ll run staging prove (no spam polls). Sorry we emailed earlier; WhatsApp going forward.
+```
+
+### Subject (email fallback)
 
 ```
 Action needed (~2 min): Microsoft admin consent for Natural Path scheduling (Salt room calendar)
@@ -92,4 +115,4 @@ https://login.microsoftonline.com/bbefcd77-2f78-4240-85f3-41dcf671c9bf/admincons
 - Consistency / integrity follow-ups: https://github.com/dagogodboss/naturepath/issues/9
 - Runbook: `docs/plans/ops-oauth-prod-cutover.md`
 - **Ask:** Accept **Calendars.Read** (Application) admin consent **and** mailbox least-privilege scope (Clients@ + Nichole only) — then engineering runs one staging cutover command (no DNS)
-- **Agent policy:** do not email/Slack/message Jonathan; human sends this package when ready
+- **Agent policy:** WhatsApp-first when a sendable clinic WhatsApp path + Jonathan’s number exist; otherwise document gap on #8 — do not email/Slack spam; human sends this package when ready

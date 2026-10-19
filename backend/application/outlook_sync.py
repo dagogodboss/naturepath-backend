@@ -9,6 +9,7 @@ import httpx
 
 from application.outlook_category_sync import (
     MultiResourceSyncConfigError,
+    _read_active_busy_generation,
     persist_resource_busy_from_events,
 )
 from core.config import settings
@@ -158,6 +159,25 @@ async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[s
                 **multi_resource_meta,
             }
 
+    publish_generation = multi_resource_meta.get("active_busy_generation")
+    if (
+        settings.multi_resource_scheduling
+        and publish_generation is not None
+    ):
+        # Generation-fence publication: re-check ownership immediately before
+        # any legacy/success writes (Codex: fence must not be an earlier read).
+        active_now = await _read_active_busy_generation(db, connection_id)
+        if active_now is not None and int(active_now) != int(publish_generation):
+            return {
+                "status": "skipped_stale_generation",
+                "event_count": 0,
+                "last_synced_at": connection.get("last_synced_at"),
+                "skipped_stale_generation": True,
+                "resource_interval_count": 0,
+                "review_item_count": 0,
+                "sync_conflict_review_count": 0,
+            }
+
     await db.outlook_calendar_events.delete_many({"connection_id": connection_id})
     if intervals:
         await db.outlook_calendar_events.insert_many(intervals)
@@ -170,10 +190,44 @@ async def sync_outlook_connection(db: Any, connection: Dict[str, Any]) -> Dict[s
     }
     if next_refresh is not None:
         sync_patch["refresh_token_encrypted"] = cipher.encrypt(next_refresh)
-    await db.outlook_calendar_connections.update_one(
-        {"connection_id": connection_id},
+
+    # Fence success metadata on active_busy_generation so an older sync cannot
+    # overwrite a newer winner's freshness after publication began.
+    publish_filter: Dict[str, Any] = {"connection_id": connection_id}
+    if (
+        settings.multi_resource_scheduling
+        and publish_generation is not None
+    ):
+        publish_filter["active_busy_generation"] = int(publish_generation)
+
+    publish_result = await db.outlook_calendar_connections.update_one(
+        publish_filter,
         {"$set": sync_patch},
     )
+    try:
+        published = int(getattr(publish_result, "modified_count", 0) or 0) > 0
+        matched = int(getattr(publish_result, "matched_count", 0) or 0) > 0
+    except (TypeError, ValueError):
+        # Unit-test doubles without UpdateResult fields — treat as published.
+        published = True
+        matched = True
+
+    if (
+        settings.multi_resource_scheduling
+        and publish_generation is not None
+        and not published
+        and not matched
+    ):
+        return {
+            "status": "skipped_stale_generation",
+            "event_count": 0,
+            "last_synced_at": connection.get("last_synced_at"),
+            "skipped_stale_generation": True,
+            "resource_interval_count": 0,
+            "review_item_count": 0,
+            "sync_conflict_review_count": 0,
+        }
+
     result: Dict[str, Any] = {
         "status": "ok",
         "event_count": len(intervals),

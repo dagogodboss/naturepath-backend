@@ -7,6 +7,7 @@ confirmed occupancy has no expiry.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Mapping, Optional, Sequence
@@ -262,23 +263,71 @@ async def acquire_resource_reservation(
         logger.exception("resource reservation insert failed for %s", booking_id)
         raise ValueError("Selected time is no longer available") from None
 
-    # Double-check: concurrent inserter may have won an overlapping window.
-    conflicts = await find_overlapping_reservations(
-        db,
-        resource_id=resource_id,
-        date_str=date_str,
-        occupied_start=occupied_start,
-        occupied_end=occupied_end,
-        exclude_booking_id=booking_id,
-        now=clock_utc,
-    )
-    if conflicts:
-        try:
-            await col.delete_many({"reservation_id": reservation_id})
-        except Exception:
-            logger.exception("Failed to roll back reservation %s", reservation_id)
-        raise ValueError("Selected time is no longer available")
-    return doc
+    # Double-check under concurrency (issue #9 A2 real-Mongo).
+    # Lexicographically smallest reservation_id wins. A single yield+recheck is
+    # not enough: each contender can briefly observe only its own insert and
+    # both return success. Retry until the overlapping set is stable, prune
+    # losers, and confirm our row still exists before returning.
+    my_key = str(reservation_id)
+    for attempt in range(8):
+        await asyncio.sleep(0 if attempt == 0 else 0.002)
+        day_rows = await _load_resource_day_rows(
+            col, resource_id=resource_id, date_str=date_str
+        )
+        overlapping = [
+            row
+            for row in day_rows
+            if reservation_is_active(row, now=clock_utc)
+            and row_overlaps_occupied(row, occupied_start, occupied_end)
+        ]
+        if not any(str(r.get("reservation_id") or "") == my_key for r in overlapping):
+            # Peer winner already pruned us.
+            raise ValueError("Selected time is no longer available")
+
+        winner_id = min(str(r.get("reservation_id") or "") for r in overlapping)
+        if my_key != winner_id:
+            try:
+                await col.delete_many({"reservation_id": reservation_id})
+            except Exception:
+                logger.exception(
+                    "Failed to roll back reservation %s", reservation_id
+                )
+            raise ValueError("Selected time is no longer available")
+
+        for row in overlapping:
+            other_id = str(row.get("reservation_id") or "")
+            if other_id and other_id != winner_id:
+                try:
+                    await col.delete_many({"reservation_id": other_id})
+                except Exception:
+                    logger.exception(
+                        "Failed to prune losing reservation %s", other_id
+                    )
+
+        # Re-read: done only when no overlapping peers remain.
+        day_rows = await _load_resource_day_rows(
+            col, resource_id=resource_id, date_str=date_str
+        )
+        peers = [
+            row
+            for row in day_rows
+            if reservation_is_active(row, now=clock_utc)
+            and row_overlaps_occupied(row, occupied_start, occupied_end)
+            and str(row.get("reservation_id") or "") != my_key
+        ]
+        if not peers:
+            still_mine = await col.find_one(
+                {"reservation_id": reservation_id}, {"_id": 0}
+            )
+            if not still_mine:
+                raise ValueError("Selected time is no longer available")
+            return doc
+
+    try:
+        await col.delete_many({"reservation_id": reservation_id})
+    except Exception:
+        logger.exception("Failed to roll back reservation %s", reservation_id)
+    raise ValueError("Selected time is no longer available")
 
 
 async def promote_reservation_confirmed(

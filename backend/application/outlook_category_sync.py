@@ -588,6 +588,14 @@ async def persist_resource_busy_from_events(
         busy_intervals=built.intervals,
     )
 
+    # 4) Final ownership fence after all awaited cleanup/review work.
+    #    A newer sync may have claimed during delete/review; returning success
+    #    here would let the loser publish legacy events + ok freshness.
+    active_final = await _read_active_busy_generation(db, connection_id)
+    if active_final is not None and int(active_final) != int(generation):
+        await _discard_busy_sync_generation(busy_col, connection_id, generation)
+        return _stale_skip_result()
+
     return {
         "resource_interval_count": len(built.intervals),
         "review_item_count": len(built.review_items),
