@@ -4,6 +4,10 @@
 
 **GCP project:** `project-990664b0-1bae-4746-88d` only. **Do not change DNS.**
 
+## HARD GATE — Jonathan / Entra Accept deferred (2026-10-19)
+
+**Do not send the adminconsent link to Jonathan (or any staff) until [naturepath#9](https://github.com/dagogodboss/naturepath/issues/9) slices 1–4 are complete** (A1–A6 done on `8b34fcf`; B1–B3 in progress; C1–C5 UI; D hardened on `5f2c512`; B4 consent/runbook). Entra Accept / Jonathan auth ask is **DEFERRED**. Cutover workflow must **not** be presented as “ready for Jonathan” yet. No Entra polls, no prod flag flip while this gate is open. See also [ops-entra-consent-request.md](./ops-entra-consent-request.md).
+
 ## Blocker (2026-10-18) — no silent unblock path
 
 | Check | Result |

@@ -1,10 +1,23 @@
-# Entra admin consent — ready to send (Phase 6 unblock)
+# Entra admin consent — DEFERRED (not ready to send)
 
 **Canonical copy:** keep in sync with workspace `/Users/mac/naturepath/docs/plans/ops-entra-consent-request.md`.
 
 **Date:** 2026-10-18 (reconciled 2026-10-19)  
-**Status:** Draft — **please send this** (not auto-sent; no approved Jonathan ops channel in repo).  
-**Primary unblock for Phase 6:** Application **`Calendars.Read`** admin consent ([naturepath#8](https://github.com/dagogodboss/naturepath/issues/8)).
+**Status:** Draft — **DO NOT SEND.** Entra Accept / Jonathan (or any staff) auth ask is **DEFERRED**.  
+**Primary unblock for Phase 6 (later):** Application **`Calendars.Read`** admin consent ([naturepath#8](https://github.com/dagogodboss/naturepath/issues/8)).
+
+## HARD GATE — do not outreach until #9 slices complete
+
+**Do not send the adminconsent link to Jonathan (or any staff) until [naturepath#9](https://github.com/dagogodboss/naturepath/issues/9) delivery slices 1–4 are complete** (A1–A6, B1–B4, C1–C5, D cutover/proof / B4 consent runbook). Cutover must **not** be presented as “ready for Jonathan” yet.
+
+| Slice | Scope | Gate note |
+|-------|--------|-----------|
+| 1 | A1–A6 booking integrity | Done on backend `8b34fcf` |
+| 2 | B1–B3 Outlook / snapshots | In progress elsewhere — do not conflict |
+| 3 | C1–C5 admin/customer UI | Pending |
+| 4 | D cutover proof + B4 least-privilege consent/runbook | D hardened on `5f2c512`; B4 + full #9 closure still required |
+
+Until this gate clears: no Jonathan outreach, no Entra Accept ask, no prod `MULTI_RESOURCE_SCHEDULING` flag.
 
 ## Recipient (from repo docs only)
 
