@@ -39,17 +39,23 @@ Copy-paste subject/body: `docs/plans/ops-entra-consent-request.md`.
 3. **Grant admin consent for {tenant}** (button on the same blade).
 4. **REQUIRED same day (not optional):** [Exchange application access policy](https://learn.microsoft.com/en-us/graph/auth-limit-mailbox-access) / application RBAC to restrict the app to `Clients@thenaturalpathla.com` and `nmoore@thenaturalpathla.com` only. Verify allowed mailboxes succeed and others are denied before cutover. See B4 / `ops-oauth-prod-cutover.md`.
 
-## After Accept — one-button staging cutover
+## After Accept — staging cutover paths
 
-**Do not wait for polling.** After Accept, run one of:
+**Do not wait for polling.** After Accept, prefer in this order:
 
 ```bash
-# GitHub (needs GCP_SA_KEY secret on naturepath-backend)
+# 1) Local Secret Manager (no IAP) — Graph dry-run anytime; full cutover needs VPC Mongo
+./scripts/phase6_post_consent_cutover_local.sh --dry-run
+# on naturepath-data-1 (or VPC host): omit --dry-run for staging cutover
+```
+
+```bash
+# 2) GitHub Actions (WIF → IAP → VM; SA keys blocked by org policy)
 gh workflow run phase6-post-consent-cutover.yml --repo dagogodboss/naturepath-backend
 ```
 
 ```bash
-# Local IAP (ops laptop with gcloud)
+# 3) Local IAP when compute/TLS works
 ./scripts/phase6_post_consent_cutover_remote.sh --sync-code
 ```
 

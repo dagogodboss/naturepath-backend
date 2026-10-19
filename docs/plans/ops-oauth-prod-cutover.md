@@ -92,25 +92,47 @@ Delegated `Calendars.Read` / device-code remains a theoretical fallback only; Cl
 
 ## One-button cutover (after Accept + mailbox scope)
 
-**Preferred (zero-spam):** after Accept + least-privilege verified, comment on [naturepath#8](https://github.com/dagogodboss/naturepath/issues/8) then run:
+**Primary when IAP/compute TLS is broken (this laptop):** Secret Manager local path — no IAP.
 
 ```bash
-# GitHub Actions (needs repo secret GCP_SA_KEY with IAP SSH to naturepath-data-1)
+cd /path/to/naturepath-backend
+# Graph probe only (no VPC Mongo needed):
+./scripts/phase6_post_consent_cutover_local.sh --dry-run
+# Full staging cutover needs Mongo on 10.40.0.x — run on naturepath-data-1
+# (or any VPC host) with the same script, omitting --dry-run.
+```
+
+**GitHub Actions** (Workload Identity → IAP → VM; no `GCP_SA_KEY` — org policy
+`iam.disableServiceAccountKeyCreation` is enforced):
+
+```bash
 gh workflow run phase6-post-consent-cutover.yml --repo dagogodboss/naturepath-backend
-# optional probe-only:
 gh workflow run phase6-post-consent-cutover.yml --repo dagogodboss/naturepath-backend -f mode=dry-run
 ```
 
-**Local / ops laptop** (same IAP path; no GH secret required if your `gcloud` user can SSH):
+WIF assets (already provisioned): pool `github-actions`, provider `github`, SA
+`github-actions-phase6@project-990664b0-1bae-4746-88d.iam.gserviceaccount.com`.
+
+If an org-policy exception ever allows a key (fallback only):
+
+```bash
+gcloud iam service-accounts keys create /tmp/phase6-gha.json \
+  --iam-account=github-actions-phase6@project-990664b0-1bae-4746-88d.iam.gserviceaccount.com \
+  --project=project-990664b0-1bae-4746-88d
+gh secret set GCP_SA_KEY --repo dagogodboss/naturepath-backend < /tmp/phase6-gha.json
+rm -f /tmp/phase6-gha.json
+# then switch the workflow auth step to credentials_json: ${{ secrets.GCP_SA_KEY }}
+```
+
+**IAP remote** (when compute/IAP works on the laptop):
 
 ```bash
 cd /path/to/naturepath-backend
 ./scripts/phase6_post_consent_cutover_remote.sh --sync-code
-# or probe only:
 ./scripts/phase6_post_consent_cutover_remote.sh --dry-run
 ```
 
-VM checkout path used by the remote runner: `~/np-oauth/backend` on **naturepath-data-1**.
+VM checkout path: `~/np-oauth/backend` on **naturepath-data-1**.
 
 Dry-run still exits **10** when Entra consent is missing (Graph 403 / empty `roles`).
 

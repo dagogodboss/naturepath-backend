@@ -2,12 +2,17 @@
 # One-shot: run phase6_post_consent_cutover on naturepath-data-1 via IAP SSH.
 # No poll loops. Does not enable prod MULTI_RESOURCE_SCHEDULING unless you pass --prod.
 #
+# When IAP/compute TLS is broken on the laptop, use the Secret Manager path instead:
+#   ./scripts/phase6_post_consent_cutover_local.sh --dry-run
+# Full staging cutover without IAP: run that same local script on the data VM
+# (or any host that can reach Mongo 10.40.0.x).
+#
 # Usage (gcloud auth for project-990664b0-1bae-4746-88d required):
 #   ./scripts/phase6_post_consent_cutover_remote.sh
 #   ./scripts/phase6_post_consent_cutover_remote.sh --dry-run
 #   ./scripts/phase6_post_consent_cutover_remote.sh --sync-code
 #
-# After Entra Accept (GitHub one-button):
+# After Entra Accept (GitHub one-button via WIF, no GCP_SA_KEY):
 #   gh workflow run phase6-post-consent-cutover.yml --repo dagogodboss/naturepath-backend
 
 set -euo pipefail
