@@ -50,38 +50,102 @@ class _Cursor:
         return list(self._rows)[:length]
 
 
+def _row_get(row, key):
+    if "." not in key:
+        return row.get(key)
+    cur = row
+    for part in key.split("."):
+        if isinstance(cur, list):
+            # Any element containing the remaining path match is handled by caller.
+            return [e.get(part) if isinstance(e, dict) else None for e in cur]
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(part)
+    return cur
+
+
+def _match_simple(row, query):
+    for k, v in query.items():
+        if k == "$or":
+            if not any(_match_simple(row, clause) for clause in v):
+                return False
+            continue
+        row_val = _row_get(row, k)
+        if isinstance(v, dict):
+            if "$ne" in v:
+                if row_val == v["$ne"]:
+                    return False
+                continue
+            if "$lt" in v:
+                if row_val is None or not (str(row_val) < str(v["$lt"])):
+                    return False
+                continue
+            if "$in" in v:
+                if row_val not in v["$in"]:
+                    return False
+                continue
+        if isinstance(row_val, list) and not isinstance(v, list):
+            # Array contains scalar (authoritative_for_resource_ids) or nested maps.
+            if v in row_val:
+                continue
+            if any(
+                isinstance(el, dict) and v in el.values()
+                for el in row_val
+            ):
+                continue
+            return False
+        if row_val != v:
+            return False
+    return True
+
+
 class _FindCollection:
     def __init__(self, rows):
         self.rows = list(rows)
 
     async def find_one(self, query, projection=None):
         for row in self.rows:
-            if all(row.get(k) == v for k, v in query.items()):
+            if _match_simple(row, query):
                 return deepcopy(row)
         return None
 
     def find(self, query, projection=None):
         matched = []
         for row in self.rows:
-            if all(row.get(k) == v for k, v in query.items()):
+            if _match_simple(row, query):
                 matched.append(deepcopy(row))
         return _Cursor(matched)
 
+    async def insert_one(self, doc):
+        self.rows.append(deepcopy(doc))
+        return type("Result", (), {"inserted_id": doc.get("reservation_id")})()
+
     async def update_one(self, query, update, upsert=False):
         for i, row in enumerate(self.rows):
-            if all(row.get(k) == v for k, v in query.items()):
+            if _match_simple(row, query):
                 patch = update.get("$set", {})
                 self.rows[i] = {**row, **patch}
-                return
+                return type("Result", (), {"modified_count": 1})()
         if upsert:
-            doc = {**query, **update.get("$set", {})}
+            doc = {**query, **update.get("$set", {}), **update.get("$setOnInsert", {})}
             self.rows.append(doc)
+            return type("Result", (), {"modified_count": 0, "upserted_id": True})()
+        return type("Result", (), {"modified_count": 0})()
+
+    async def update_many(self, query, update):
+        count = 0
+        for i, row in enumerate(self.rows):
+            if _match_simple(row, query):
+                patch = update.get("$set", {})
+                self.rows[i] = {**row, **patch}
+                count += 1
+        return type("Result", (), {"modified_count": count})()
 
     async def delete_many(self, query):
         kept = []
         removed = 0
         for row in self.rows:
-            if all(row.get(k) == v for k, v in query.items()):
+            if _match_simple(row, query):
                 removed += 1
             else:
                 kept.append(row)
@@ -326,6 +390,8 @@ def _build_use_case(
     state = _StateCollection()
     resources_col = _FindCollection(resources or [_nichole_resource(), _salt_resource()])
     busy_col = _FindCollection(busy_rows or [])
+    reservations_col = _FindCollection([])
+    connections_col = _FindCollection([])
     database = type(
         "DB",
         (),
@@ -333,6 +399,8 @@ def _build_use_case(
             "booking_assignment_state": state,
             "resources": resources_col,
             "resource_busy_intervals": busy_col,
+            "resource_reservations": reservations_col,
+            "outlook_calendar_connections": connections_col,
             "outlook_calendar_events": _FindCollection([]),
         },
     )()

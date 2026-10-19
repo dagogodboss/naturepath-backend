@@ -14,11 +14,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from application.availability_explain import (
-    SYNC_STALE_AFTER_MINUTES,
-    explain_availability as explain_slot,
-    sync_is_stale,
-)
+from application.availability_explain import explain_availability as explain_slot
 from application.multi_resource_conflicts import enqueue_sync_conflicts_for_busy_intervals
 from application.schedule_change_impact import (
     compute_resource_schedule_impact,
@@ -814,36 +810,9 @@ async def put_outlook_category_maps(
 
 async def _resource_sync_stale(db, resource_id: str) -> bool:
     """Fail-closed when any authoritative connection covering this resource is unhealthy."""
-    connections_col = getattr(db, "outlook_calendar_connections", None)
-    if connections_col is None:
-        return False
-    try:
-        rows = await connections_col.find(
-            {
-                "$or": [
-                    {"authoritative_for_resource_ids": resource_id},
-                    {"category_maps.resource_ids": resource_id},
-                ],
-                "visibility_only": {"$ne": True},
-            },
-            {"_id": 0},
-        ).to_list(50)
-    except Exception:
-        # Empty-DB / mock without find → treat as no sync dependency.
-        return False
-    if not rows:
-        return False
-    now = _utc_now()
-    for conn in rows:
-        if sync_is_stale(
-            last_sync_status=conn.get("last_sync_status"),
-            last_synced_at=conn.get("last_synced_at"),
-            now=now,
-            stale_after_minutes=SYNC_STALE_AFTER_MINUTES,
-            outlook_required=True,
-        ):
-            return True
-    return False
+    from application.resource_availability import resource_sync_stale
+
+    return await resource_sync_stale(db, resource_id)
 
 
 @router.get("/availability/explain", response_model=dict)

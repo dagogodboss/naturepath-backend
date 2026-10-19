@@ -18,6 +18,7 @@ PROVISIONAL until Jonathan confirms (see docs/plans/phase-0-jonathan-questions.m
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from application.multi_resource_slots import (
@@ -26,6 +27,13 @@ from application.multi_resource_slots import (
     occupied_interval_for_session_start,
     slots_for_open_dates_preview,
 )
+from application.resource_availability import (
+    ResourceCalendarUnavailable,
+    assert_resource_calendar_ready,
+    filter_slots_by_notice_and_window,
+    resolve_required_resource_id,
+)
+from application.resource_reservation import active_reservation_busy_rows
 from domain.entities.models import BusyIntervalSource, generate_id, utc_now
 from domain.scheduling_occupation import resolve_customer_duration_minutes
 
@@ -141,7 +149,11 @@ def busy_intervals_for_slot_engine(
 
 
 async def fetch_resource_busy(
-    db: Any, resource_id: str, date_str: str
+    db: Any,
+    resource_id: str,
+    date_str: str,
+    *,
+    fail_closed: bool = True,
 ) -> List[Dict[str, Any]]:
     """
     Busy rows for one resource on one clinic-local date.
@@ -149,10 +161,49 @@ async def fetch_resource_busy(
     PROVISIONAL Q4: untagged Outlook busy is stored as authoritative busy on the
     resource and therefore blocks slots until classified/review resolves it.
     Never mix another resource's busy into this list (Discovery ≠ Salt).
+
+    Issue #9 A1: lookup failure must not be treated as successful-empty free.
+    When fail_closed=True (default), raises ResourceCalendarUnavailable.
     """
     if db is None or not resource_id:
+        if fail_closed:
+            raise ResourceCalendarUnavailable(
+                resource_id=resource_id or None,
+            )
         return []
     col = getattr(db, "resource_busy_intervals", None)
+    if col is None:
+        if fail_closed:
+            raise ResourceCalendarUnavailable(resource_id=resource_id)
+        return []
+    try:
+        rows = await col.find(
+            {"resource_id": resource_id, "date": date_str},
+            {"_id": 0},
+        ).to_list(length=500)
+    except ResourceCalendarUnavailable:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "Failed to load resource_busy_intervals for %s on %s",
+            resource_id,
+            date_str,
+        )
+        if fail_closed:
+            raise ResourceCalendarUnavailable(
+                "Calendar busy lookup failed; please retry shortly",
+                resource_id=resource_id,
+            ) from exc
+        return []
+    return list(rows)
+
+
+async def fetch_resource_reservations(
+    db: Any, resource_id: str, date_str: str
+) -> List[Dict[str, Any]]:
+    if db is None or not resource_id:
+        return []
+    col = getattr(db, "resource_reservations", None)
     if col is None:
         return []
     try:
@@ -160,13 +211,67 @@ async def fetch_resource_busy(
             {"resource_id": resource_id, "date": date_str},
             {"_id": 0},
         ).to_list(length=500)
-    except Exception:
+    except Exception as exc:
         logger.exception(
-            "Failed to load resource_busy_intervals for %s on %s",
+            "Failed to load resource_reservations for %s on %s",
             resource_id,
             date_str,
         )
-        return []
+        raise ResourceCalendarUnavailable(
+            "Calendar reservation lookup failed; please retry shortly",
+            resource_id=resource_id,
+        ) from exc
+
+
+def _pending_busy_still_active(row: Mapping[str, Any], now: datetime) -> bool:
+    expires = row.get("expires_at")
+    if not expires:
+        return True
+    text = str(expires)
+    try:
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        exp = datetime.fromisoformat(text)
+    except ValueError:
+        return True
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    clock = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    return exp > clock
+
+
+def merge_busy_with_reservations(
+    busy_intervals: Sequence[Mapping[str, Any]],
+    reservations: Sequence[Mapping[str, Any]],
+    *,
+    exclude_booking_id: Optional[str] = None,
+    now: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
+    """Combine persisted busy + active reservations; drop expired pending busy."""
+    clock = now or datetime.now(timezone.utc)
+    out: List[Dict[str, Any]] = []
+    for row in busy_intervals:
+        if (
+            exclude_booking_id
+            and str(row.get("source") or "").lower() == BusyIntervalSource.BOOKING.value
+            and str(row.get("booking_id") or "") == str(exclude_booking_id)
+        ):
+            continue
+        if (
+            str(row.get("source") or "").lower() == BusyIntervalSource.BOOKING.value
+            and row.get("expires_at")
+            and not _pending_busy_still_active(row, clock)
+        ):
+            continue
+        out.append(dict(row))
+    out.extend(
+        active_reservation_busy_rows(
+            reservations,
+            now=clock,
+            exclude_booking_id=exclude_booking_id,
+        )
+    )
+    return out
 
 
 def compute_session_slots(
@@ -206,10 +311,12 @@ async def slots_for_service_date(
     db: Any,
     service: Mapping[str, Any],
     date_str: str,
+    now: Optional[datetime] = None,
 ) -> List[Dict[str, str]]:
     """
     Fail closed: missing/inactive required_resource_id or resource → [].
 
+    Busy/sync failure raises ResourceCalendarUnavailable (not empty-busy=free).
     Does not fall back to practitioner-global busy (would break Discovery≠Salt).
     """
     rid = service.get("required_resource_id")
@@ -227,12 +334,18 @@ async def slots_for_service_date(
             service.get("service_id"),
         )
         return []
+    await assert_resource_calendar_ready(db, str(rid), date_str=date_str)
     busy = await fetch_resource_busy(db, str(rid), date_str)
-    return compute_session_slots(
+    reservations = await fetch_resource_reservations(db, str(rid), date_str)
+    merged = merge_busy_with_reservations(busy, reservations, now=now)
+    slots = compute_session_slots(
         date_str=date_str,
         service=service,
         resource=resource,
-        busy_intervals=busy,
+        busy_intervals=merged,
+    )
+    return filter_slots_by_notice_and_window(
+        slots, service, date_str, now=now
     )
 
 
@@ -254,23 +367,36 @@ async def recheck_session_available(
     start_time: str,
     end_time: str,
     exclude_booking_id: Optional[str] = None,
+    now: Optional[datetime] = None,
 ) -> bool:
     """Confirm-time recheck: regenerate slots and require exact session window."""
-    rid = service.get("required_resource_id")
-    if not rid:
+    try:
+        rid = resolve_required_resource_id(service)
+    except ValueError:
         return False
-    resource = await fetch_resource(db, str(rid))
+    resource = await fetch_resource(db, rid)
     if not resource or resource.get("active") is False:
         return False
-    busy = await fetch_resource_busy(db, str(rid), date_str)
-    busy = busy_intervals_for_slot_engine(
-        busy, exclude_booking_id=exclude_booking_id
+    await assert_resource_calendar_ready(db, rid, date_str=date_str)
+    busy = await fetch_resource_busy(db, rid, date_str)
+    reservations = await fetch_resource_reservations(db, rid, date_str)
+    merged = merge_busy_with_reservations(
+        busy,
+        reservations,
+        exclude_booking_id=exclude_booking_id,
+        now=now,
+    )
+    merged = busy_intervals_for_slot_engine(
+        merged, exclude_booking_id=exclude_booking_id
     )
     slots = compute_session_slots(
         date_str=date_str,
         service=service,
         resource=resource,
-        busy_intervals=busy,
+        busy_intervals=merged,
+    )
+    slots = filter_slots_by_notice_and_window(
+        slots, service, date_str, now=now
     )
     return slot_still_open(slots, start_time, end_time)
 
@@ -326,14 +452,30 @@ async def dual_write_booking_busy(
     occupied_start: str,
     occupied_end: str,
     booking_id: str,
+    expires_at: Optional[datetime] = None,
+    hold_seconds: Optional[int] = None,
 ) -> None:
-    """Write source=booking busy so subsequent open-dates see the hold."""
+    """
+    Write source=booking busy so subsequent open-dates see the hold.
+
+    Pending holds pass expires_at (or hold_seconds) matching slot lock TTL (A3).
+    Confirmed occupancy omits expires_at so cleanup leaves it alone.
+    """
     if db is None or not resource_id:
         return
     col = getattr(db, "resource_busy_intervals", None)
     if col is None:
         return
     now = utc_now()
+    now_iso = now.isoformat() if hasattr(now, "isoformat") else now
+    exp: Optional[str] = None
+    if expires_at is not None:
+        exp = expires_at.isoformat() if hasattr(expires_at, "isoformat") else str(expires_at)
+    elif hold_seconds is not None:
+        clock = now if isinstance(now, datetime) else datetime.now(timezone.utc)
+        if clock.tzinfo is None:
+            clock = clock.replace(tzinfo=timezone.utc)
+        exp = (clock + timedelta(seconds=int(hold_seconds))).isoformat()
     doc = {
         "interval_id": generate_id(),
         "resource_id": resource_id,
@@ -345,8 +487,9 @@ async def dual_write_booking_busy(
         "booking_id": booking_id,
         "show_as": "busy",
         "is_cancelled": False,
-        "synced_at": now.isoformat() if hasattr(now, "isoformat") else now,
-        "created_at": now.isoformat() if hasattr(now, "isoformat") else now,
+        "expires_at": exp,
+        "synced_at": now_iso,
+        "created_at": now_iso,
     }
     try:
         # Idempotent on re-confirm of same booking window.

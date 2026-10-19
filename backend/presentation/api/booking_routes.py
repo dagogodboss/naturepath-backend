@@ -50,6 +50,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/booking", tags=["Booking"])
 
 
+def _http_for_booking_error(exc: Exception) -> HTTPException:
+    from application.resource_availability import ResourceCalendarUnavailable
+
+    if isinstance(exc, ResourceCalendarUnavailable):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+    )
+
+
 @router.post("/initiate", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def initiate_booking(
     request: InitiateBookingRequest,
@@ -74,7 +89,7 @@ async def initiate_booking(
             enable_monthly_recurrence=bool(request.enable_monthly_recurrence),
         )
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise _http_for_booking_error(e)
 
 
 @router.get("/service-slots", response_model=List[dict])
@@ -88,7 +103,22 @@ async def get_service_slots(
     Available slot windows for a service on a date.
     Practitioner is chosen server-side during initiate.
     """
-    return await booking_use_case.get_service_available_slots(service_id=service_id, date=date)
+    from application.resource_availability import (
+        BookingWindowViolation,
+        ResourceCalendarUnavailable,
+    )
+
+    try:
+        return await booking_use_case.get_service_available_slots(
+            service_id=service_id, date=date
+        )
+    except ResourceCalendarUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+    except BookingWindowViolation as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.get("/service-open-dates", response_model=dict)
@@ -104,14 +134,23 @@ async def get_service_open_dates(
     come from get_service_available_slots, so Outlook busy time and booked
     hours are already removed.
     """
+    from application.resource_availability import ResourceCalendarUnavailable
+
     window = clinic_window_dates(days)
-    return await open_dates_in_window(
-        window,
-        lambda day: booking_use_case.get_service_available_slots(
-            service_id=service_id,
-            date=day,
-        ),
-    )
+
+    async def _slots_for_day(day: str):
+        try:
+            return await booking_use_case.get_service_available_slots(
+                service_id=service_id,
+                date=day,
+            )
+        except ResourceCalendarUnavailable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(exc),
+            ) from exc
+
+    return await open_dates_in_window(window, _slots_for_day)
 
 
 @router.post("/lock-slot", response_model=dict)
@@ -132,7 +171,7 @@ async def lock_booking_slot(
             user_id=current_user["user_id"]
         )
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise _http_for_booking_error(e)
 
 
 @router.post("/confirm", response_model=dict)
@@ -153,7 +192,7 @@ async def confirm_booking(
             user_id=current_user["user_id"],
         )
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise _http_for_booking_error(e)
 
 
 def _parse_iso(value: Optional[str]) -> Optional[datetime]:

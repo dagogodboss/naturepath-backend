@@ -22,37 +22,55 @@ def run_async(coro):
 
 
 async def _release_expired_locks():
-    """Release all expired slot locks"""
+    """Release expired practitioner slot locks and multi-resource pending holds (A3)."""
+    from application.resource_reservation import (
+        expire_pending_booking_busy,
+        expire_pending_reservations,
+    )
+
     client = AsyncIOMotorClient(settings.mongo_url)
     db = client[settings.db_name]
-    
+
     now = datetime.now(timezone.utc).isoformat()
     result = await db.availability_slots.update_many(
         {
             "status": "locked",
-            "locked_until": {"$lt": now}
+            "locked_until": {"$lt": now},
         },
-        {"$set": {
-            "status": "available",
-            "locked_by": None,
-            "locked_until": None
-        }}
+        {
+            "$set": {
+                "status": "available",
+                "locked_by": None,
+                "locked_until": None,
+            }
+        },
     )
-    
+    reservations_expired = 0
+    busy_expired = 0
+    try:
+        reservations_expired = await expire_pending_reservations(db)
+        busy_expired = await expire_pending_booking_busy(db)
+    except Exception:
+        logger.exception("Failed to expire multi-resource pending holds")
+
     client.close()
-    return result.modified_count
+    return {
+        "slots_released": result.modified_count,
+        "reservations_expired": reservations_expired,
+        "busy_holds_expired": busy_expired,
+    }
 
 
 @celery_app.task
 def release_expired_locks():
     """
-    Periodic task to release expired slot locks
-    Prevents race conditions and slot hoarding
+    Periodic task to release expired slot locks and pending resource holds.
+    Prevents race conditions and slot/resource hoarding (issue #9 A3).
     """
     try:
-        count = run_async(_release_expired_locks())
-        logger.info(f"Released {count} expired slot locks")
-        return {"released_count": count}
+        counts = run_async(_release_expired_locks())
+        logger.info("Released expired locks/holds: %s", counts)
+        return counts
     except Exception as e:
         logger.error(f"Failed to release expired locks: {e}")
         return {"error": str(e)}

@@ -98,6 +98,19 @@ class Database:
             )
         await cls.db.availability_slots.create_index("status")
         await cls.db.availability_slots.create_index("locked_until")
+
+        # Multi-resource occupancy reservations (issue #9 A2/A3).
+        await cls.db.resource_reservations.create_index("reservation_id", unique=True)
+        await cls.db.resource_reservations.create_index(
+            [("resource_id", 1), ("date", 1), ("occupied_start", 1)]
+        )
+        await cls.db.resource_reservations.create_index("booking_id")
+        await cls.db.resource_reservations.create_index("expires_at")
+        await cls.db.resource_busy_intervals.create_index(
+            [("resource_id", 1), ("date", 1), ("start_time", 1)]
+        )
+        await cls.db.resource_busy_intervals.create_index("booking_id")
+        await cls.db.resource_busy_intervals.create_index("expires_at")
         
         # Payments collection indexes
         await cls.db.payments.create_index("payment_id", unique=True)
