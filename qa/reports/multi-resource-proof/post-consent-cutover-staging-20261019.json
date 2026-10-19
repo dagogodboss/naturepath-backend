@@ -1,0 +1,25 @@
+{
+  "kind": "phase6_post_consent_cutover",
+  "generated_at": "2026-10-19T09:07:25.412146+00:00",
+  "dry_run": true,
+  "prod_requested": false,
+  "db_name": "natural_path_staging",
+  "staging_db_name": "natural_path_staging",
+  "staging_api": "https://natural-path-api-staging-qxje535rja-uc.a.run.app",
+  "probe": {
+    "verdict": "entra_admin_consent_required",
+    "message": "Graph app-only calendar access still denied for Clients@thenaturalpathla.com. Complete Entra admin consent for Calendars.Read (application), then re-run this script.",
+    "mailboxes": [
+      {
+        "mailbox": "Clients@thenaturalpathla.com",
+        "token_acquired": true,
+        "status": "error",
+        "error": "Client error '403 Forbidden' for url 'https://graph.microsoft.com/v1.0/users/Clients@thenaturalpathla.com/calendar/calendarView?startDateTime=2026-10-18T09%3A07%3A25.412180%2B00%3A00&endDateTime=2026-10-26T09%3A07%3A25.412180%2B00%3A00&%24select=id%2Cstart%2Cend%2CshowAs%2CisCancelled%2Ccategories%2Csubject%2ClastModifiedDateTime&%24top=250'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403"
+      }
+    ],
+    "jwt_roles": [],
+    "client_id_prefix": "daf7c7db"
+  },
+  "ok": false,
+  "exit_hint": 10
+}

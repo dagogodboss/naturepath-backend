@@ -1,0 +1,9 @@
+{
+  "kind": "staging_dual_write_spotcheck",
+  "db_name": "natural_path_staging",
+  "multi_resource_scheduling_env": "true",
+  "active_resources": 2,
+  "resource_busy_intervals": 2,
+  "bookings_with_resource_id": 2,
+  "ok": true
+}

@@ -1,0 +1,67 @@
+{
+  "kind": "discovery_neq_salt_staging_prove",
+  "generated_at": "2026-10-19T09:10:29.526975+00:00",
+  "db_name": "natural_path_staging",
+  "date": "2026-10-21",
+  "prove_mode": "synthetic_allowed",
+  "nichole_resource_id": "5786a4d5-93bd-5ae9-83ba-43db7872cf89",
+  "discovery_service_id": "08c9bb53-4d87-5fee-8169-09094d7bfeff",
+  "salt_service_id": "6de6a12a-81f7-505a-a6eb-ffa328f49676",
+  "synthetic_busy": {
+    "interval_id": "e4f2f002-13a5-4d7d-9416-e9cec756e371",
+    "occupied": {
+      "start_time": "15:00",
+      "end_time": "15:45"
+    }
+  },
+  "nichole_busy_on_date": [
+    {
+      "start_time": "15:00",
+      "end_time": "15:45",
+      "category_name": "Discovery",
+      "source": "staging_prove_synthetic"
+    }
+  ],
+  "discovery_slot_starts": [
+    "11:00",
+    "12:00",
+    "13:00",
+    "14:00"
+  ],
+  "salt_slot_starts": [
+    "10:30",
+    "10:45",
+    "11:00",
+    "11:15",
+    "11:30",
+    "11:45",
+    "12:00",
+    "12:15",
+    "12:30",
+    "12:45",
+    "13:00",
+    "13:15",
+    "13:30",
+    "13:45",
+    "14:00",
+    "14:15",
+    "14:30",
+    "14:45",
+    "15:00",
+    "15:15",
+    "15:30",
+    "15:45",
+    "16:00",
+    "16:15",
+    "16:30",
+    "16:45",
+    "17:00"
+  ],
+  "checks": {
+    "discovery_15_00_blocked": true,
+    "salt_15_00_offered": true
+  },
+  "ok": true,
+  "injected_synthetic": true,
+  "synthetic_cleaned_up": true
+}
