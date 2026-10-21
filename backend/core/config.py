@@ -12,6 +12,8 @@ from typing import Optional, List
 # The hosted SPA and Vite dev server must be able to call this API with
 # Authorization (credentialed CORS cannot use a wildcard origin).
 REQUIRED_CORS_ORIGINS = (
+    "https://thenaturalpathla.com",
+    "https://www.thenaturalpathla.com",
     "https://project-naturalpath.web.app",
     "https://project-naturalpath.firebaseapp.com",
     "http://localhost:5173",
@@ -29,6 +31,8 @@ class Settings(BaseSettings):
     deployment_target: str = "local"  # local | aws
     use_docker_network: bool = False
     cors_allowed_origins: str = (
+        "https://thenaturalpathla.com,"
+        "https://www.thenaturalpathla.com,"
         "https://project-naturalpath.web.app,"
         "https://project-naturalpath.firebaseapp.com,"
         "http://localhost:5173,http://127.0.0.1:5173,"

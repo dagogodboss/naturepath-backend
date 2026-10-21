@@ -13,7 +13,7 @@ SRC="${REPO_ROOT}/backend/backend"
 
 # CORS: comma-separated browser origins. Include both Cloud Run URL shapes + local Vite.
 # WEB_URL can be a single origin or a comma list; defaults keep prod + localhost safe to re-run.
-DEFAULT_CORS="https://natural-path-web-azk5hyheza-uc.a.run.app,https://natural-path-web-844976016709.us-central1.run.app,http://localhost:5173,http://127.0.0.1:5173"
+DEFAULT_CORS="https://thenaturalpathla.com,https://www.thenaturalpathla.com,https://project-naturalpath.web.app,https://project-naturalpath.firebaseapp.com,https://natural-path-web-azk5hyheza-uc.a.run.app,https://natural-path-web-844976016709.us-central1.run.app,http://localhost:5173,http://127.0.0.1:5173"
 CORS_ORIGINS="${CORS_ALLOWED_ORIGINS:-${WEB_URL:-$DEFAULT_CORS}}"
 
 # Optional blog/vlog media (see 04-content-media.sh)
